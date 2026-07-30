@@ -21,9 +21,9 @@ export function Logo({ className }: { className?: string }) {
         strokeWidth="4"
         strokeLinecap="round"
       />
-      {/* 两只眼睛 */}
-      <circle cx="19" cy="19.5" r="2.4" fill="currentColor" />
-      <circle cx="29.5" cy="19.5" r="2.4" fill="currentColor" />
+      {/* 两只眼睛 — 水平居中，颜色与微笑一致 */}
+      <circle cx="20.5" cy="20" r="2.4" className="fill-muted-foreground" />
+      <circle cx="27.5" cy="20" r="2.4" className="fill-muted-foreground" />
       {/* C 的下半段，同时就是微笑，颜色不同 */}
       <path
         d="M9 29.5A16 16 0 0 0 35 34.5"
