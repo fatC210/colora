@@ -36,6 +36,8 @@ type Store = {
   signOut: () => void;
   gradientStops: { hex: string; pos: number }[];
   setGradientStops: (s: { hex: string; pos: number }[]) => void;
+  logoGradient: [string, string];
+  randomizeLogoGradient: () => void;
 };
 
 const Ctx = createContext<Store | null>(null);
