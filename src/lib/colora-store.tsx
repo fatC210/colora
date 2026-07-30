@@ -145,6 +145,8 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
       },
       gradientStops,
       setGradientStops,
+      logoGradient,
+      randomizeLogoGradient,
     }),
     [
       theme,
