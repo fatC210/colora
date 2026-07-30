@@ -13,9 +13,9 @@ export function Logo({ className }: { className?: string }) {
       aria-label="Colora"
     >
       <title>Colora</title>
-      {/* C 主体 */}
+      {/* C 的上半段 */}
       <path
-        d="M35 13.5A16 16 0 1 0 35 34.5"
+        d="M35 13.5A16 16 0 0 0 9 29.5"
         fill="none"
         stroke="currentColor"
         strokeWidth="4"
@@ -24,14 +24,15 @@ export function Logo({ className }: { className?: string }) {
       {/* 两只眼睛 */}
       <circle cx="19" cy="19.5" r="2.4" fill="currentColor" />
       <circle cx="29.5" cy="19.5" r="2.4" fill="currentColor" />
-      {/* 微笑：与 C 的左下笔画连成一体，再向右上扬起，颜色不同 */}
+      {/* C 的下半段，同时就是微笑，颜色不同 */}
       <path
-        d="M8.4 28.2A16 16 0 0 0 19.6 39.4C25.2 40.4 30.2 37.4 33 32.6"
+        d="M9 29.5A16 16 0 0 0 35 34.5"
         fill="none"
         className="stroke-muted-foreground"
         strokeWidth="4"
         strokeLinecap="round"
       />
+
 
     </svg>
   );
