@@ -67,6 +67,10 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
     { hex: "#6366F1", pos: 0 },
     { hex: "#14B8A6", pos: 100 },
   ]);
+  const [logoGradient, setLogoGradient] = useState<[string, string]>([
+    "#F97316",
+    "#8B5CF6",
+  ]);
 
   useEffect(() => {
     setTheme(load<"light" | "dark">("colora.theme", "light"));
