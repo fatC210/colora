@@ -24,14 +24,15 @@ export function Logo({ className }: { className?: string }) {
       {/* 两只眼睛 */}
       <circle cx="19" cy="19.5" r="2.4" fill="currentColor" />
       <circle cx="29.5" cy="19.5" r="2.4" fill="currentColor" />
-      {/* 微笑，覆盖在 C 的笔画上，颜色不同 */}
+      {/* 微笑：与 C 的左下笔画连成一体，再向右上扬起，颜色不同 */}
       <path
-        d="M12.5 26.5C15.5 34 24 37.5 32 31.5"
+        d="M8.4 28.2A16 16 0 0 0 19.6 39.4C25.2 40.4 30.2 37.4 33 32.6"
         fill="none"
         className="stroke-muted-foreground"
         strokeWidth="4"
         strokeLinecap="round"
       />
+
     </svg>
   );
 }
