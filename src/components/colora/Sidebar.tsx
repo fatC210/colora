@@ -13,6 +13,7 @@ import {
   User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Logo } from "@/components/colora/Logo";
 import { useColora } from "@/lib/colora-store";
 import { CB_LABELS, type CBMode } from "@/lib/color";
 import {
@@ -210,10 +211,8 @@ export function Sidebar({
 
   return (
     <aside className="flex w-[88px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:h-screen">
-      <div className="flex items-center gap-2 px-4 py-5">
-        <span className="grid size-7 place-items-center rounded-full border-2 border-foreground text-[13px] font-bold">
-          C
-        </span>
+      <div className="flex items-center justify-center px-4 py-5">
+        <Logo className="size-8 text-foreground" />
         <span className="sr-only">Colora</span>
       </div>
 
