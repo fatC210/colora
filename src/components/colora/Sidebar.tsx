@@ -207,14 +207,19 @@ export function Sidebar({
   tool: ToolId;
   onTool: (t: ToolId) => void;
 }) {
-  const { cbMode, setCbMode, theme, toggleTheme } = useColora();
+  const { cbMode, setCbMode, theme, toggleTheme, logoGradient, randomizeLogoGradient } = useColora();
 
   return (
     <aside className="flex w-[88px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:h-screen">
-      <div className="flex items-center justify-center px-4 py-5">
-        <Logo className="size-8 text-foreground" />
+      <button
+        type="button"
+        onClick={randomizeLogoGradient}
+        title="点击随机切换笑脸颜色"
+        className="flex items-center justify-center px-4 py-5 transition-opacity hover:opacity-90 active:scale-95 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+      >
+        <Logo className="size-8 text-foreground" gradient={logoGradient} />
         <span className="sr-only">Colora</span>
-      </div>
+      </button>
 
       <nav className="flex flex-1 flex-col gap-1 px-2">
         {TOOLS.map((t) => (

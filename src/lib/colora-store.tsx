@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type { CBMode } from "./color";
+import { randomHex } from "./color";
 
 export type SavedPalette = { id: string; name: string; colors: string[]; createdAt: number };
 
@@ -35,6 +36,8 @@ type Store = {
   signOut: () => void;
   gradientStops: { hex: string; pos: number }[];
   setGradientStops: (s: { hex: string; pos: number }[]) => void;
+  logoGradient: [string, string];
+  randomizeLogoGradient: () => void;
 };
 
 const Ctx = createContext<Store | null>(null);
@@ -64,6 +67,10 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
     { hex: "#6366F1", pos: 0 },
     { hex: "#14B8A6", pos: 100 },
   ]);
+  const [logoGradient, setLogoGradient] = useState<[string, string]>([
+    "#F97316",
+    "#8B5CF6",
+  ]);
 
   useEffect(() => {
     setTheme(load<"light" | "dark">("colora.theme", "light"));
@@ -80,6 +87,10 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
   const persistSaved = useCallback((next: SavedPalette[]) => {
     setSaved(next);
     localStorage.setItem("colora.saved", JSON.stringify(next));
+  }, []);
+
+  const randomizeLogoGradient = useCallback(() => {
+    setLogoGradient([randomHex(), randomHex()]);
   }, []);
 
   const value = useMemo<Store>(
@@ -134,6 +145,8 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
       },
       gradientStops,
       setGradientStops,
+      logoGradient,
+      randomizeLogoGradient,
     }),
     [
       theme,
@@ -145,7 +158,9 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
       user,
       accounts,
       gradientStops,
+      logoGradient,
       persistSaved,
+      randomizeLogoGradient,
     ],
   );
 
