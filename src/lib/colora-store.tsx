@@ -59,6 +59,7 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
   const [cbMode, setCbMode] = useState<CBMode>("none");
   const [saved, setSaved] = useState<SavedPalette[]>([]);
   const [user, setUser] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<Record<string, string>>({});
   const [gradientStops, setGradientStops] = useState([
     { hex: "#6366F1", pos: 0 },
     { hex: "#14B8A6", pos: 100 },
@@ -68,6 +69,7 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
     setTheme(load<"light" | "dark">("colora.theme", "light"));
     setSaved(load<SavedPalette[]>("colora.saved", []));
     setUser(load<string | null>("colora.user", null));
+    setAccounts(load<Record<string, string>>("colora.accounts", {}));
   }, []);
 
   useEffect(() => {
