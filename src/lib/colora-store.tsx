@@ -26,7 +26,12 @@ type Store = {
   removePalette: (id: string) => void;
   renamePalette: (id: string, name: string) => void;
   user: string | null;
-  signIn: (email: string) => void;
+  signIn: (email: string, password: string) => { ok: boolean; error?: string };
+  signUp: (
+    email: string,
+    password: string,
+    confirm: string,
+  ) => { ok: boolean; error?: string };
   signOut: () => void;
   gradientStops: { hex: string; pos: number }[];
   setGradientStops: (s: { hex: string; pos: number }[]) => void;
@@ -54,6 +59,7 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
   const [cbMode, setCbMode] = useState<CBMode>("none");
   const [saved, setSaved] = useState<SavedPalette[]>([]);
   const [user, setUser] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<Record<string, string>>({});
   const [gradientStops, setGradientStops] = useState([
     { hex: "#6366F1", pos: 0 },
     { hex: "#14B8A6", pos: 100 },
@@ -63,6 +69,7 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
     setTheme(load<"light" | "dark">("colora.theme", "light"));
     setSaved(load<SavedPalette[]>("colora.saved", []));
     setUser(load<string | null>("colora.user", null));
+    setAccounts(load<Record<string, string>>("colora.accounts", {}));
   }, []);
 
   useEffect(() => {
@@ -99,9 +106,27 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
       renamePalette: (id, name) =>
         persistSaved(saved.map((s) => (s.id === id ? { ...s, name } : s))),
       user,
-      signIn: (email) => {
-        setUser(email);
-        localStorage.setItem("colora.user", JSON.stringify(email));
+      signIn: (email, password) => {
+        const key = email.trim().toLowerCase();
+        if (!accounts[key]) return { ok: false, error: "该邮箱尚未注册" };
+        if (accounts[key] !== password) return { ok: false, error: "密码不正确" };
+        setUser(key);
+        localStorage.setItem("colora.user", JSON.stringify(key));
+        return { ok: true };
+      },
+      signUp: (email, password, confirm) => {
+        const key = email.trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(key))
+          return { ok: false, error: "请输入有效的邮箱地址" };
+        if (password.length < 6) return { ok: false, error: "密码至少 6 位" };
+        if (password !== confirm) return { ok: false, error: "两次输入的密码不一致" };
+        if (accounts[key]) return { ok: false, error: "该邮箱已注册，请直接登录" };
+        const next = { ...accounts, [key]: password };
+        setAccounts(next);
+        localStorage.setItem("colora.accounts", JSON.stringify(next));
+        setUser(key);
+        localStorage.setItem("colora.user", JSON.stringify(key));
+        return { ok: true };
       },
       signOut: () => {
         setUser(null);
@@ -110,7 +135,18 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
       gradientStops,
       setGradientStops,
     }),
-    [theme, color, prevColor, palette, cbMode, saved, user, gradientStops, persistSaved],
+    [
+      theme,
+      color,
+      prevColor,
+      palette,
+      cbMode,
+      saved,
+      user,
+      accounts,
+      gradientStops,
+      persistSaved,
+    ],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
