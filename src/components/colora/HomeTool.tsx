@@ -4,6 +4,7 @@ import { generateHarmony, randomHex, simulateCB } from "@/lib/color";
 import type { ToolId } from "./Sidebar";
 import { TOOLS } from "./Sidebar";
 import { Button } from "@/components/ui/button";
+import { Logo } from "./Logo";
 
 export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
   const { palette, setPalette, setColor, cbMode, saved } = useColora();
