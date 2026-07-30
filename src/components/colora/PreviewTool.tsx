@@ -119,7 +119,7 @@ export function PreviewTool() {
 
   const dev =
     DEVICE_GROUPS[group].find((d) => d.label === device) ?? DEVICE_GROUPS[group][0];
-  const scale = Math.min(1, 320 / dev.w);
+  const scale = Math.min(1, 320 / dev.w, 560 / dev.h);
 
   const update = (id: string, patch: Partial<Card>) =>
     setCards(cards.map((c) => (c.id === id ? { ...c, ...patch } : c)));
