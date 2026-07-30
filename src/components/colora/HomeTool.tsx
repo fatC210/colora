@@ -39,10 +39,13 @@ export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
         </div>
 
         <div className="mt-5 flex flex-wrap gap-2">
-          <Button onClick={() => setPalette(generateHarmony(randomHex(), "analogous"))}>
+          <Button
+            className="w-48"
+            onClick={() => setPalette(generateHarmony(randomHex(), "analogous"))}
+          >
             随机生成一组配色
           </Button>
-          <Button variant="outline" className="gap-2" onClick={() => onTool("palette")}>
+          <Button variant="outline" className="w-48 gap-2" onClick={() => onTool("palette")}>
             前往配色方案 <ArrowRight className="size-4" />
           </Button>
         </div>

@@ -45,6 +45,13 @@ export const TOOLS: { id: ToolId; label: string; icon: typeof Home }[] = [
   { id: "preview", label: "实时预览", icon: Smartphone },
 ];
 
+const CB_ICON_COLORS: Record<Exclude<CBMode, "none">, string> = {
+  protanopia: "#ef4444",
+  deuteranopia: "#22c55e",
+  tritanopia: "#3b82f6",
+  achromatopsia: "#737373",
+};
+
 function NavItem({
   label,
   icon: Icon,
@@ -334,7 +341,13 @@ export function Sidebar({
                   : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
               )}
             >
-              <Eye className="size-5" strokeWidth={1.6} />
+              <Eye
+                className="size-5"
+                strokeWidth={1.6}
+                style={{
+                  color: cbMode === "none" ? undefined : CB_ICON_COLORS[cbMode],
+                }}
+              />
               <span className="colora-sidebar-label leading-none">色盲模拟</span>
             </button>
           </PopoverTrigger>
@@ -350,7 +363,11 @@ export function Sidebar({
                 )}
               >
                 <span className="flex items-center gap-2">
-                  <Eye className="size-4" strokeWidth={1.6} />
+                  <Eye
+                    className="size-4"
+                    strokeWidth={1.6}
+                    style={{ color: CB_ICON_COLORS[m] }}
+                  />
                   {CB_LABELS[m]}
                 </span>
                 {cbMode === m && <span>✓</span>}

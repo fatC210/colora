@@ -120,10 +120,8 @@
     scrollbar-width: thin;
   }
 
-  *:hover,
-  *:focus,
-  *:focus-within {
-    scrollbar-color: color-mix(in oklch, var(--color-foreground) 34%, transparent) transparent;
+  *.scrollbar-area-hover {
+    scrollbar-color: color-mix(in oklch, var(--color-muted-foreground) 70%, transparent) transparent;
   }
 
   *::-webkit-scrollbar {
@@ -138,20 +136,28 @@
 
   *::-webkit-scrollbar-thumb {
     min-height: 40px;
-    border: 3px solid transparent;
     border-radius: 999px;
     background-color: transparent;
     background-clip: content-box;
   }
 
-  *:hover::-webkit-scrollbar-thumb,
-  *:focus::-webkit-scrollbar-thumb,
-  *:focus-within::-webkit-scrollbar-thumb {
-    background-color: color-mix(in oklch, var(--color-foreground) 34%, transparent);
+  *::-webkit-scrollbar-thumb:vertical {
+    border: 3px solid transparent;
+    border-right: 0;
+  }
+
+  *::-webkit-scrollbar-thumb:horizontal {
+    border: 3px solid transparent;
+    border-bottom: 0;
+  }
+
+  *.scrollbar-area-hover::-webkit-scrollbar-thumb,
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in oklch, var(--color-muted-foreground) 70%, transparent);
   }
 
   *::-webkit-scrollbar-thumb:hover {
-    background-color: color-mix(in oklch, var(--color-foreground) 48%, transparent);
+    background-color: var(--color-muted-foreground);
   }
 
   body {
@@ -251,6 +257,7 @@
 
   .colora-main {
     display: flex;
+    position: relative;
     min-width: 0;
     flex: 1 1 0%;
     min-height: 0;
@@ -258,11 +265,163 @@
   }
 
   .colora-content-scroller {
+    position: relative;
+    z-index: 0;
     min-width: 0;
     flex: 1 1 0%;
     height: 100dvh;
     overflow-y: auto;
     overflow-x: hidden;
+  }
+
+  .colora-info-panel {
+    position: relative;
+    z-index: 30;
+    width: 260px;
+    flex-shrink: 0;
+    flex-direction: column;
+    overflow: visible;
+    border-left: 1px solid var(--color-border);
+    background-color: var(--color-surface);
+    transition:
+      width 340ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 180ms ease;
+    will-change: width;
+  }
+
+  .colora-info-panel[data-collapsed="true"] {
+    width: 0;
+    border-left-color: transparent;
+    background-color: var(--color-background);
+  }
+
+  .colora-info-panel-content {
+    display: flex;
+    width: 260px;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 1rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 1rem;
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    transform-origin: right center;
+    transition:
+      opacity 180ms ease,
+      transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
+      filter 220ms ease;
+    will-change: opacity, transform;
+  }
+
+  .colora-info-panel[data-collapsed="true"] .colora-info-panel-content {
+    pointer-events: none;
+    opacity: 0;
+    transform: translateX(0.75rem) scale(0.98);
+    filter: blur(2px);
+  }
+
+  .colora-info-panel-toggle {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    z-index: 60;
+    display: grid;
+    width: 1.125rem;
+    height: 3.5rem;
+    place-items: center;
+    border: 1px solid var(--color-border);
+    border-right-color: var(--color-border);
+    border-radius: 999px 0 0 999px;
+    background-color: var(--color-surface);
+    color: var(--color-muted-foreground);
+    transform: translate(-100%, -50%);
+    transition:
+      width 180ms ease,
+      background-color 160ms ease,
+      color 160ms ease,
+      box-shadow 180ms ease,
+      transform 180ms ease;
+    backdrop-filter: blur(12px);
+  }
+
+  .colora-info-panel-toggle::before {
+    content: "";
+    position: absolute;
+    right: -1px;
+    top: 1px;
+    bottom: 1px;
+    z-index: -1;
+    width: 1px;
+    background-color: var(--color-surface);
+  }
+
+  .colora-info-panel-toggle:hover,
+  .colora-info-panel-toggle:focus-visible {
+    width: 1.375rem;
+    background-color: var(--color-surface);
+    color: var(--color-foreground);
+    transform: translate(-100%, -50%) scale(1.03);
+  }
+
+  .colora-info-panel-toggle:active {
+    transform: translate(-100%, -50%) scale(0.96);
+  }
+
+  .colora-info-panel-toggle > svg {
+    transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .colora-info-panel[data-collapsed="true"] .colora-info-panel-toggle {
+    left: 0;
+    width: 1.125rem;
+    height: 3.5rem;
+    border-right: 0;
+    border-radius: 999px 0 0 999px;
+    background-color: var(--color-background);
+    transform: translate(-100%, -50%);
+  }
+
+  .colora-info-panel[data-collapsed="true"] .colora-info-panel-toggle:hover,
+  .colora-info-panel[data-collapsed="true"] .colora-info-panel-toggle:focus-visible {
+    width: 1.375rem;
+    background-color: var(--color-background);
+    transform: translate(-100%, -50%) scale(1.04);
+  }
+
+  .colora-info-panel[data-collapsed="true"] .colora-info-panel-toggle:active {
+    transform: translate(-100%, -50%) scale(0.96);
+  }
+
+  .colora-info-section {
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background-color: var(--color-surface);
+    transition:
+      border-color 160ms ease,
+      background-color 160ms ease,
+      box-shadow 180ms ease,
+      transform 180ms ease;
+  }
+
+  .colora-info-section:hover,
+  .colora-info-section:focus-within {
+    border-color: color-mix(in oklch, var(--color-foreground) 18%, var(--color-border));
+    box-shadow: 0 8px 18px oklch(0 0 0 / 0.05);
+    transform: translateY(-1px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .colora-info-panel,
+    .colora-info-panel-content,
+    .colora-info-panel-toggle,
+    .colora-info-panel-toggle > svg,
+    .colora-info-section {
+      transition-duration: 1ms !important;
+      animation-duration: 1ms !important;
+    }
   }
 
   @media (max-height: 760px) {
@@ -459,7 +618,11 @@
     linear-gradient(45deg, transparent 75%, var(--color-muted) 75%),
     linear-gradient(-45deg, transparent 75%, var(--color-muted) 75%);
   background-size: 12px 12px;
-  background-position: 0 0, 0 6px, 6px -6px, -6px 0px;
+  background-position:
+    0 0,
+    0 6px,
+    6px -6px,
+    -6px 0px;
 }
 
 @utility panel {
@@ -469,9 +632,17 @@
 }
 
 @keyframes colora-pop {
-  0% { transform: scale(0.9); opacity: 0; }
-  60% { transform: scale(1.03); }
-  100% { transform: scale(1); opacity: 1; }
+  0% {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 @utility animate-pop {
@@ -479,7 +650,13 @@
 }
 
 @keyframes colora-blob {
-  0% { transform: translate(-28%, 0) scale(1); }
-  50% { transform: translate(0, 0) scale(1.25); }
-  100% { transform: translate(0, 0) scale(1.05); }
+  0% {
+    transform: translate(-28%, 0) scale(1);
+  }
+  50% {
+    transform: translate(0, 0) scale(1.25);
+  }
+  100% {
+    transform: translate(0, 0) scale(1.05);
+  }
 }

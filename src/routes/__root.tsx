@@ -13,6 +13,117 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+const SCROLLBAR_AREA_HOVER_CLASS = "scrollbar-area-hover";
+
+function canScrollWithOverflow(overflow: string) {
+  return overflow === "auto" || overflow === "scroll" || overflow === "overlay";
+}
+
+function getScrollbarSize(element: Element, axis: "x" | "y") {
+  if (!(element instanceof HTMLElement)) {
+    return 0;
+  }
+
+  const size =
+    axis === "y"
+      ? element.offsetWidth - element.clientWidth
+      : element.offsetHeight - element.clientHeight;
+
+  return Math.max(size, 10);
+}
+
+function isPointInScrollbarArea(element: Element, clientX: number, clientY: number) {
+  const rect = element.getBoundingClientRect();
+
+  if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+    return false;
+  }
+
+  const style = window.getComputedStyle(element);
+  const hasVerticalScrollbar =
+    canScrollWithOverflow(style.overflowY) && element.scrollHeight > element.clientHeight;
+  const hasHorizontalScrollbar =
+    canScrollWithOverflow(style.overflowX) && element.scrollWidth > element.clientWidth;
+
+  if (hasVerticalScrollbar) {
+    const width = getScrollbarSize(element, "y");
+    const isRtl = style.direction === "rtl";
+    const verticalStart = isRtl ? rect.left : rect.right - width;
+    const verticalEnd = isRtl ? rect.left + width : rect.right;
+
+    if (clientX >= verticalStart && clientX <= verticalEnd) {
+      return true;
+    }
+  }
+
+  if (hasHorizontalScrollbar) {
+    const height = getScrollbarSize(element, "x");
+
+    if (clientY >= rect.bottom - height && clientY <= rect.bottom) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getScrollbarHoverCandidates(clientX: number, clientY: number) {
+  const candidates = new Set<Element>();
+
+  for (const element of document.elementsFromPoint(clientX, clientY)) {
+    let current: Element | null = element;
+
+    while (current) {
+      candidates.add(current);
+      current = current.parentElement;
+    }
+  }
+
+  if (document.scrollingElement) {
+    candidates.add(document.scrollingElement);
+  }
+
+  return candidates;
+}
+
+function ScrollbarHoverController() {
+  useEffect(() => {
+    let hoveredElement: Element | null = null;
+
+    const clearHover = () => {
+      hoveredElement?.classList.remove(SCROLLBAR_AREA_HOVER_CLASS);
+      hoveredElement = null;
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const nextHoveredElement = Array.from(
+        getScrollbarHoverCandidates(event.clientX, event.clientY),
+      ).find((element) => isPointInScrollbarArea(element, event.clientX, event.clientY));
+
+      if (nextHoveredElement === hoveredElement) {
+        return;
+      }
+
+      clearHover();
+      nextHoveredElement?.classList.add(SCROLLBAR_AREA_HOVER_CLASS);
+      hoveredElement = nextHoveredElement ?? null;
+    };
+
+    document.addEventListener("pointermove", handlePointerMove, { passive: true });
+    document.addEventListener("pointerleave", clearHover);
+    window.addEventListener("blur", clearHover);
+
+    return () => {
+      clearHover();
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerleave", clearHover);
+      window.removeEventListener("blur", clearHover);
+    };
+  }, []);
+
+  return null;
+}
+
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -126,6 +237,7 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={200}>
+        <ScrollbarHoverController />
         {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
         <Outlet />
       </TooltipProvider>
