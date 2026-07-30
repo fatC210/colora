@@ -89,6 +89,10 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("colora.saved", JSON.stringify(next));
   }, []);
 
+  const randomizeLogoGradient = useCallback(() => {
+    setLogoGradient([randomHex(), randomHex()]);
+  }, []);
+
   const value = useMemo<Store>(
     () => ({
       theme,
