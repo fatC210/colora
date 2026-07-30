@@ -4,6 +4,7 @@ import { generateHarmony, randomHex, simulateCB } from "@/lib/color";
 import type { ToolId } from "./Sidebar";
 import { TOOLS } from "./Sidebar";
 import { Button } from "@/components/ui/button";
+import { Logo } from "./Logo";
 
 export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
   const { palette, setPalette, setColor, cbMode, saved } = useColora();
@@ -11,6 +12,10 @@ export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
   return (
     <div className="space-y-5">
       <section className="panel p-8">
+        <div className="mb-5 flex items-center gap-3">
+          <Logo className="size-9 text-foreground" />
+          <span className="text-2xl font-semibold tracking-tight">Colora</span>
+        </div>
         <h2 className="max-w-2xl text-3xl font-semibold tracking-tight sm:text-4xl">
           调配、混合、预览、导出，一站式完成配色工作
         </h2>
