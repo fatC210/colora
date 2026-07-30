@@ -14,7 +14,7 @@ export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
       <section className="panel p-8">
         <div className="mb-5 flex items-baseline" aria-label="Colora">
           <Logo className="size-8 text-foreground" aria-hidden="true" />
-          <span className="-ml-1 text-2xl font-semibold tracking-tight" aria-hidden="true">olora</span>
+          <span className="-ml-2 text-2xl font-semibold tracking-tight" aria-hidden="true">olora</span>
         </div>
         <h2 className="max-w-2xl text-3xl font-semibold tracking-tight sm:text-4xl">
           调配、混合、预览、导出，一站式完成配色工作
