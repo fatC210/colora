@@ -26,7 +26,12 @@ type Store = {
   removePalette: (id: string) => void;
   renamePalette: (id: string, name: string) => void;
   user: string | null;
-  signIn: (email: string) => void;
+  signIn: (email: string, password: string) => { ok: boolean; error?: string };
+  signUp: (
+    email: string,
+    password: string,
+    confirm: string,
+  ) => { ok: boolean; error?: string };
   signOut: () => void;
   gradientStops: { hex: string; pos: number }[];
   setGradientStops: (s: { hex: string; pos: number }[]) => void;
