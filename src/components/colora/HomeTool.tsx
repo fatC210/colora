@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Logo } from "./Logo";
 
 export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
-  const { palette, setPalette, setColor, cbMode, saved } = useColora();
+  const { palette, setPalette, setColor, cbMode, saved, logoGradient } = useColora();
 
   return (
     <div className="space-y-5">
