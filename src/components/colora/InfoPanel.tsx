@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight, Hash, Contrast as ContrastIcon, PieChart, Upload } from "lucide-react";
 import { useColora } from "@/lib/colora-store";
 import { formatAll, simulateCB } from "@/lib/color";
-import { CopyButton } from "./primitives";
+import { CopyButton, Tip } from "./primitives";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ExportDialog } from "./ExportDialog";
@@ -54,27 +54,31 @@ export function InfoPanel({ collapsed, onToggle }: { collapsed: boolean; onToggl
 
   if (collapsed) {
     return (
-      <button
-        type="button"
-        onClick={onToggle}
-        title="展开信息面板"
-        className="hidden w-8 shrink-0 items-center justify-center border-l border-border bg-surface text-muted-foreground hover:text-foreground lg:flex"
-      >
-        <ChevronRight className="size-4 rotate-180" />
-      </button>
+      <Tip label="展开信息面板" side="right">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label="展开信息面板"
+          className="hidden w-8 shrink-0 items-center justify-center border-l border-border bg-surface text-muted-foreground hover:text-foreground lg:flex"
+        >
+          <ChevronRight className="size-4 rotate-180" />
+        </button>
+      </Tip>
     );
   }
 
   return (
     <div className="relative hidden w-[260px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-border bg-surface p-4 lg:flex">
-      <button
-        type="button"
-        onClick={onToggle}
-        title="折叠信息面板"
-        className="absolute left-0 top-1/2 grid size-6 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-border bg-surface text-muted-foreground hover:text-foreground"
-      >
-        <ChevronRight className="size-3.5" />
-      </button>
+      <Tip label="折叠信息面板" side="right">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label="折叠信息面板"
+          className="absolute left-0 top-1/2 grid size-6 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-border bg-surface text-muted-foreground hover:text-foreground"
+        >
+          <ChevronRight className="size-3.5" />
+        </button>
+      </Tip>
 
       <div
         className="h-40 w-full rounded-xl border border-border/60"

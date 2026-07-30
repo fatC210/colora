@@ -23,7 +23,6 @@ export function Logo({
       role="img"
       aria-label="Colora"
     >
-      <title>Colora</title>
       <defs>
         <linearGradient
           id={gradId}

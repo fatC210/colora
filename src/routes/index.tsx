@@ -12,11 +12,12 @@ import { MixerTool } from "@/components/colora/MixerTool";
 import { ImageTool } from "@/components/colora/ImageTool";
 import { ContrastTool } from "@/components/colora/ContrastTool";
 import { PreviewTool } from "@/components/colora/PreviewTool";
+import { Tip } from "@/components/colora/primitives";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Colora — 色彩搭配与配色方案工具" },
+      { title: "Colora" },
       {
         name: "description",
         content:
@@ -60,26 +61,28 @@ function ColoraApp() {
   const title = TOOLS.find((t) => t.id === tool)?.label ?? "";
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="colora-app-shell">
       <CbFilters />
       <Sidebar tool={tool} onTool={setTool} />
 
       <main
-        className="flex min-w-0 flex-1"
+        className="colora-main"
         style={cbMode !== "none" ? { filter: `url(#cb-${cbMode})` } : undefined}
       >
-        <div className="min-w-0 flex-1 overflow-y-auto md:h-screen">
+        <div className="colora-content-scroller">
           {cbMode !== "none" && (
             <div className="flex items-center justify-between gap-3 border-b border-border bg-muted px-6 py-3 text-sm">
               <span>当前处于 {CB_LABELS[cbMode]} 模拟模式</span>
-              <button
-                type="button"
-                onClick={() => setCbMode("none")}
-                className="text-muted-foreground hover:text-foreground"
-                aria-label="退出色盲模拟"
-              >
-                <X className="size-4" />
-              </button>
+              <Tip label="退出色盲模拟">
+                <button
+                  type="button"
+                  onClick={() => setCbMode("none")}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="退出色盲模拟"
+                >
+                  <X className="size-4" />
+                </button>
+              </Tip>
             </div>
           )}
 

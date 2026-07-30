@@ -4,7 +4,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useColora } from "@/lib/colora-store";
 import { interpolate, randomHex, simulateCB, type InterpSpace } from "@/lib/color";
-import { ColorPicker, CopyButton } from "./primitives";
+import { ColorPicker, CopyButton, Tip } from "./primitives";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -88,15 +88,17 @@ export function GradientTool() {
             {stops.map((s, i) => (
               <div key={i} className="flex items-center gap-1">
                 <Popover>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="size-7 rounded-full border-2 border-background shadow-[0_0_0_1px_var(--color-border)]"
-                      style={{ backgroundColor: simulateCB(s.hex, cbMode) }}
-                      onDoubleClick={() => setColor(s.hex)}
-                      aria-label={`节点 ${i + 1}`}
-                    />
-                  </PopoverTrigger>
+                  <Tip label={`节点 ${i + 1}`}>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="size-7 rounded-full border-2 border-background shadow-[0_0_0_1px_var(--color-border)]"
+                        style={{ backgroundColor: simulateCB(s.hex, cbMode) }}
+                        onDoubleClick={() => setColor(s.hex)}
+                        aria-label={`节点 ${i + 1}`}
+                      />
+                    </PopoverTrigger>
+                  </Tip>
                   <PopoverContent className="w-64 space-y-3">
                     <ColorPicker value={s.hex} onChange={(hex) => setStop(i, { hex })} />
                     <div>

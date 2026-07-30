@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tip } from "./primitives";
 
 const DEVICE_GROUPS: Record<string, { label: string; w: number; h: number }[]> = {
   手机: [
@@ -191,11 +192,13 @@ export function PreviewTool() {
                 {card.name}
               </span>
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button type="button" className="text-muted-foreground hover:text-foreground">
-                    <MoreVertical className="size-4" />
-                  </button>
-                </DropdownMenuTrigger>
+                <Tip label="卡片选项">
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className="text-muted-foreground hover:text-foreground" aria-label="卡片选项">
+                      <MoreVertical className="size-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </Tip>
                 <DropdownMenuContent align="end">
                   {palette.map((p) => (
                     <DropdownMenuItem key={p} onClick={() => update(card.id, { bg: p })}>
@@ -284,18 +287,19 @@ export function PreviewTool() {
                     </span>
                     <div className="flex gap-1">
                       {palette.map((p) => (
-                        <button
-                          key={p}
-                          type="button"
-                          onClick={() =>
-                            update(card.id, {
-                              comps: card.comps.map((x) => (x.id === c.id ? { ...x, color: p } : x)),
-                            })
-                          }
-                          className="size-4 rounded border border-border/60"
-                          style={{ backgroundColor: p }}
-                          aria-label={`应用 ${p}`}
-                        />
+                        <Tip key={p} label={`应用 ${p}`}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              update(card.id, {
+                                comps: card.comps.map((x) => (x.id === c.id ? { ...x, color: p } : x)),
+                              })
+                            }
+                            className="size-4 rounded border border-border/60"
+                            style={{ backgroundColor: p }}
+                            aria-label={`应用 ${p}`}
+                          />
+                        </Tip>
                       ))}
                     </div>
                     <input
@@ -313,15 +317,18 @@ export function PreviewTool() {
                       className="w-16 accent-foreground"
                       aria-label="圆角"
                     />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        update(card.id, { comps: card.comps.filter((x) => x.id !== c.id) })
-                      }
-                      className="ml-auto text-muted-foreground hover:text-foreground"
-                    >
-                      ✕
-                    </button>
+                    <Tip label="删除组件">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          update(card.id, { comps: card.comps.filter((x) => x.id !== c.id) })
+                        }
+                        className="ml-auto text-muted-foreground hover:text-foreground"
+                        aria-label="删除组件"
+                      >
+                        ✕
+                      </button>
+                    </Tip>
                   </div>
                 ))}
               </div>

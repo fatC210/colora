@@ -14,7 +14,7 @@ import {
   simulateCB,
   type HarmonyKey,
 } from "@/lib/color";
-import { ColorPicker, CopyButton, Swatch } from "./primitives";
+import { ColorPicker, CopyButton, Swatch, Tip } from "./primitives";
 import { cn } from "@/lib/utils";
 import {
   Popover,
@@ -35,51 +35,62 @@ function SavedPalettes({ colors }: { colors: string[] }) {
       <div className="flex flex-wrap items-start gap-3">
         {saved.map((s) => (
           <div key={s.id} className="w-44 space-y-1.5">
-            <button
-              type="button"
-              onClick={() => setPalette(s.colors)}
-              className="flex h-9 w-full overflow-hidden rounded-md border border-border"
-            >
-              {s.colors.map((c, i) => (
-                <span key={i} className="flex-1" style={{ backgroundColor: c }} />
-              ))}
-            </button>
+            <Tip label={`应用方案：${s.name}`}>
+              <button
+                type="button"
+                onClick={() => setPalette(s.colors)}
+                aria-label={`应用方案：${s.name}`}
+                className="flex h-9 w-full overflow-hidden rounded-md border border-border"
+              >
+                {s.colors.map((c, i) => (
+                  <span key={i} className="flex-1" style={{ backgroundColor: c }} />
+                ))}
+              </button>
+            </Tip>
             <div className="flex items-center justify-between gap-1">
               <span className="truncate text-xs">{s.name}</span>
               <span className="flex">
-                <button
-                  type="button"
-                  className="rounded p-1 text-muted-foreground hover:text-foreground"
-                  onClick={() => {
-                    const n = prompt("重命名方案", s.name);
-                    if (n) renamePalette(s.id, n);
-                  }}
-                >
-                  <Pencil className="size-3.5" />
-                </button>
-                <button
-                  type="button"
-                  className="rounded p-1 text-muted-foreground hover:text-foreground"
-                  onClick={() => removePalette(s.id)}
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
+                <Tip label="重命名方案">
+                  <button
+                    type="button"
+                    className="rounded p-1 text-muted-foreground hover:text-foreground"
+                    aria-label="重命名方案"
+                    onClick={() => {
+                      const n = prompt("重命名方案", s.name);
+                      if (n) renamePalette(s.id, n);
+                    }}
+                  >
+                    <Pencil className="size-3.5" />
+                  </button>
+                </Tip>
+                <Tip label="删除方案">
+                  <button
+                    type="button"
+                    className="rounded p-1 text-muted-foreground hover:text-foreground"
+                    aria-label="删除方案"
+                    onClick={() => removePalette(s.id)}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </Tip>
               </span>
             </div>
           </div>
         ))}
 
         <Popover>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              disabled={!user}
-              className="grid h-9 w-14 place-items-center rounded-md border border-dashed border-border text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-              title={user ? "保存当前方案" : "请先登录"}
-            >
-              <Plus className="size-4" />
-            </button>
-          </PopoverTrigger>
+          <Tip label={user ? "保存当前方案" : "请先登录"}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                disabled={!user}
+                aria-label={user ? "保存当前方案" : "请先登录"}
+                className="grid h-9 w-14 place-items-center rounded-md border border-dashed border-border text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+              >
+                <Plus className="size-4" />
+              </button>
+            </PopoverTrigger>
+          </Tip>
           <PopoverContent className="w-64 space-y-2">
             <Input
               value={name}
@@ -136,14 +147,16 @@ export function PaletteTool() {
               <div className="flex items-center gap-3">
                 <span className="text-sm font-medium">基础颜色</span>
                 <Popover>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="size-10 rounded-lg border border-border"
-                      style={{ backgroundColor: simulateCB(base, cbMode) }}
-                      aria-label="选择基础颜色"
-                    />
-                  </PopoverTrigger>
+                  <Tip label="选择基础颜色">
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="size-10 rounded-lg border border-border"
+                        style={{ backgroundColor: simulateCB(base, cbMode) }}
+                        aria-label="选择基础颜色"
+                      />
+                    </PopoverTrigger>
+                  </Tip>
                   <PopoverContent className="w-64">
                     <ColorPicker value={base} onChange={setBase} />
                   </PopoverContent>
@@ -191,15 +204,18 @@ export function PaletteTool() {
                     className="relative block h-56 w-full rounded-xl border border-border/60 transition-transform hover:scale-[1.01]"
                     style={{ backgroundColor: simulateCB(c, cbMode) }}
                   >
-                    <span
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setLocked(locked.map((l, li) => (li === i ? !l : l)));
-                      }}
-                      className="absolute right-3 top-3 grid size-8 place-items-center rounded-full bg-background/90 text-foreground"
-                    >
-                      {locked[i] ? <Lock className="size-4" /> : <LockOpen className="size-4" />}
-                    </span>
+                    <Tip label={locked[i] ? "解锁该色" : "锁定该色"}>
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setLocked(locked.map((l, li) => (li === i ? !l : l)));
+                        }}
+                        aria-label={locked[i] ? "解锁该色" : "锁定该色"}
+                        className="absolute right-3 top-3 grid size-8 place-items-center rounded-full bg-background/90 text-foreground"
+                      >
+                        {locked[i] ? <Lock className="size-4" /> : <LockOpen className="size-4" />}
+                      </span>
+                    </Tip>
                   </button>
                   <div className="flex items-center justify-center gap-1">
                     <span className="font-mono text-sm">{c}</span>
@@ -252,14 +268,17 @@ function FreePicker() {
         {palette.map((c, i) => (
           <div key={i} className="w-32 space-y-2">
             <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="h-32 w-full rounded-xl border border-border/60"
-                  style={{ backgroundColor: simulateCB(c, cbMode) }}
-                  onDoubleClick={() => setColor(c)}
-                />
-              </PopoverTrigger>
+              <Tip label={c}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="h-32 w-full rounded-xl border border-border/60"
+                    style={{ backgroundColor: simulateCB(c, cbMode) }}
+                    onDoubleClick={() => setColor(c)}
+                    aria-label={c}
+                  />
+                </PopoverTrigger>
+              </Tip>
               <PopoverContent className="w-64">
                 <ColorPicker
                   value={c}
@@ -269,26 +288,32 @@ function FreePicker() {
             </Popover>
             <div className="flex items-center justify-between">
               <span className="font-mono text-xs">{c}</span>
-              <button
-                type="button"
-                disabled={palette.length <= 3}
-                onClick={() => setPalette(palette.filter((_, pi) => pi !== i))}
-                className="text-muted-foreground hover:text-foreground disabled:opacity-30"
-              >
-                <Trash2 className="size-3.5" />
-              </button>
+              <Tip label="删除颜色">
+                <button
+                  type="button"
+                  disabled={palette.length <= 3}
+                  onClick={() => setPalette(palette.filter((_, pi) => pi !== i))}
+                  className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                  aria-label="删除颜色"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </Tip>
             </div>
           </div>
         ))}
 
         {palette.length < 10 && (
-          <button
-            type="button"
-            onClick={() => setPalette([...palette, randomHex()])}
-            className="grid h-32 w-32 place-items-center rounded-xl border border-dashed border-border text-muted-foreground hover:text-foreground"
-          >
-            <Plus className="size-5" />
-          </button>
+          <Tip label="添加颜色">
+            <button
+              type="button"
+              onClick={() => setPalette([...palette, randomHex()])}
+              className="grid h-32 w-32 place-items-center rounded-xl border border-dashed border-border text-muted-foreground hover:text-foreground"
+              aria-label="添加颜色"
+            >
+              <Plus className="size-5" />
+            </button>
+          </Tip>
         )}
       </div>
 

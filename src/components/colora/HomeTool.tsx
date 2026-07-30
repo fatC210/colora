@@ -5,6 +5,7 @@ import type { ToolId } from "./Sidebar";
 import { TOOLS } from "./Sidebar";
 import { Button } from "@/components/ui/button";
 import { Logo } from "./Logo";
+import { Tip } from "./primitives";
 
 export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
   const { palette, setPalette, setColor, cbMode, saved, logoGradient } = useColora();
@@ -25,14 +26,15 @@ export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
 
         <div className="mt-7 flex h-28 overflow-hidden rounded-xl border border-border">
           {palette.map((c, i) => (
-            <button
-              key={i}
-              type="button"
-              onClick={() => setColor(c)}
-              className="flex-1 transition-[flex] duration-300 hover:flex-[1.4]"
-              style={{ backgroundColor: simulateCB(c, cbMode) }}
-              aria-label={c}
-            />
+            <Tip key={i} label={c}>
+              <button
+                type="button"
+                onClick={() => setColor(c)}
+                className="flex-1 transition-[flex] duration-300 hover:flex-[1.4]"
+                style={{ backgroundColor: simulateCB(c, cbMode) }}
+                aria-label={c}
+              />
+            </Tip>
           ))}
         </div>
 

@@ -1,6 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  cloneElement,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   hexToRgb,
   hsvToRgb,
@@ -8,6 +17,29 @@ import {
   rgbToHex,
   rgbToHsv,
 } from "@/lib/color";
+
+/** 把任意单个元素包一层主题自适应的 tooltip。asChild 透传，不引入额外 DOM。 */
+export function Tip({
+  label,
+  side = "top",
+  children,
+}: {
+  label: ReactNode;
+  side?: "top" | "bottom" | "left" | "right";
+  children: ReactNode;
+}) {
+  const trigger =
+    isValidElement<{ title?: string }>(children) && children.props.title !== undefined
+      ? cloneElement(children, { title: undefined })
+      : children;
+
+  return (
+    <Tooltip delayDuration={300}>
+      <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+      <TooltipContent side={side}>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function CopyButton({
   value,
@@ -30,18 +62,20 @@ export function CopyButton({
   }, [value]);
 
   return (
-    <button
-      type="button"
-      onClick={copy}
-      aria-label={label ?? `复制 ${value}`}
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-        className,
-      )}
-    >
-      {done ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      {done && <span>已复制</span>}
-    </button>
+    <Tip label="复制">
+      <button
+        type="button"
+        onClick={copy}
+        aria-label={label ?? `复制 ${value}`}
+        className={cn(
+          "inline-flex shrink-0 items-center justify-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+          done && "text-green-500 hover:text-green-500",
+          className,
+        )}
+      >
+        {done ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+      </button>
+    </Tip>
   );
 }
 
@@ -56,19 +90,29 @@ export function Swatch({
   onClick?: () => void;
   title?: string;
 }) {
-  const Comp = onClick ? "button" : "div";
+  const label = title ?? hex;
+  if (!onClick) {
+    return (
+      <div
+        title={label}
+        style={{ backgroundColor: hex }}
+        className={cn("rounded-md border border-border/60", className)}
+      />
+    );
+  }
   return (
-    <Comp
-      type={onClick ? "button" : undefined}
-      onClick={onClick}
-      title={title ?? hex}
-      style={{ backgroundColor: hex }}
-      className={cn(
-        "rounded-md border border-border/60",
-        onClick && "cursor-pointer transition-transform hover:scale-[1.03]",
-        className,
-      )}
-    />
+    <Tip label={label}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        style={{ backgroundColor: hex }}
+        className={cn(
+          "rounded-md border border-border/60 cursor-pointer transition-transform hover:scale-[1.03]",
+          className,
+        )}
+      />
+    </Tip>
   );
 }
 

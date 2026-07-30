@@ -3,7 +3,7 @@ import { Plus, Sliders, Trash2, ChevronDown, Blend } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useColora } from "@/lib/colora-store";
 import { bestTextOn, formatAll, mixColors, randomHex, simulateCB, type MixMode } from "@/lib/color";
-import { ColorPicker, CopyButton } from "./primitives";
+import { ColorPicker, CopyButton, Tip } from "./primitives";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
@@ -45,14 +45,16 @@ export function MixerTool() {
         {items.map((it, i) => (
           <div key={i} className="flex items-center gap-3">
             <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="size-11 rounded-lg border border-border"
-                  style={{ backgroundColor: simulateCB(it.hex, cbMode) }}
-                  aria-label={`颜色 ${i + 1}`}
-                />
-              </PopoverTrigger>
+              <Tip label={`颜色 ${i + 1}`}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="size-11 rounded-lg border border-border"
+                    style={{ backgroundColor: simulateCB(it.hex, cbMode) }}
+                    aria-label={`颜色 ${i + 1}`}
+                  />
+                </PopoverTrigger>
+              </Tip>
               <PopoverContent className="w-64">
                 <ColorPicker
                   value={it.hex}
@@ -79,13 +81,16 @@ export function MixerTool() {
               />
             </div>
             {items.length > 2 && (
-              <button
-                type="button"
-                onClick={() => setItems(items.filter((_, xi) => xi !== i))}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <Trash2 className="size-4" />
-              </button>
+              <Tip label="删除颜色">
+                <button
+                  type="button"
+                  onClick={() => setItems(items.filter((_, xi) => xi !== i))}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="删除颜色"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </Tip>
             )}
             {i < items.length - 1 && <span className="text-lg text-muted-foreground">+</span>}
           </div>

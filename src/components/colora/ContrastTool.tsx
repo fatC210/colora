@@ -9,7 +9,7 @@ import {
   hslToRgb,
   simulateCB,
 } from "@/lib/color";
-import { ColorPicker } from "./primitives";
+import { ColorPicker, Tip } from "./primitives";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
@@ -28,14 +28,16 @@ function Field({
     <div className="flex items-center gap-3">
       <span className="text-sm font-medium">{label}</span>
       <Popover>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="size-10 rounded-lg border border-border"
-            style={{ backgroundColor: simulateCB(value, cbMode) }}
-            aria-label={`选择${label}`}
-          />
-        </PopoverTrigger>
+        <Tip label={`选择${label}`}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="size-10 rounded-lg border border-border"
+              style={{ backgroundColor: simulateCB(value, cbMode) }}
+              aria-label={`选择${label}`}
+            />
+          </PopoverTrigger>
+        </Tip>
         <PopoverContent className="w-64">
           <ColorPicker value={value} onChange={onChange} />
         </PopoverContent>
@@ -80,17 +82,19 @@ export function ContrastTool() {
     <div className="space-y-4">
       <section className="panel flex flex-wrap items-center gap-6 p-4">
         <Field label="前景色" value={fg} onChange={setFg} cbMode={cbMode} />
-        <button
-          type="button"
-          onClick={() => {
-            setFg(bg);
-            setBg(fg);
-          }}
-          className="grid size-10 place-items-center rounded-lg border border-border text-muted-foreground hover:text-foreground"
-          aria-label="交换前景色与背景色"
-        >
-          <ArrowLeftRight className="size-4" />
-        </button>
+        <Tip label="交换前景色与背景色">
+          <button
+            type="button"
+            onClick={() => {
+              setFg(bg);
+              setBg(fg);
+            }}
+            className="grid size-10 place-items-center rounded-lg border border-border text-muted-foreground hover:text-foreground"
+            aria-label="交换前景色与背景色"
+          >
+            <ArrowLeftRight className="size-4" />
+          </button>
+        </Tip>
         <Field label="背景色" value={bg} onChange={setBg} cbMode={cbMode} />
       </section>
 

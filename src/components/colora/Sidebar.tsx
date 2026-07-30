@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import {
   Blend,
   Contrast,
@@ -24,6 +24,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tip } from "./primitives";
 
 export type ToolId =
   | "home"
@@ -49,29 +50,40 @@ function NavItem({
   icon: Icon,
   active,
   onClick,
+  buttonRef,
 }: {
   label: string;
   icon: typeof Home;
   active?: boolean;
   onClick?: () => void;
+  buttonRef?: (node: HTMLButtonElement | null) => void;
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       onClick={onClick}
       title={label}
+      data-label={label}
+      data-active={active ? "true" : undefined}
       className={cn(
-        "relative flex w-full flex-col items-center gap-1.5 rounded-lg px-1 py-3 text-[11px] transition-colors",
+        "colora-sidebar-button relative flex w-full flex-col items-center rounded-lg text-[11px]",
         active
           ? "bg-sidebar-accent font-medium text-sidebar-foreground"
           : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
       )}
     >
-      {active && (
-        <span className="absolute left-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-r-full bg-foreground" />
-      )}
       <Icon className="size-5" strokeWidth={1.6} />
-      <span className="leading-none">{label}</span>
+      <span className="colora-sidebar-label leading-none">
+        {label === "对比度检查" ? (
+          <>
+            <span className="colora-sidebar-label-line">对比度</span>
+            <span className="colora-sidebar-label-line">检查</span>
+          </>
+        ) : (
+          label
+        )}
+      </span>
     </button>
   );
 }
@@ -107,10 +119,12 @@ function AccountPopover() {
         <button
           type="button"
           title="我的账户"
-          className="flex w-full flex-col items-center gap-1.5 rounded-lg px-1 py-3 text-[11px] text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+          className="colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
         >
           <User className="size-5" strokeWidth={1.6} />
-          <span className="leading-none">{user ? "我的账户" : "登录"}</span>
+          <span className="colora-sidebar-label leading-none">
+            {user ? "我的账户" : "登录"}
+          </span>
         </button>
       </PopoverTrigger>
       <PopoverContent side="right" align="end" className="w-72">
@@ -208,46 +222,120 @@ export function Sidebar({
   onTool: (t: ToolId) => void;
 }) {
   const { cbMode, setCbMode, theme, toggleTheme, logoGradient, randomizeLogoGradient } = useColora();
+  const navRef = useRef<HTMLElement | null>(null);
+  const navItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const activeIndicatorRef = useRef<HTMLSpanElement | null>(null);
+  const activeToolIndex = Math.max(
+    TOOLS.findIndex((toolConfig) => toolConfig.id === tool),
+    0,
+  );
+
+  useLayoutEffect(() => {
+    let frameId = 0;
+    let settleTimeoutId = 0;
+
+    const updateActiveIndicator = () => {
+      const navNode = navRef.current;
+      const activeButton = navItemRefs.current[activeToolIndex];
+      const indicator = activeIndicatorRef.current;
+
+      if (!navNode || !activeButton || !indicator) return;
+
+      const navRect = navNode.getBoundingClientRect();
+      const buttonRect = activeButton.getBoundingClientRect();
+      const top = buttonRect.top - navRect.top + buttonRect.height / 2;
+
+      indicator.style.opacity = "1";
+      indicator.style.transform = `translate3d(0, ${top}px, 0) translateY(-50%)`;
+    };
+
+    const scheduleActiveIndicatorUpdate = () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearTimeout(settleTimeoutId);
+
+      frameId = window.requestAnimationFrame(updateActiveIndicator);
+      settleTimeoutId = window.setTimeout(updateActiveIndicator, 180);
+    };
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(scheduleActiveIndicatorUpdate);
+
+    const navNode = navRef.current;
+
+    scheduleActiveIndicatorUpdate();
+
+    if (resizeObserver) {
+      if (navNode) resizeObserver.observe(navNode);
+    }
+
+    window.addEventListener("resize", scheduleActiveIndicatorUpdate);
+    navNode?.addEventListener("pointerover", scheduleActiveIndicatorUpdate);
+    navNode?.addEventListener("pointerout", scheduleActiveIndicatorUpdate);
+    navNode?.addEventListener("transitionend", scheduleActiveIndicatorUpdate);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearTimeout(settleTimeoutId);
+      window.removeEventListener("resize", scheduleActiveIndicatorUpdate);
+      navNode?.removeEventListener("pointerover", scheduleActiveIndicatorUpdate);
+      navNode?.removeEventListener("pointerout", scheduleActiveIndicatorUpdate);
+      navNode?.removeEventListener("transitionend", scheduleActiveIndicatorUpdate);
+      resizeObserver?.disconnect();
+    };
+  }, [activeToolIndex]);
 
   return (
-    <aside className="flex w-[88px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:h-screen">
-      <button
-        type="button"
-        onClick={randomizeLogoGradient}
-        title="点击随机切换笑脸颜色"
-        className="flex items-center justify-center px-4 py-5 transition-opacity hover:opacity-90 active:scale-95 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
-      >
-        <Logo className="size-8 text-foreground" gradient={logoGradient} />
-        <span className="sr-only">Colora</span>
-      </button>
+    <aside className="colora-sidebar">
+      <Tip label="试试点击！" side="right">
+        <button
+          type="button"
+          onClick={randomizeLogoGradient}
+          aria-label="点击随机切换笑脸颜色"
+          className="colora-sidebar-logo transition-opacity hover:opacity-90 active:scale-95 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+        >
+          <Logo className="size-8 text-foreground" gradient={logoGradient} />
+          <span className="sr-only">Colora</span>
+        </button>
+      </Tip>
 
-      <nav className="flex flex-1 flex-col gap-1 px-2">
-        {TOOLS.map((t) => (
+      <nav ref={navRef} className="colora-sidebar-nav">
+        <span
+          ref={activeIndicatorRef}
+          aria-hidden
+          className="colora-sidebar-active-indicator"
+        />
+        {TOOLS.map((toolConfig, index) => (
           <NavItem
-            key={t.id}
-            label={t.label}
-            icon={t.icon}
-            active={tool === t.id}
-            onClick={() => onTool(t.id)}
+            key={toolConfig.id}
+            label={toolConfig.label}
+            icon={toolConfig.icon}
+            active={tool === toolConfig.id}
+            buttonRef={(node) => {
+              navItemRefs.current[index] = node;
+            }}
+            onClick={() => onTool(toolConfig.id)}
           />
         ))}
       </nav>
 
-      <div className="mt-2 space-y-1 border-t border-sidebar-border px-2 py-3">
+      <div className="colora-sidebar-actions">
         <Popover>
           <PopoverTrigger asChild>
             <button
               type="button"
               title="色盲模拟"
+              data-active={cbMode !== "none" ? "true" : undefined}
               className={cn(
-                "flex w-full flex-col items-center gap-1.5 rounded-lg px-1 py-3 text-[11px] transition-colors",
+                "colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px]",
                 cbMode !== "none"
                   ? "bg-sidebar-accent font-medium text-sidebar-foreground"
                   : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
               )}
             >
               <Eye className="size-5" strokeWidth={1.6} />
-              <span className="leading-none">色盲模拟</span>
+              <span className="colora-sidebar-label leading-none">色盲模拟</span>
             </button>
           </PopoverTrigger>
           <PopoverContent side="right" align="end" className="w-44 p-1">
@@ -275,14 +363,16 @@ export function Sidebar({
           type="button"
           onClick={toggleTheme}
           title="深浅色切换"
-          className="flex w-full flex-col items-center gap-1.5 rounded-lg px-1 py-3 text-[11px] text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+          className="colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
         >
           {theme === "dark" ? (
             <Sun className="size-5" strokeWidth={1.6} />
           ) : (
             <Moon className="size-5" strokeWidth={1.6} />
           )}
-          <span className="leading-none">{theme === "dark" ? "浅色" : "深色"}</span>
+          <span className="colora-sidebar-label leading-none">
+            {theme === "dark" ? "浅色" : "深色"}
+          </span>
         </button>
 
         <AccountPopover />
