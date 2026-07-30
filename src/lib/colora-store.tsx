@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type { CBMode } from "./color";
+import { randomHex } from "./color";
 
 export type SavedPalette = { id: string; name: string; colors: string[]; createdAt: number };
 
