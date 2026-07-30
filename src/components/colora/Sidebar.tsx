@@ -215,7 +215,7 @@ export function Sidebar({
         type="button"
         onClick={randomizeLogoGradient}
         title="点击随机切换笑脸颜色"
-        className="flex items-center justify-center px-4 py-5 outline-none transition-transform active:scale-95"
+        className="flex items-center justify-center px-4 py-5 transition-opacity hover:opacity-90 active:scale-95 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
       >
         <Logo className="size-8 text-foreground" gradient={logoGradient} />
         <span className="sr-only">Colora</span>
