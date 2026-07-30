@@ -12,8 +12,8 @@ export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
   return (
     <div className="space-y-5">
       <section className="panel p-8">
-        <div className="mb-5 flex items-baseline" aria-label="Colora">
-          <Logo className="size-8 text-foreground" aria-hidden="true" />
+        <div className="mb-5 flex items-center" aria-label="Colora">
+          <Logo className="size-8 text-foreground" gradient={logoGradient} aria-hidden="true" />
           <span className="-ml-2 text-2xl font-semibold tracking-tight" aria-hidden="true">olora</span>
         </div>
         <h2 className="max-w-2xl text-3xl font-semibold tracking-tight sm:text-4xl">
