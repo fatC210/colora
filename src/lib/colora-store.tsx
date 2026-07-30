@@ -158,7 +158,9 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
       user,
       accounts,
       gradientStops,
+      logoGradient,
       persistSaved,
+      randomizeLogoGradient,
     ],
   );
 
