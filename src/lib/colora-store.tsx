@@ -34,7 +34,7 @@ type Store = {
 
 const Ctx = createContext<Store | null>(null);
 
-const DEFAULT_PALETTE = ["#111111", "#3D3D3D", "#7A7A7A", "#B4B4B4", "#EDEDED"];
+const DEFAULT_PALETTE = ["#6366F1", "#F97316", "#FACC15", "#14B8A6", "#8B5CF6"];
 
 function load<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -48,15 +48,15 @@ function load<T>(key: string, fallback: T): T {
 
 export function ColoraProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<"light" | "dark">("light");
-  const [color, setColorState] = useState("#1A1A1A");
-  const [prevColor, setPrevColor] = useState("#1A1A1A");
+  const [color, setColorState] = useState("#6366F1");
+  const [prevColor, setPrevColor] = useState("#6366F1");
   const [palette, setPalette] = useState<string[]>(DEFAULT_PALETTE);
   const [cbMode, setCbMode] = useState<CBMode>("none");
   const [saved, setSaved] = useState<SavedPalette[]>([]);
   const [user, setUser] = useState<string | null>(null);
   const [gradientStops, setGradientStops] = useState([
-    { hex: "#000000", pos: 0 },
-    { hex: "#FFFFFF", pos: 100 },
+    { hex: "#6366F1", pos: 0 },
+    { hex: "#14B8A6", pos: 100 },
   ]);
 
   useEffect(() => {

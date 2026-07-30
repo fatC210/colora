@@ -16,9 +16,9 @@ const MODES: { key: MixMode; label: string }[] = [
 export function MixerTool() {
   const { setColor, cbMode } = useColora();
   const [items, setItems] = useState([
-    { hex: "#1A1A1A", weight: 50 },
-    { hex: "#9A9A9A", weight: 30 },
-    { hex: "#E8E8E8", weight: 20 },
+    { hex: "#6366F1", weight: 50 },
+    { hex: "#F97316", weight: 30 },
+    { hex: "#14B8A6", weight: 20 },
   ]);
   const [mode, setMode] = useState<MixMode>("subtractive");
   const [result, setResult] = useState<string | null>(null);
