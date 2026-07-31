@@ -1,5 +1,5 @@
 import { ArrowRight } from "lucide-react";
-import { useColora } from "@/lib/colora-store";
+import { useColora, type GradientConfig, type GradientStop } from "@/lib/colora-store";
 import { generateHarmony, randomHex, simulateCB } from "@/lib/color";
 import type { ToolId } from "./Sidebar";
 import { TOOLS } from "./Sidebar";
@@ -7,15 +7,63 @@ import { Button } from "@/components/ui/button";
 import { Logo } from "./Logo";
 import { Tip } from "./primitives";
 
+function gradientPreviewStyle(
+  config: GradientConfig,
+  stops: GradientStop[],
+  cbMode: ReturnType<typeof useColora>["cbMode"],
+) {
+  const sortedStops = [...stops].sort((a, b) => a.pos - b.pos);
+  const list = sortedStops
+    .map((stop) => `${simulateCB(stop.hex, cbMode)} ${Math.round(stop.pos)}%`)
+    .join(", ");
+
+  if (config.type === "mesh") {
+    return {
+      backgroundColor: sortedStops[0]?.hex,
+      backgroundImage: sortedStops
+        .map((stop, index) => {
+          const point = stop.mesh ?? { x: 20 + index * 18, y: 30 + (index % 2) * 36 };
+          return `radial-gradient(at ${point.x}% ${point.y}%, ${simulateCB(stop.hex, cbMode)} 0px, transparent 55%)`;
+        })
+        .join(", "),
+    };
+  }
+
+  return {
+    backgroundImage:
+      config.type === "linear"
+        ? `linear-gradient(${config.angle}deg, ${list})`
+        : config.type === "radial"
+          ? `radial-gradient(circle at ${config.center.x}% ${config.center.y}%, ${list})`
+          : `conic-gradient(from ${config.angle}deg at ${config.center.x}% ${config.center.y}%, ${list})`,
+  };
+}
+
+const cloneGradientStops = (stops: GradientStop[]) =>
+  stops.map((stop) => ({ ...stop, mesh: stop.mesh ? { ...stop.mesh } : undefined }));
+
 export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
-  const { palette, setPalette, setColor, cbMode, saved, logoGradient } = useColora();
+  const {
+    palette,
+    setPalette,
+    setColor,
+    cbMode,
+    saved,
+    favoriteColors,
+    favoriteGradients,
+    setGradientStops,
+    setGradientConfig,
+    logoGradient,
+  } = useColora();
 
   return (
     <div className="space-y-5">
       <section className="panel p-8">
         <div className="mb-5 flex items-center" aria-label="Colora">
           <Logo className="size-8 text-foreground" gradient={logoGradient} aria-hidden="true" />
-          <span className="-ml-2 text-2xl font-semibold tracking-tight" aria-hidden="true">olora</span>
+          <span className="-ml-2 text-2xl font-semibold tracking-tight" aria-hidden="true">
+            olora
+          </span>
         </div>
         <h2 className="max-w-2xl text-3xl font-semibold tracking-tight sm:text-4xl">
           调配、混合、预览、导出，一站式完成配色工作
@@ -79,25 +127,85 @@ export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
         ))}
       </div>
 
-      {saved.length > 0 && (
+      {(favoriteColors.length > 0 || saved.length > 0 || favoriteGradients.length > 0) && (
         <section className="panel p-5">
-          <h3 className="mb-3 text-sm font-medium">最近保存的方案</h3>
-          <div className="flex flex-wrap gap-3">
-            {saved.slice(0, 6).map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => setPalette(s.colors)}
-                className="w-40 space-y-1.5 text-left"
-              >
-                <span className="flex h-9 overflow-hidden rounded-md border border-border">
-                  {s.colors.map((c, i) => (
-                    <span key={i} className="flex-1" style={{ backgroundColor: c }} />
+          <h3 className="mb-3 text-sm font-medium">最近收藏</h3>
+          <div className="space-y-4">
+            {favoriteColors.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs text-muted-foreground">颜色</p>
+                <div className="flex flex-wrap gap-2">
+                  {favoriteColors.slice(0, 10).map((savedColor) => (
+                    <Tip key={savedColor.id} label={`应用颜色：${savedColor.name}`}>
+                      <button
+                        type="button"
+                        onClick={() => setColor(savedColor.hex)}
+                        className="size-9 rounded-md border border-border/70"
+                        style={{ backgroundColor: simulateCB(savedColor.hex, cbMode) }}
+                        aria-label={`应用颜色：${savedColor.name}`}
+                      />
+                    </Tip>
                   ))}
-                </span>
-                <span className="block truncate text-xs">{s.name}</span>
-              </button>
-            ))}
+                </div>
+              </div>
+            )}
+            {saved.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs text-muted-foreground">配色方案</p>
+                <div className="flex flex-wrap gap-3">
+                  {saved.slice(0, 6).map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => {
+                        setPalette(s.colors);
+                        onTool("palette");
+                      }}
+                      className="w-40 space-y-1.5 text-left"
+                    >
+                      <span className="flex h-9 overflow-hidden rounded-md border border-border">
+                        {s.colors.map((c, i) => (
+                          <span key={i} className="flex-1" style={{ backgroundColor: c }} />
+                        ))}
+                      </span>
+                      <span className="block truncate text-xs">{s.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {favoriteGradients.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs text-muted-foreground">渐变</p>
+                <div className="flex flex-wrap gap-3">
+                  {favoriteGradients.slice(0, 6).map((savedGradient) => (
+                    <button
+                      key={savedGradient.id}
+                      type="button"
+                      onClick={() => {
+                        setGradientStops(cloneGradientStops(savedGradient.stops));
+                        setGradientConfig({
+                          ...savedGradient.config,
+                          center: { ...savedGradient.config.center },
+                        });
+                        onTool("gradient");
+                      }}
+                      className="w-40 space-y-1.5 text-left"
+                    >
+                      <span
+                        className="block h-14 rounded-md border border-border"
+                        style={gradientPreviewStyle(
+                          savedGradient.config,
+                          savedGradient.stops,
+                          cbMode,
+                        )}
+                      />
+                      <span className="block truncate text-xs">{savedGradient.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </section>
       )}

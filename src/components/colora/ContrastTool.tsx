@@ -1,17 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeftRight, ChevronDown, HelpCircle, List, Sparkles, Check } from "lucide-react";
 import { useColora } from "@/lib/colora-store";
-import {
-  contrastRatio,
-  hexToRgb,
-  rgbToHex,
-  rgbToHsl,
-  hslToRgb,
-  simulateCB,
-} from "@/lib/color";
-import { ColorPicker, Tip } from "./primitives";
+import { contrastRatio, hexToRgb, rgbToHex, rgbToHsl, hslToRgb, simulateCB } from "@/lib/color";
+import { CopyText, ColorPicker, Tip } from "./primitives";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { ExportDialog } from "./ExportDialog";
+import { Button } from "@/components/ui/button";
 
 function Field({
   label,
@@ -42,9 +37,10 @@ function Field({
           <ColorPicker value={value} onChange={onChange} />
         </PopoverContent>
       </Popover>
-      <div className="flex h-10 items-center rounded-lg border border-input px-3 font-mono text-sm">
-        {value}
-      </div>
+      <CopyText
+        value={value}
+        className="h-10 rounded-lg border border-input px-3 font-mono text-sm"
+      />
     </div>
   );
 }
@@ -67,7 +63,7 @@ function suggest(fg: string, bg: string, target: number) {
 }
 
 export function ContrastTool() {
-  const { setColor, cbMode } = useColora();
+  const { setColor, cbMode, setContrastExport } = useColora();
   const [fg, setFg] = useState("#0F172A");
   const [bg, setBg] = useState("#F1F1F1");
   const [openSuggest, setOpenSuggest] = useState(false);
@@ -77,6 +73,10 @@ export function ContrastTool() {
   const aa = ratio >= 4.5;
   const aaa = ratio >= 7;
   const suggestions = useMemo(() => suggest(fg, bg, 4.5), [fg, bg]);
+
+  useEffect(() => {
+    setContrastExport({ fg, bg, ratio, suggestions });
+  }, [bg, fg, ratio, setContrastExport, suggestions]);
 
   return (
     <div className="space-y-4">
@@ -96,6 +96,14 @@ export function ContrastTool() {
           </button>
         </Tip>
         <Field label="背景色" value={bg} onChange={setBg} cbMode={cbMode} />
+        <ExportDialog
+          module="contrast"
+          trigger={
+            <Button variant="outline" className="gap-2">
+              <List className="size-4" /> 导出当前检查
+            </Button>
+          }
+        />
       </section>
 
       <section
@@ -119,11 +127,25 @@ export function ContrastTool() {
       <section className="panel flex flex-wrap items-center justify-between gap-8 p-6">
         <div>
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            对比度比率 <HelpCircle className="size-3.5" />
+            对比度比率
+            <Tip
+              label={
+                <span className="block max-w-64 leading-relaxed">
+                  对比度比率表示前景色与背景色的亮度差异，范围为 1:1 到 21:1。普通正文建议至少
+                  4.5:1，大号文字至少 3:1。
+                </span>
+              }
+            >
+              <button
+                type="button"
+                className="inline-grid size-5 place-items-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="查看对比度比率说明"
+              >
+                <HelpCircle className="size-3.5" />
+              </button>
+            </Tip>
           </p>
-          <p className="mt-1 font-mono text-6xl font-bold tracking-tight">
-            {ratio.toFixed(1)} : 1
-          </p>
+          <p className="mt-1 font-mono text-6xl font-bold tracking-tight">{ratio.toFixed(1)} : 1</p>
         </div>
         <div className="space-y-2">
           {[
@@ -168,7 +190,10 @@ export function ContrastTool() {
                     onClick={() => setFg(s)}
                     className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-accent"
                   >
-                    <span className="size-5 rounded border border-border/60" style={{ backgroundColor: s }} />
+                    <span
+                      className="size-5 rounded border border-border/60"
+                      style={{ backgroundColor: s }}
+                    />
                     <span className="font-mono text-xs">{s}</span>
                     <span className="text-xs text-muted-foreground">
                       {contrastRatio(s, bg).toFixed(1)}:1
@@ -176,7 +201,9 @@ export function ContrastTool() {
                   </button>
                 ))}
                 {suggestions.length === 0 && (
-                  <p className="text-sm text-muted-foreground">未找到同色相的合格替代色，建议更换背景色。</p>
+                  <p className="text-sm text-muted-foreground">
+                    未找到同色相的合格替代色，建议更换背景色。
+                  </p>
                 )}
               </div>
             )}

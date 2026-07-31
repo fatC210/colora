@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+﻿import { useLayoutEffect, useRef, useState } from "react";
 import {
   Blend,
   Contrast,
@@ -16,24 +16,14 @@ import { cn } from "@/lib/utils";
 import { Logo } from "@/components/colora/Logo";
 import { useColora } from "@/lib/colora-store";
 import { CB_LABELS, type CBMode } from "@/lib/color";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tip } from "./primitives";
 
-export type ToolId =
-  | "home"
-  | "palette"
-  | "gradient"
-  | "mixer"
-  | "image"
-  | "contrast"
-  | "preview";
+export type ToolId = "home" | "palette" | "gradient" | "mixer" | "image" | "contrast" | "preview";
 
 export const TOOLS: { id: ToolId; label: string; icon: typeof Home }[] = [
   { id: "home", label: "首页", icon: Home },
@@ -51,6 +41,10 @@ const CB_ICON_COLORS: Record<Exclude<CBMode, "none">, string> = {
   tritanopia: "#3b82f6",
   achromatopsia: "#737373",
 };
+
+function getUserInitial(user: string) {
+  return user.trim().charAt(0).toUpperCase() || "U";
+}
 
 function NavItem({
   label,
@@ -104,8 +98,8 @@ function AccountPopover() {
   const [error, setError] = useState<string | null>(null);
 
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  const canSubmit =
-    emailOk && pw.length >= 6 && (mode === "login" || pw2.length >= 6);
+  const canSubmit = emailOk && pw.length >= 6 && (mode === "login" || pw2.length >= 6);
+  const avatarInitial = user ? getUserInitial(user) : null;
 
   const reset = () => {
     setPw("");
@@ -114,8 +108,7 @@ function AccountPopover() {
   };
 
   const submit = () => {
-    const res =
-      mode === "login" ? signIn(email, pw) : signUp(email, pw, pw2);
+    const res = mode === "login" ? signIn(email, pw) : signUp(email, pw, pw2);
     if (!res.ok) setError(res.error ?? "操作失败");
     else reset();
   };
@@ -125,19 +118,40 @@ function AccountPopover() {
       <PopoverTrigger asChild>
         <button
           type="button"
-          title="我的账户"
-          className="colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+          title={user ? `已登录：${user}` : "登录"}
+          aria-label={user ? `已登录：${user}` : "登录"}
+          data-signed-in={user ? "true" : undefined}
+          className={cn(
+            "colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px] hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+            user ? "text-sidebar-foreground" : "text-muted-foreground",
+          )}
         >
-          <User className="size-5" strokeWidth={1.6} />
-          <span className="colora-sidebar-label leading-none">
-            {user ? "我的账户" : "登录"}
-          </span>
+          {avatarInitial ? (
+            <Avatar className="colora-sidebar-avatar size-6 border border-sidebar-border bg-sidebar-primary text-sidebar-primary-foreground">
+              <AvatarFallback className="bg-sidebar-primary text-[11px] font-semibold text-sidebar-primary-foreground">
+                {avatarInitial}
+              </AvatarFallback>
+            </Avatar>
+          ) : (
+            <User className="size-5" strokeWidth={1.6} />
+          )}
+          <span className="colora-sidebar-label leading-none">{user ? "已登录" : "登录"}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent side="right" align="end" className="w-72">
         {user ? (
           <div className="space-y-3">
-            <p className="text-sm font-medium">{user}</p>
+            <div className="flex items-center gap-3">
+              <Avatar className="size-10 border border-border bg-primary text-primary-foreground">
+                <AvatarFallback className="bg-primary text-sm font-semibold text-primary-foreground">
+                  {avatarInitial}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">已登录</p>
+                <p className="truncate text-sm font-medium">{user}</p>
+              </div>
+            </div>
             <p className="text-xs text-muted-foreground">配色方案将保存到此账户。</p>
             <Button variant="outline" className="w-full" onClick={signOut}>
               退出登录
@@ -200,9 +214,7 @@ function AccountPopover() {
                     autoComplete="new-password"
                   />
                   {pw2.length > 0 && pw !== pw2 && (
-                    <p className="text-[11px] text-muted-foreground">
-                      两次输入的密码不一致
-                    </p>
+                    <p className="text-[11px] text-muted-foreground">两次输入的密码不一致</p>
                   )}
                 </>
               )}
@@ -221,14 +233,9 @@ function AccountPopover() {
   );
 }
 
-export function Sidebar({
-  tool,
-  onTool,
-}: {
-  tool: ToolId;
-  onTool: (t: ToolId) => void;
-}) {
-  const { cbMode, setCbMode, theme, toggleTheme, logoGradient, randomizeLogoGradient } = useColora();
+export function Sidebar({ tool, onTool }: { tool: ToolId; onTool: (t: ToolId) => void }) {
+  const { cbMode, setCbMode, theme, toggleTheme, logoGradient, randomizeLogoGradient } =
+    useColora();
   const navRef = useRef<HTMLElement | null>(null);
   const navItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const activeIndicatorRef = useRef<HTMLSpanElement | null>(null);
@@ -308,11 +315,7 @@ export function Sidebar({
       </Tip>
 
       <nav ref={navRef} className="colora-sidebar-nav">
-        <span
-          ref={activeIndicatorRef}
-          aria-hidden
-          className="colora-sidebar-active-indicator"
-        />
+        <span ref={activeIndicatorRef} aria-hidden className="colora-sidebar-active-indicator" />
         {TOOLS.map((toolConfig, index) => (
           <NavItem
             key={toolConfig.id}
@@ -363,11 +366,7 @@ export function Sidebar({
                 )}
               >
                 <span className="flex items-center gap-2">
-                  <Eye
-                    className="size-4"
-                    strokeWidth={1.6}
-                    style={{ color: CB_ICON_COLORS[m] }}
-                  />
+                  <Eye className="size-4" strokeWidth={1.6} style={{ color: CB_ICON_COLORS[m] }} />
                   {CB_LABELS[m]}
                 </span>
                 {cbMode === m && <span>✓</span>}

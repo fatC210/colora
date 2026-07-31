@@ -1,16 +1,21 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ImagePlus, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useColora } from "@/lib/colora-store";
 import { formatAll, hexToRgb, kmeans, simulateCB } from "@/lib/color";
 import { CopyButton } from "./primitives";
+import { ExportDialog } from "./ExportDialog";
 
 export function ImageTool() {
-  const { setColor, setPalette, cbMode } = useColora();
+  const { setColor, setPalette, cbMode, setImageExport } = useColora();
   const [src, setSrc] = useState<string | null>(null);
   const [count, setCount] = useState(6);
   const [colors, setColors] = useState<{ hex: string; share: number }[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setImageExport({ count, colors, hasImage: Boolean(src) });
+  }, [count, colors, setImageExport, src]);
 
   const extract = (url: string, k: number) => {
     const img = new Image();
@@ -101,12 +106,22 @@ export function ImageTool() {
             />
           </div>
           {colors.length > 0 && (
-            <Button
-              className="gap-2"
-              onClick={() => setPalette(colors.slice(0, 10).map((c) => c.hex))}
-            >
-              <Save className="size-4" /> 保存为配色方案
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                className="gap-2"
+                onClick={() => setPalette(colors.slice(0, 10).map((c) => c.hex))}
+              >
+                <Save className="size-4" /> 保存为配色方案
+              </Button>
+              <ExportDialog
+                module="image"
+                trigger={
+                  <Button variant="outline" className="gap-2">
+                    <ImagePlus className="size-4" /> 导出当前图片
+                  </Button>
+                }
+              />
+            </div>
           )}
         </div>
       </section>

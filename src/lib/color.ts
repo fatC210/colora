@@ -171,15 +171,19 @@ const CSS_COLORS: Record<string, string> = {
   forestgreen: "#228B22", darkslategray: "#2F4F4F", midnightblue: "#191970",
 };
 
-export function nearestCssName(hex: string) {
+export function nearestCssColor(hex: string) {
   const lab = rgbToLab(hexToRgb(hex));
-  let best = "", dist = Infinity;
-  for (const [name, value] of Object.entries(CSS_COLORS)) {
-    const l2 = rgbToLab(hexToRgb(value));
+  let best = "", bestHex = "#000000", dist = Infinity;
+  for (const [name, namedHex] of Object.entries(CSS_COLORS)) {
+    const l2 = rgbToLab(hexToRgb(namedHex));
     const d = (lab.l - l2.l) ** 2 + (lab.a - l2.a) ** 2 + (lab.b - l2.b) ** 2;
-    if (d < dist) { dist = d; best = name; }
+    if (d < dist) { dist = d; best = name; bestHex = namedHex; }
   }
-  return best;
+  return { name: best, hex: bestHex };
+}
+
+export function nearestCssName(hex: string) {
+  return nearestCssColor(hex).name;
 }
 
 // ---- Harmonies ----
@@ -392,6 +396,7 @@ export function formatAll(hex: string) {
   const cmyk = rgbToCmyk(rgb);
   const lab = rgbToLab(rgb);
   const lch = labToLch(lab);
+  const name = nearestCssColor(hex);
   const r = (n: number, d = 0) => n.toFixed(d);
   return {
     hex,
@@ -402,7 +407,8 @@ export function formatAll(hex: string) {
     cmyk: `cmyk(${r(cmyk.c)}, ${r(cmyk.m)}, ${r(cmyk.y)}, ${r(cmyk.k)})`,
     lab: `lab(${r(lab.l, 1)}, ${r(lab.a, 1)}, ${r(lab.b, 1)})`,
     lch: `lch(${r(lch.l, 1)}, ${r(lch.c, 1)}, ${r(lch.h, 1)})`,
-    name: nearestCssName(hex),
+    name: name.name,
+    nameHex: name.hex,
     onWhite: contrastRatio(hex, "#FFFFFF"),
     onBlack: contrastRatio(hex, "#000000"),
     hue: hsl.h,

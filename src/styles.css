@@ -45,7 +45,7 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --font-sans: "Inter", "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", "Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Source Han Sans SC", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --shadow-panel: 0 1px 2px oklch(0 0 0 / 0.04), 0 8px 24px oklch(0 0 0 / 0.06);
 }
@@ -169,8 +169,29 @@
 }
 
 @layer components {
+  .colora-tabs-indicator {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 0;
+    border-radius: calc(var(--radius-md) - 1px);
+    background-color: var(--color-background);
+    box-shadow: var(--shadow-sm, 0 1px 2px oklch(0 0 0 / 0.08));
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+      width 260ms cubic-bezier(0.22, 1, 0.36, 1),
+      height 260ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 120ms ease,
+      background-color 180ms ease,
+      box-shadow 180ms ease;
+    will-change: transform, width, height;
+  }
+
   .colora-app-shell {
     display: flex;
+    height: 100dvh;
     min-height: 100dvh;
     overflow: hidden;
     background-color: var(--color-background);
@@ -249,6 +270,11 @@
     transition: transform 180ms ease-out;
   }
 
+  .colora-sidebar-avatar {
+    flex-shrink: 0;
+    transition: transform 180ms ease-out;
+  }
+
   .colora-sidebar-label {
     font-size: 11px;
     line-height: 1;
@@ -260,6 +286,7 @@
     position: relative;
     min-width: 0;
     flex: 1 1 0%;
+    height: 100dvh;
     min-height: 0;
     overflow: hidden;
   }
@@ -272,12 +299,15 @@
     height: 100dvh;
     overflow-y: auto;
     overflow-x: hidden;
+    overscroll-behavior: contain;
   }
 
   .colora-info-panel {
     position: relative;
     z-index: 30;
     width: 260px;
+    height: 100dvh;
+    min-height: 0;
     flex-shrink: 0;
     flex-direction: column;
     overflow: visible;
@@ -298,12 +328,14 @@
   .colora-info-panel-content {
     display: flex;
     width: 260px;
+    height: 100%;
     min-height: 0;
     flex: 1 1 auto;
     flex-direction: column;
     gap: 1rem;
     overflow-y: auto;
     overflow-x: hidden;
+    overscroll-behavior: contain;
     padding: 1rem;
     opacity: 1;
     transform: translateX(0) scale(1);
@@ -414,6 +446,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .colora-tabs-indicator,
     .colora-info-panel,
     .colora-info-panel-content,
     .colora-info-panel-toggle,
@@ -486,6 +519,12 @@
     .colora-sidebar-button:hover > svg,
     .colora-sidebar-button:focus-visible > svg,
     .colora-sidebar-button[data-active="true"] > svg {
+      transform: translateY(-0.45rem);
+    }
+
+    .colora-sidebar-button:hover .colora-sidebar-avatar,
+    .colora-sidebar-button:focus-visible .colora-sidebar-avatar,
+    .colora-sidebar-button[data-active="true"] .colora-sidebar-avatar {
       transform: translateY(-0.45rem);
     }
 
@@ -589,6 +628,12 @@
       transform: translateY(-0.35rem);
     }
 
+    .colora-sidebar-button:hover .colora-sidebar-avatar,
+    .colora-sidebar-button:focus-visible .colora-sidebar-avatar,
+    .colora-sidebar-button[data-active="true"] .colora-sidebar-avatar {
+      transform: translateY(-0.35rem);
+    }
+
     .colora-sidebar-button > svg {
       width: 1.125rem;
       height: 1.125rem;
@@ -658,5 +703,114 @@
   }
   100% {
     transform: translate(0, 0) scale(1.05);
+  }
+}
+
+@keyframes colora-pour-path {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -16%) rotate(-10deg) scale(0.88);
+  }
+  12% {
+    opacity: 1;
+  }
+  58% {
+    opacity: 1;
+    transform: translate(-50%, 30%) rotate(7deg) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 44%) rotate(0deg) scale(1.08);
+  }
+}
+
+@keyframes colora-paint-stream {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scaleY(0);
+    transform-origin: top;
+  }
+  14% {
+    opacity: 0.95;
+  }
+  62% {
+    opacity: 0.9;
+    transform: translateX(-50%) scaleY(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) scaleY(0.25);
+    transform-origin: top;
+  }
+}
+
+@keyframes colora-paint-drop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -70%) scale(0.35);
+  }
+  20% {
+    opacity: 1;
+  }
+  68% {
+    opacity: 1;
+    transform: translate(-50%, 28%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 54%) scale(0.55);
+  }
+}
+
+@keyframes colora-paint-puddle {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8%) scale(0.2);
+  }
+  35% {
+    opacity: 0.85;
+    transform: translateX(-50%) translateY(0) scale(0.65);
+  }
+  70% {
+    opacity: 0.75;
+    transform: translateX(-50%) translateY(-2%) scale(1.15);
+  }
+  100% {
+    opacity: 0.15;
+    transform: translateX(-50%) translateY(-3%) scale(1.55);
+  }
+}
+
+@keyframes colora-mix-vortex {
+  0% {
+    opacity: 0;
+    transform: rotate(0deg) scale(0.55);
+  }
+  35% {
+    opacity: 0.7;
+  }
+  75% {
+    opacity: 0.82;
+    transform: rotate(160deg) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(240deg) scale(1.2);
+  }
+}
+
+@keyframes colora-mix-reveal {
+  0%,
+  56% {
+    opacity: 0;
+    clip-path: circle(0% at 50% 74%);
+  }
+  78% {
+    opacity: 0.72;
+    clip-path: circle(38% at 50% 62%);
+  }
+  100% {
+    opacity: 1;
+    clip-path: circle(120% at 50% 50%);
   }
 }

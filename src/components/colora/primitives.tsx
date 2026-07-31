@@ -10,13 +10,7 @@ import {
 import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import {
-  hexToRgb,
-  hsvToRgb,
-  normalizeHex,
-  rgbToHex,
-  rgbToHsv,
-} from "@/lib/color";
+import { hexToRgb, hsvToRgb, normalizeHex, rgbToHex, rgbToHsv } from "@/lib/color";
 
 /** 把任意单个元素包一层主题自适应的 tooltip。asChild 透传，不引入额外 DOM。 */
 export function Tip({
@@ -69,13 +63,145 @@ export function CopyButton({
         aria-label={label ?? `复制 ${value}`}
         className={cn(
           "inline-flex shrink-0 items-center justify-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-          done && "text-green-500 hover:text-green-500",
           className,
         )}
       >
-        {done ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+        {done ? (
+          <Check className="size-3.5 animate-pop text-green-500" />
+        ) : (
+          <Copy className="size-3.5" />
+        )}
       </button>
     </Tip>
+  );
+}
+
+export function CopyText({
+  value,
+  className,
+  label,
+  children,
+}: {
+  value: string;
+  className?: string;
+  label?: string;
+  children?: ReactNode;
+}) {
+  const [done, setDone] = useState(false);
+  const copy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      /* clipboard blocked */
+    }
+    setDone(true);
+    setTimeout(() => setDone(false), 1400);
+  }, [value]);
+
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      aria-label={label ?? `复制 ${value}`}
+      className={cn(
+        "inline-flex min-w-0 cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        className,
+      )}
+    >
+      <span className="truncate">{children ?? value}</span>
+      {done ? (
+        <Check className="size-3.5 shrink-0 animate-pop text-green-500" />
+      ) : (
+        <Copy className="size-3.5 shrink-0 text-muted-foreground" />
+      )}
+    </button>
+  );
+}
+
+export function InlineRename({
+  value,
+  editing,
+  onEditingChange,
+  onSave,
+  className,
+  textClassName,
+  inputClassName,
+  ariaLabel,
+}: {
+  value: string;
+  editing: boolean;
+  onEditingChange: (editing: boolean) => void;
+  onSave: (value: string) => void;
+  className?: string;
+  textClassName?: string;
+  inputClassName?: string;
+  ariaLabel?: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    if (editing) setDraft(value);
+  }, [editing, value]);
+
+  useEffect(() => {
+    if (!editing) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [editing]);
+
+  const commit = () => {
+    const next = draft.trim();
+    onEditingChange(false);
+    setDraft(value);
+    if (next && next !== value) onSave(next);
+  };
+
+  const cancel = () => {
+    setDraft(value);
+    onEditingChange(false);
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            cancel();
+          }
+        }}
+        aria-label={ariaLabel ?? "重命名"}
+        className={cn(
+          "h-6 min-w-0 rounded-md border border-input bg-background px-1.5 text-xs outline-none focus:ring-2 focus:ring-ring",
+          className,
+          inputClassName,
+        )}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onEditingChange(true)}
+      aria-label={ariaLabel ?? `重命名 ${value}`}
+      className={cn(
+        "min-w-0 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        className,
+      )}
+    >
+      <span className={cn("block truncate", textClassName)}>{value}</span>
+    </button>
   );
 }
 
@@ -168,7 +294,7 @@ export function ColorPicker({
         }}
         className={cn(
           "relative w-full cursor-crosshair rounded-lg border border-border",
-          compact ? "h-32" : "h-44",
+          compact ? "h-28 sm:h-32" : "h-36 sm:h-44",
         )}
         style={{
           background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, ${hueBase})`,
@@ -194,7 +320,7 @@ export function ColorPicker({
         }}
       />
 
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <Swatch hex={value} className="size-9" />
         <input
           value={hex}
@@ -204,10 +330,10 @@ export function ColorPicker({
             if (n) onChange(n);
           }}
           onBlur={() => setHex(value)}
-          className="h-9 flex-1 rounded-md border border-input bg-background px-3 font-mono text-sm outline-none focus:ring-2 focus:ring-ring"
+          className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 font-mono text-sm outline-none focus:ring-2 focus:ring-ring"
           aria-label="HEX 色值"
         />
-        <CopyButton value={value} />
+        <CopyButton value={value} className="self-stretch px-2" />
       </div>
     </div>
   );

@@ -1,5 +1,15 @@
-import { useEffect, useState } from "react";
-import { Lock, LockOpen, Plus, RefreshCw, Shuffle, Trash2, Pencil } from "lucide-react";
+import { useState } from "react";
+import {
+  Download,
+  Heart,
+  Lock,
+  LockOpen,
+  Plus,
+  RefreshCw,
+  Shuffle,
+  Trash2,
+  Pencil,
+} from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,23 +24,30 @@ import {
   simulateCB,
   type HarmonyKey,
 } from "@/lib/color";
-import { ColorPicker, CopyButton, Swatch, Tip } from "./primitives";
+import { ColorPicker, CopyText, InlineRename, Swatch, Tip } from "./primitives";
 import { cn } from "@/lib/utils";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ExportDialog } from "./ExportDialog";
 
 function SavedPalettes({ colors }: { colors: string[] }) {
-  const { saved, savePalette, removePalette, renamePalette, setPalette, user } = useColora();
+  const { saved, savePalette, removePalette, renamePalette, setPalette } = useColora();
   const [name, setName] = useState("");
+  const [editingPaletteId, setEditingPaletteId] = useState<string | null>(null);
 
   return (
     <section className="panel p-4">
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-medium">已保存的方案</h3>
-        {!user && <span className="text-xs text-muted-foreground">登录后可保存方案</span>}
+        <h3 className="text-sm font-medium">已收藏的配色</h3>
+        <div className="flex items-center gap-2">
+          <ExportDialog
+            module="saved"
+            trigger={
+              <Button variant="outline" size="sm" className="gap-2">
+                <Download className="size-3.5" /> 导出收藏
+              </Button>
+            }
+          />
+        </div>
       </div>
       <div className="flex flex-wrap items-start gap-3">
         {saved.map((s) => (
@@ -48,17 +65,22 @@ function SavedPalettes({ colors }: { colors: string[] }) {
               </button>
             </Tip>
             <div className="flex items-center justify-between gap-1">
-              <span className="truncate text-xs">{s.name}</span>
+              <InlineRename
+                value={s.name}
+                editing={editingPaletteId === s.id}
+                onEditingChange={(editing) => setEditingPaletteId(editing ? s.id : null)}
+                onSave={(nextName) => renamePalette(s.id, nextName)}
+                className="flex-1"
+                textClassName="text-xs"
+                ariaLabel="重命名方案"
+              />
               <span className="flex">
                 <Tip label="重命名方案">
                   <button
                     type="button"
                     className="rounded p-1 text-muted-foreground hover:text-foreground"
                     aria-label="重命名方案"
-                    onClick={() => {
-                      const n = prompt("重命名方案", s.name);
-                      if (n) renamePalette(s.id, n);
-                    }}
+                    onClick={() => setEditingPaletteId(s.id)}
                   >
                     <Pencil className="size-3.5" />
                   </button>
@@ -78,25 +100,26 @@ function SavedPalettes({ colors }: { colors: string[] }) {
           </div>
         ))}
 
+        {saved.length === 0 && (
+          <p className="self-center text-xs text-muted-foreground">
+            还没有收藏，点击右侧按钮保存当前配色。
+          </p>
+        )}
+
         <Popover>
-          <Tip label={user ? "保存当前方案" : "请先登录"}>
+          <Tip label="命名收藏当前配色">
             <PopoverTrigger asChild>
               <button
                 type="button"
-                disabled={!user}
-                aria-label={user ? "保存当前方案" : "请先登录"}
-                className="grid h-9 w-14 place-items-center rounded-md border border-dashed border-border text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                aria-label="命名收藏当前配色"
+                className="grid h-9 w-14 place-items-center rounded-md border border-dashed border-border text-muted-foreground transition-colors hover:text-foreground"
               >
                 <Plus className="size-4" />
               </button>
             </PopoverTrigger>
           </Tip>
           <PopoverContent className="w-64 space-y-2">
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="方案名称"
-            />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="配色名称" />
             <Button
               className="w-full"
               disabled={!name.trim()}
@@ -105,7 +128,7 @@ function SavedPalettes({ colors }: { colors: string[] }) {
                 setName("");
               }}
             >
-              保存
+              收藏配色
             </Button>
           </PopoverContent>
         </Popover>
@@ -115,23 +138,34 @@ function SavedPalettes({ colors }: { colors: string[] }) {
 }
 
 export function PaletteTool() {
-  const { color, setColor, palette, setPalette, cbMode } = useColora();
+  const { color, setColor, palette, setPalette, cbMode, savePalette, saved, saveColor } =
+    useColora();
   const [rule, setRule] = useState<HarmonyKey>("complementary");
   const [locked, setLocked] = useState<boolean[]>([true, false, false, false, false]);
-  const [base, setBase] = useState(color);
+  const [base, setBase] = useState(palette[0] ?? color);
 
-  useEffect(() => {
-    setPalette(generateHarmony(base, rule));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [base, rule]);
+  const updateBase = (nextBase: string) => {
+    setBase(nextBase);
+    setPalette(generateHarmony(nextBase, rule));
+  };
+
+  const updateRule = (nextRule: HarmonyKey) => {
+    setRule(nextRule);
+
+    const normalizedBase = normalizeHex(base);
+    if (normalizedBase) setPalette(generateHarmony(normalizedBase, nextRule));
+  };
 
   const regenerate = () => {
     const next = generateHarmony(randomHex(), rule);
-    setPalette(palette.map((c, i) => (locked[i] ? c : next[i] ?? randomHex())));
+    setPalette(palette.map((c, i) => (locked[i] ? c : (next[i] ?? randomHex()))));
   };
 
-  const fineTune = () =>
-    setPalette(palette.map((c, i) => (locked[i] ? c : jitter(c))));
+  const fineTune = () => setPalette(palette.map((c, i) => (locked[i] ? c : jitter(c))));
+
+  const favoriteCurrentPalette = () => {
+    savePalette(`配色 ${saved.length + 1}`, palette);
+  };
 
   return (
     <div className="space-y-4">
@@ -158,7 +192,7 @@ export function PaletteTool() {
                     </PopoverTrigger>
                   </Tip>
                   <PopoverContent className="w-64">
-                    <ColorPicker value={base} onChange={setBase} />
+                    <ColorPicker value={base} onChange={updateBase} />
                   </PopoverContent>
                 </Popover>
                 <div className="flex h-10 items-center gap-2 rounded-lg border border-input px-3">
@@ -166,7 +200,7 @@ export function PaletteTool() {
                     value={base}
                     onChange={(e) => {
                       const n = normalizeHex(e.target.value);
-                      if (n) setBase(n);
+                      if (n) updateBase(n);
                       else setBase(e.target.value.toUpperCase());
                     }}
                     className="w-24 bg-transparent font-mono text-sm outline-none"
@@ -181,7 +215,7 @@ export function PaletteTool() {
                   <button
                     key={h.key}
                     type="button"
-                    onClick={() => setRule(h.key)}
+                    onClick={() => updateRule(h.key)}
                     className={cn(
                       "rounded-full px-3.5 py-1.5 text-sm transition-colors",
                       rule === h.key
@@ -198,40 +232,76 @@ export function PaletteTool() {
             <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               {palette.map((c, i) => (
                 <div key={i} className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => setColor(c)}
-                    className="relative block h-56 w-full rounded-xl border border-border/60 transition-transform hover:scale-[1.01]"
-                    style={{ backgroundColor: simulateCB(c, cbMode) }}
-                  >
-                    <Tip label={locked[i] ? "解锁该色" : "锁定该色"}>
-                      <span
+                  <div className="relative h-56 w-full rounded-xl border border-border/60">
+                    <button
+                      type="button"
+                      onClick={() => setColor(c)}
+                      className="block size-full rounded-xl transition-transform hover:scale-[1.01]"
+                      style={{ backgroundColor: simulateCB(c, cbMode) }}
+                      aria-label={`选择颜色 ${c}`}
+                    />
+                    <Tip label={locked[i] ? "已锁定，点击解锁" : "未锁定，点击锁定"}>
+                      <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           setLocked(locked.map((l, li) => (li === i ? !l : l)));
                         }}
-                        aria-label={locked[i] ? "解锁该色" : "锁定该色"}
-                        className="absolute right-3 top-3 grid size-8 place-items-center rounded-full bg-background/90 text-foreground"
+                        aria-pressed={locked[i]}
+                        aria-label={locked[i] ? "已锁定，点击解锁" : "未锁定，点击锁定"}
+                        className={cn(
+                          "absolute right-3 top-3 grid size-9 place-items-center rounded-full shadow-sm ring-1 ring-inset transition-colors",
+                          locked[i]
+                            ? "bg-foreground text-background ring-background/30"
+                            : "bg-background/85 text-muted-foreground ring-foreground/25 hover:bg-background hover:text-foreground",
+                        )}
                       >
-                        {locked[i] ? <Lock className="size-4" /> : <LockOpen className="size-4" />}
-                      </span>
+                        {locked[i] ? (
+                          <Lock className="size-4 stroke-[2.5]" />
+                        ) : (
+                          <LockOpen className="size-4" />
+                        )}
+                      </button>
                     </Tip>
-                  </button>
-                  <div className="flex items-center justify-center gap-1">
-                    <span className="font-mono text-sm">{c}</span>
-                    <CopyButton value={c} />
+                    <Tip label="收藏这个颜色">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          saveColor(c, c);
+                        }}
+                        aria-label={`收藏颜色 ${c}`}
+                        className="absolute left-3 top-3 grid size-9 place-items-center rounded-full bg-background/85 text-muted-foreground shadow-sm ring-1 ring-inset ring-foreground/25 transition-colors hover:bg-background hover:text-foreground"
+                      >
+                        <Heart className="size-4" />
+                      </button>
+                    </Tip>
+                  </div>
+                  <div className="flex items-center justify-center">
+                    <CopyText value={c} className="font-mono text-sm" />
                   </div>
                 </div>
               ))}
             </div>
 
             <div className="mt-5 flex gap-2">
+              <Button className="gap-2" onClick={favoriteCurrentPalette}>
+                <Heart className="size-4" /> 收藏当前配色
+              </Button>
               <Button variant="outline" className="gap-2" onClick={regenerate}>
                 <RefreshCw className="size-4" /> 重新生成
               </Button>
               <Button variant="outline" className="gap-2" onClick={fineTune}>
                 <Shuffle className="size-4" /> 随机微调
               </Button>
+              <ExportDialog
+                module="palette"
+                trigger={
+                  <Button variant="outline" className="gap-2">
+                    <Download className="size-4" /> 导出当前配色
+                  </Button>
+                }
+              />
             </div>
           </section>
 
@@ -248,7 +318,7 @@ export function PaletteTool() {
 }
 
 function FreePicker() {
-  const { palette, setPalette, setColor, cbMode } = useColora();
+  const { palette, setPalette, setColor, cbMode, saveColor } = useColora();
   const score = harmonyScore(palette);
 
   return (
@@ -286,8 +356,18 @@ function FreePicker() {
                 />
               </PopoverContent>
             </Popover>
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-xs">{c}</span>
+            <div className="flex items-center justify-between gap-1">
+              <CopyText value={c} className="font-mono text-xs" />
+              <Tip label="收藏颜色">
+                <button
+                  type="button"
+                  onClick={() => saveColor(c, c)}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label={`收藏颜色 ${c}`}
+                >
+                  <Heart className="size-3.5" />
+                </button>
+              </Tip>
               <Tip label="删除颜色">
                 <button
                   type="button"
