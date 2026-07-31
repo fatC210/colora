@@ -29,110 +29,71 @@ import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ExportDialog } from "./ExportDialog";
 
-function SavedPalettes({ colors }: { colors: string[] }) {
-  const { saved, savePalette, removePalette, renamePalette, setPalette } = useColora();
-  const [name, setName] = useState("");
+function SavedPalettes() {
+  const { saved, removePalette, renamePalette, setPalette } = useColora();
   const [editingPaletteId, setEditingPaletteId] = useState<string | null>(null);
 
   return (
-    <section className="panel p-4">
-      <div className="mb-3 flex items-center justify-between">
+    <section className="panel p-5">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <h3 className="text-sm font-medium">已收藏的配色</h3>
-        <div className="flex items-center gap-2">
-          <ExportDialog
-            module="saved"
-            trigger={
-              <Button variant="outline" size="sm" className="gap-2">
-                <Download className="size-3.5" /> 导出收藏
-              </Button>
-            }
-          />
-        </div>
+        <span className="text-xs text-muted-foreground">点击卡片即可恢复并继续调整</span>
       </div>
-      <div className="flex flex-wrap items-start gap-3">
-        {saved.map((s) => (
-          <div key={s.id} className="w-44 space-y-1.5">
-            <Tip label={`应用方案：${s.name}`}>
-              <button
-                type="button"
-                onClick={() => setPalette(s.colors)}
-                aria-label={`应用方案：${s.name}`}
-                className="flex h-9 w-full overflow-hidden rounded-md border border-border"
-              >
-                {s.colors.map((c, i) => (
-                  <span key={i} className="flex-1" style={{ backgroundColor: c }} />
-                ))}
-              </button>
-            </Tip>
-            <div className="flex items-center justify-between gap-1">
-              <InlineRename
-                value={s.name}
-                editing={editingPaletteId === s.id}
-                onEditingChange={(editing) => setEditingPaletteId(editing ? s.id : null)}
-                onSave={(nextName) => renamePalette(s.id, nextName)}
-                className="flex-1"
-                textClassName="text-xs"
-                ariaLabel="重命名方案"
-              />
-              <span className="flex">
-                <Tip label="重命名方案">
-                  <button
-                    type="button"
-                    className="rounded p-1 text-muted-foreground hover:text-foreground"
-                    aria-label="重命名方案"
-                    onClick={() => setEditingPaletteId(s.id)}
-                  >
-                    <Pencil className="size-3.5" />
-                  </button>
-                </Tip>
-                <Tip label="删除方案">
-                  <button
-                    type="button"
-                    className="rounded p-1 text-muted-foreground hover:text-foreground"
-                    aria-label="删除方案"
-                    onClick={() => removePalette(s.id)}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </Tip>
-              </span>
+      {saved.length === 0 ? (
+        <p className="text-sm text-muted-foreground">暂无收藏配色，点击「收藏当前配色」保存。</p>
+      ) : (
+        <div className="flex flex-wrap items-start gap-3">
+          {saved.map((s) => (
+            <div key={s.id} className="w-44 space-y-1.5">
+              <Tip label={`应用方案：${s.name}`}>
+                <button
+                  type="button"
+                  onClick={() => setPalette(s.colors)}
+                  aria-label={`应用方案：${s.name}`}
+                  className="flex h-9 w-full overflow-hidden rounded-md border border-border"
+                >
+                  {s.colors.map((c, i) => (
+                    <span key={i} className="flex-1" style={{ backgroundColor: c }} />
+                  ))}
+                </button>
+              </Tip>
+              <div className="flex items-center justify-between gap-1">
+                <InlineRename
+                  value={s.name}
+                  editing={editingPaletteId === s.id}
+                  onEditingChange={(editing) => setEditingPaletteId(editing ? s.id : null)}
+                  onSave={(nextName) => renamePalette(s.id, nextName)}
+                  className="flex-1"
+                  textClassName="text-xs"
+                  ariaLabel="重命名方案"
+                />
+                <span className="flex">
+                  <Tip label="重命名方案">
+                    <button
+                      type="button"
+                      className="rounded p-1 text-muted-foreground hover:text-foreground"
+                      aria-label="重命名方案"
+                      onClick={() => setEditingPaletteId(s.id)}
+                    >
+                      <Pencil className="size-3.5" />
+                    </button>
+                  </Tip>
+                  <Tip label="删除方案">
+                    <button
+                      type="button"
+                      className="rounded p-1 text-muted-foreground hover:text-foreground"
+                      aria-label="删除方案"
+                      onClick={() => removePalette(s.id)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </Tip>
+                </span>
+              </div>
             </div>
-          </div>
-        ))}
-
-        {saved.length === 0 && (
-          <p className="self-center text-xs text-muted-foreground">
-            还没有收藏，点击右侧按钮保存当前配色。
-          </p>
-        )}
-
-        <Popover>
-          <Tip label="命名收藏当前配色">
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                aria-label="命名收藏当前配色"
-                className="grid h-9 w-14 place-items-center rounded-md border border-dashed border-border text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <Plus className="size-4" />
-              </button>
-            </PopoverTrigger>
-          </Tip>
-          <PopoverContent className="w-64 space-y-2">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="配色名称" />
-            <Button
-              className="w-full"
-              disabled={!name.trim()}
-              onClick={() => {
-                savePalette(name.trim(), colors);
-                setName("");
-              }}
-            >
-              收藏配色
-            </Button>
-          </PopoverContent>
-        </Popover>
-      </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -305,12 +266,12 @@ export function PaletteTool() {
             </div>
           </section>
 
-          <SavedPalettes colors={palette} />
+          <SavedPalettes />
         </TabsContent>
 
         <TabsContent value="free" className="mt-4 space-y-4">
           <FreePicker />
-          <SavedPalettes colors={palette} />
+          <SavedPalettes />
         </TabsContent>
       </Tabs>
     </div>
