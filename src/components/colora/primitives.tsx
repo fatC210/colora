@@ -5,6 +5,8 @@ import {
   useEffect,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { Check, Copy } from "lucide-react";
@@ -12,7 +14,22 @@ import { cn } from "@/lib/utils";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { hexToRgb, hsvToRgb, normalizeHex, rgbToHex, rgbToHsv } from "@/lib/color";
 
-/** 把任意单个元素包一层主题自适应的 tooltip。asChild 透传，不引入额外 DOM。 */
+/** 把多个同名事件处理器合并为一个，依次调用（用于 cloneElement 时不覆盖原 handler）。 */
+function composeEventHandlers<E>(...handlers: (((e: E) => void) | undefined)[]): (e: E) => void {
+  return (e) => {
+    for (const h of handlers) {
+      if (h) h(e);
+    }
+  };
+}
+
+const LONG_PRESS_MS = 450;
+
+/**
+ * 把任意单个元素包一层主题自适应的 tooltip。asChild 透传，不引入额外 DOM。
+ * 桌面端：hover/focus 显示（Radix 原生行为，通过受控 open 同步）。
+ * 移动端：长按约 450ms 显示，松手/离开隐藏；长按触发后吞掉随之而来的 click 与原生右键菜单。
+ */
 export function Tip({
   label,
   side = "top",
@@ -22,13 +39,79 @@ export function Tip({
   side?: "top" | "bottom" | "left" | "right";
   children: ReactNode;
 }) {
-  const trigger =
-    isValidElement<{ title?: string }>(children) && children.props.title !== undefined
-      ? cloneElement(children, { title: undefined })
-      : children;
+  const [open, setOpen] = useState(false);
+  const timerRef = useRef<number | undefined>(undefined);
+  const longPressedRef = useRef(false);
+  const touchHoldingRef = useRef(false);
+
+  const clearLongPress = useCallback(() => {
+    if (timerRef.current !== undefined) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = undefined;
+    }
+  }, []);
+
+  useEffect(() => () => clearLongPress(), [clearLongPress]);
+
+  let trigger = children;
+  if (isValidElement(children)) {
+    const props = children.props as {
+      title?: string;
+      onPointerDown?: (e: ReactPointerEvent) => void;
+      onPointerUp?: (e: ReactPointerEvent) => void;
+      onPointerEnter?: (e: ReactPointerEvent) => void;
+      onPointerLeave?: (e: ReactPointerEvent) => void;
+      onPointerCancel?: (e: ReactPointerEvent) => void;
+      onContextMenu?: (e: ReactMouseEvent) => void;
+      onClickCapture?: (e: ReactMouseEvent) => void;
+    };
+
+    trigger = cloneElement(children, {
+      title: undefined,
+      onPointerDown: composeEventHandlers<ReactPointerEvent>(props.onPointerDown, (e) => {
+        if (e.pointerType !== "touch") return;
+        longPressedRef.current = false;
+        touchHoldingRef.current = true;
+        clearLongPress();
+        timerRef.current = window.setTimeout(() => {
+          longPressedRef.current = true;
+          setOpen(true);
+        }, LONG_PRESS_MS);
+      }),
+      onPointerUp: composeEventHandlers<ReactPointerEvent>(props.onPointerUp, (e) => {
+        if (e.pointerType !== "touch") return;
+        touchHoldingRef.current = false;
+        clearLongPress();
+        setOpen(false);
+      }),
+      onPointerLeave: composeEventHandlers<ReactPointerEvent>(props.onPointerLeave, (e) => {
+        if (e.pointerType !== "touch") return;
+        touchHoldingRef.current = false;
+        clearLongPress();
+        setOpen(false);
+      }),
+      onPointerCancel: composeEventHandlers<ReactPointerEvent>(props.onPointerCancel, () => {
+        touchHoldingRef.current = false;
+        clearLongPress();
+        setOpen(false);
+      }),
+      onContextMenu: composeEventHandlers<ReactMouseEvent>(props.onContextMenu, (e) => {
+        // 长按期间抑制移动端原生右键/选择菜单
+        if (touchHoldingRef.current) e.preventDefault();
+      }),
+      onClickCapture: composeEventHandlers<ReactMouseEvent>(props.onClickCapture, (e) => {
+        // 长按刚触发后，吞掉随之而来的 click，避免误激活按钮
+        if (longPressedRef.current) {
+          e.preventDefault();
+          e.stopPropagation();
+          longPressedRef.current = false;
+        }
+      }),
+    });
+  }
 
   return (
-    <Tooltip delayDuration={300}>
+    <Tooltip open={open} onOpenChange={setOpen} delayDuration={300}>
       <TooltipTrigger asChild>{trigger}</TooltipTrigger>
       <TooltipContent side={side}>{label}</TooltipContent>
     </Tooltip>

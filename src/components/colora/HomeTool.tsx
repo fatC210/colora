@@ -60,7 +60,11 @@ export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
     <div className="space-y-5">
       <section className="panel p-5 sm:p-8">
         <div className="mb-5 flex items-center" aria-label="Colora">
-          <Logo className="size-8 text-foreground" gradient={logoGradient} aria-hidden="true" />
+          <Logo
+            className="size-8 -translate-y-0.5 text-foreground md:translate-y-0"
+            gradient={logoGradient}
+            aria-hidden="true"
+          />
           <span className="-ml-2 text-2xl font-semibold tracking-tight" aria-hidden="true">
             olora
           </span>

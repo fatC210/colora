@@ -1,4 +1,4 @@
-﻿import { useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Blend,
   Contrast,
@@ -6,11 +6,13 @@ import {
   Eye,
   Home,
   Image as ImageIcon,
+  Menu,
   Moon,
   Palette,
   Smartphone,
   Sun,
   User,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/colora/Logo";
@@ -41,6 +43,8 @@ const CB_ICON_COLORS: Record<Exclude<CBMode, "none">, string> = {
   tritanopia: "#3b82f6",
   achromatopsia: "#737373",
 };
+
+type ActionVariant = "sidebar" | "topbar";
 
 function getUserInitial(user: string) {
   return user.trim().charAt(0).toUpperCase() || "U";
@@ -89,7 +93,96 @@ function NavItem({
   );
 }
 
-function AccountPopover() {
+/** 色盲模拟按钮：sidebar 为纵向（桌面侧边栏），topbar 为横向小图标（移动端右上角）。 */
+function ColorBlindAction({ variant }: { variant: ActionVariant }) {
+  const { cbMode, setCbMode } = useColora();
+  const active = cbMode !== "none";
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title="色盲模拟"
+          aria-label="色盲模拟"
+          data-active={active ? "true" : undefined}
+          className={cn(
+            "colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px]",
+            variant === "topbar" && "colora-action-button-topbar",
+            active
+              ? "bg-sidebar-accent font-medium text-sidebar-foreground"
+              : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+          )}
+        >
+          <Eye
+            className="size-5"
+            strokeWidth={1.6}
+            style={{
+              color: active ? CB_ICON_COLORS[cbMode as Exclude<CBMode, "none">] : undefined,
+            }}
+          />
+          {variant === "sidebar" && (
+            <span className="colora-sidebar-label leading-none">色盲模拟</span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side={variant === "topbar" ? "bottom" : "right"}
+        align="end"
+        className="w-44 p-1"
+      >
+        {(Object.keys(CB_LABELS) as Exclude<CBMode, "none">[]).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setCbMode(cbMode === m ? "none" : m)}
+            className={cn(
+              "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-sm hover:bg-accent",
+              cbMode === m && "bg-accent font-medium",
+            )}
+          >
+            <span className="flex items-center gap-2">
+              <Eye className="size-4" strokeWidth={1.6} style={{ color: CB_ICON_COLORS[m] }} />
+              {CB_LABELS[m]}
+            </span>
+            {cbMode === m && <span>✓</span>}
+          </button>
+        ))}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** 主题切换按钮。 */
+function ThemeAction({ variant }: { variant: ActionVariant }) {
+  const { theme, toggleTheme } = useColora();
+  return (
+    <button
+      type="button"
+      onClick={toggleTheme}
+      title="深浅色切换"
+      aria-label="深浅色切换"
+      className={cn(
+        "colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px]",
+        variant === "topbar" && "colora-action-button-topbar",
+        "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+      )}
+    >
+      {theme === "dark" ? (
+        <Sun className="size-5" strokeWidth={1.6} />
+      ) : (
+        <Moon className="size-5" strokeWidth={1.6} />
+      )}
+      {variant === "sidebar" && (
+        <span className="colora-sidebar-label leading-none">
+          {theme === "dark" ? "浅色" : "深色"}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/** 登录/账户按钮 + 弹出表单。 */
+function AccountAction({ variant }: { variant: ActionVariant }) {
   const { user, signIn, signUp, signOut } = useColora();
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
@@ -122,8 +215,10 @@ function AccountPopover() {
           aria-label={user ? `已登录：${user}` : "登录"}
           data-signed-in={user ? "true" : undefined}
           className={cn(
-            "colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px] hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+            "colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px]",
+            variant === "topbar" && "colora-action-button-topbar",
             user ? "text-sidebar-foreground" : "text-muted-foreground",
+            "hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
           )}
         >
           {avatarInitial ? (
@@ -135,10 +230,12 @@ function AccountPopover() {
           ) : (
             <User className="size-5" strokeWidth={1.6} />
           )}
-          <span className="colora-sidebar-label leading-none">{user ? "已登录" : "登录"}</span>
+          {variant === "sidebar" && (
+            <span className="colora-sidebar-label leading-none">{user ? "已登录" : "登录"}</span>
+          )}
         </button>
       </PopoverTrigger>
-      <PopoverContent side="right" align="end" className="w-72">
+      <PopoverContent side={variant === "topbar" ? "bottom" : "right"} align="end" className="w-72">
         {user ? (
           <div className="space-y-3">
             <div className="flex items-center gap-3">
@@ -233,9 +330,18 @@ function AccountPopover() {
   );
 }
 
-export function Sidebar({ tool, onTool }: { tool: ToolId; onTool: (t: ToolId) => void }) {
-  const { cbMode, setCbMode, theme, toggleTheme, logoGradient, randomizeLogoGradient } =
-    useColora();
+export function Sidebar({
+  tool,
+  onTool,
+  open = false,
+  onOpenChange,
+}: {
+  tool: ToolId;
+  onTool: (t: ToolId) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const { logoGradient, randomizeLogoGradient } = useColora();
   const navRef = useRef<HTMLElement | null>(null);
   const navItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const activeIndicatorRef = useRef<HTMLSpanElement | null>(null);
@@ -300,99 +406,165 @@ export function Sidebar({ tool, onTool }: { tool: ToolId; onTool: (t: ToolId) =>
     };
   }, [activeToolIndex]);
 
+  const asideRef = useRef<HTMLElement | null>(null);
+  const dragState = useRef({ startX: 0, dx: 0, width: 0, dragging: false });
+
+  const onDragPointerMove = useCallback((e: PointerEvent) => {
+    if (!dragState.current.dragging) return;
+    const { startX, width } = dragState.current;
+    const dx = Math.max(-width, Math.min(0, e.clientX - startX));
+    dragState.current.dx = dx;
+    const aside = asideRef.current;
+    if (aside) aside.style.transform = `translateX(${dx}px)`;
+  }, []);
+
+  const onDragPointerUp = useCallback(() => {
+    if (!dragState.current.dragging) return;
+    dragState.current.dragging = false;
+    window.removeEventListener("pointermove", onDragPointerMove);
+    window.removeEventListener("pointerup", onDragPointerUp);
+    window.removeEventListener("pointercancel", onDragPointerUp);
+
+    const aside = asideRef.current;
+    const dx = dragState.current.dx;
+    const width = dragState.current.width;
+    if (!aside) return;
+    aside.dataset.dragging = "false";
+
+    const shouldClose = dx < -(width * 0.25 || 80);
+    if (shouldClose) {
+      aside.style.transform = "translateX(-100%)";
+      let finished = false;
+      const done = () => {
+        if (finished) return;
+        finished = true;
+        aside.removeEventListener("transitionend", done);
+        // 先把 data-open 置为关闭态，让 CSS 解析为 -100%，
+        // 再清内联 transform——两者同为 -100%，避免清内联时闪回 translateX(0)
+        aside.dataset.open = "false";
+        aside.style.transform = "";
+        onOpenChange?.(false);
+      };
+      aside.addEventListener("transitionend", done);
+      window.setTimeout(done, 320);
+    } else {
+      aside.style.transform = "";
+    }
+  }, [onDragPointerMove, onOpenChange]);
+
+  // 卸载时清理可能残留的 window 监听
+  useEffect(
+    () => () => {
+      window.removeEventListener("pointermove", onDragPointerMove);
+      window.removeEventListener("pointerup", onDragPointerUp);
+      window.removeEventListener("pointercancel", onDragPointerUp);
+    },
+    [onDragPointerMove, onDragPointerUp],
+  );
+
+  // 抽屉关闭后清掉内联 transform，确保下次打开从干净状态开始
+  useEffect(() => {
+    if (open) return;
+    const aside = asideRef.current;
+    if (aside) {
+      aside.style.transform = "";
+      aside.dataset.dragging = "false";
+    }
+  }, [open]);
+
+  const onDragPointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType !== "touch" || !open) return;
+    const aside = asideRef.current;
+    const width = aside?.offsetWidth ?? 248;
+    dragState.current = { startX: e.clientX, dx: 0, width, dragging: true };
+    if (aside) aside.dataset.dragging = "true";
+    window.addEventListener("pointermove", onDragPointerMove);
+    window.addEventListener("pointerup", onDragPointerUp);
+    window.addEventListener("pointercancel", onDragPointerUp);
+  };
+
+  const close = () => onOpenChange?.(false);
+
   return (
-    <aside className="colora-sidebar">
-      <Tip label="试试点击！" side="right">
-        <button
-          type="button"
-          onClick={randomizeLogoGradient}
-          aria-label="点击随机切换笑脸颜色"
-          className="colora-sidebar-logo transition-opacity hover:opacity-90 active:scale-95 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
-        >
-          <Logo className="size-8 text-foreground" gradient={logoGradient} />
-          <span className="sr-only">Colora</span>
-        </button>
-      </Tip>
+    <>
+      {/* 移动端：左上角展开按钮 */}
+      <button
+        type="button"
+        onClick={() => onOpenChange?.(true)}
+        aria-label="打开侧边栏"
+        className="colora-mobile-nav-toggle"
+      >
+        <Menu className="size-5" strokeWidth={1.8} />
+      </button>
 
-      <nav ref={navRef} className="colora-sidebar-nav">
-        <span ref={activeIndicatorRef} aria-hidden className="colora-sidebar-active-indicator" />
-        {TOOLS.map((toolConfig, index) => (
-          <NavItem
-            key={toolConfig.id}
-            label={toolConfig.label}
-            icon={toolConfig.icon}
-            active={tool === toolConfig.id}
-            buttonRef={(node) => {
-              navItemRefs.current[index] = node;
-            }}
-            onClick={() => onTool(toolConfig.id)}
-          />
-        ))}
-      </nav>
+      {/* 移动端：右上角动作栏（色盲 / 主题 / 登录） */}
+      <div className="colora-mobile-actions" role="toolbar" aria-label="操作">
+        <ColorBlindAction variant="topbar" />
+        <ThemeAction variant="topbar" />
+        <AccountAction variant="topbar" />
+      </div>
 
-      <div className="colora-sidebar-actions">
-        <Popover>
-          <PopoverTrigger asChild>
+      {/* 移动端：遮罩层（点击或向左滑动均可关闭抽屉） */}
+      <button
+        type="button"
+        tabIndex={open ? 0 : -1}
+        aria-hidden={!open}
+        onClick={close}
+        onPointerDown={onDragPointerDown}
+        className="colora-sidebar-overlay"
+        data-open={open ? "true" : undefined}
+      />
+
+      <aside
+        ref={asideRef}
+        className="colora-sidebar"
+        data-open={open ? "true" : undefined}
+        onPointerDown={onDragPointerDown}
+      >
+        <div className="colora-sidebar-header">
+          <Tip label="试试点击！" side="right">
             <button
               type="button"
-              title="色盲模拟"
-              data-active={cbMode !== "none" ? "true" : undefined}
-              className={cn(
-                "colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px]",
-                cbMode !== "none"
-                  ? "bg-sidebar-accent font-medium text-sidebar-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-              )}
+              onClick={randomizeLogoGradient}
+              aria-label="点击随机切换笑脸颜色"
+              className="colora-sidebar-logo transition-opacity hover:opacity-90 active:scale-95 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
             >
-              <Eye
-                className="size-5"
-                strokeWidth={1.6}
-                style={{
-                  color: cbMode === "none" ? undefined : CB_ICON_COLORS[cbMode],
-                }}
-              />
-              <span className="colora-sidebar-label leading-none">色盲模拟</span>
+              <Logo className="size-8 text-foreground" gradient={logoGradient} />
+              <span className="sr-only">Colora</span>
             </button>
-          </PopoverTrigger>
-          <PopoverContent side="right" align="end" className="w-44 p-1">
-            {(Object.keys(CB_LABELS) as Exclude<CBMode, "none">[]).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setCbMode(cbMode === m ? "none" : m)}
-                className={cn(
-                  "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-sm hover:bg-accent",
-                  cbMode === m && "bg-accent font-medium",
-                )}
-              >
-                <span className="flex items-center gap-2">
-                  <Eye className="size-4" strokeWidth={1.6} style={{ color: CB_ICON_COLORS[m] }} />
-                  {CB_LABELS[m]}
-                </span>
-                {cbMode === m && <span>✓</span>}
-              </button>
-            ))}
-          </PopoverContent>
-        </Popover>
+          </Tip>
+          <button
+            type="button"
+            onClick={close}
+            aria-label="收起侧边栏"
+            className="colora-sidebar-close"
+          >
+            <X className="size-5" strokeWidth={1.8} />
+          </button>
+        </div>
 
-        <button
-          type="button"
-          onClick={toggleTheme}
-          title="深浅色切换"
-          className="colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
-        >
-          {theme === "dark" ? (
-            <Sun className="size-5" strokeWidth={1.6} />
-          ) : (
-            <Moon className="size-5" strokeWidth={1.6} />
-          )}
-          <span className="colora-sidebar-label leading-none">
-            {theme === "dark" ? "浅色" : "深色"}
-          </span>
-        </button>
+        <nav ref={navRef} className="colora-sidebar-nav">
+          <span ref={activeIndicatorRef} aria-hidden className="colora-sidebar-active-indicator" />
+          {TOOLS.map((toolConfig, index) => (
+            <NavItem
+              key={toolConfig.id}
+              label={toolConfig.label}
+              icon={toolConfig.icon}
+              active={tool === toolConfig.id}
+              buttonRef={(node) => {
+                navItemRefs.current[index] = node;
+              }}
+              onClick={() => onTool(toolConfig.id)}
+            />
+          ))}
+        </nav>
 
-        <AccountPopover />
-      </div>
-    </aside>
+        <div className="colora-sidebar-actions">
+          <ColorBlindAction variant="sidebar" />
+          <ThemeAction variant="sidebar" />
+          <AccountAction variant="sidebar" />
+        </div>
+      </aside>
+    </>
   );
 }

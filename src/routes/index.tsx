@@ -56,6 +56,7 @@ function CbFilters() {
 function ColoraApp() {
   const [tool, setTool] = useState<ToolId>("palette");
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const { cbMode, setCbMode } = useColora();
 
   const title = TOOLS.find((t) => t.id === tool)?.label ?? "";
@@ -63,7 +64,15 @@ function ColoraApp() {
   return (
     <div className="colora-app-shell">
       <CbFilters />
-      <Sidebar tool={tool} onTool={setTool} />
+      <Sidebar
+        tool={tool}
+        onTool={(t) => {
+          setTool(t);
+          setMobileNavOpen(false);
+        }}
+        open={mobileNavOpen}
+        onOpenChange={setMobileNavOpen}
+      />
 
       <main
         className="colora-main"
@@ -87,7 +96,9 @@ function ColoraApp() {
           )}
 
           <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-            <h1 className="mb-4 text-2xl font-bold tracking-tight sm:mb-5 sm:text-3xl">{title}</h1>
+            <h1 className="colora-page-title mb-4 text-2xl font-bold tracking-tight sm:mb-5 sm:text-3xl">
+              {title}
+            </h1>
             {tool === "home" && <HomeTool onTool={setTool} />}
             {tool === "palette" && <PaletteTool />}
             {tool === "gradient" && <GradientTool />}
