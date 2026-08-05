@@ -58,7 +58,7 @@ export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
 
   return (
     <div className="space-y-5">
-      <section className="panel p-8">
+      <section className="panel p-5 sm:p-8">
         <div className="mb-5 flex items-center" aria-label="Colora">
           <Logo className="size-8 text-foreground" gradient={logoGradient} aria-hidden="true" />
           <span className="-ml-2 text-2xl font-semibold tracking-tight" aria-hidden="true">
@@ -72,7 +72,7 @@ export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
           Colora 是面向设计师与前端开发者的轻量级色彩工具。所见即所得，从选色到拿到代码不超过三步。
         </p>
 
-        <div className="mt-7 flex h-28 overflow-hidden rounded-xl border border-border">
+        <div className="mt-7 flex h-24 overflow-hidden rounded-xl border border-border sm:h-28">
           {palette.map((c, i) => (
             <Tip key={i} label={c}>
               <button
@@ -88,12 +88,16 @@ export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
 
         <div className="mt-5 flex flex-wrap gap-2">
           <Button
-            className="w-48"
+            className="w-full gap-2 sm:w-48"
             onClick={() => setPalette(generateHarmony(randomHex(), "analogous"))}
           >
             随机生成一组配色
           </Button>
-          <Button variant="outline" className="w-48 gap-2" onClick={() => onTool("palette")}>
+          <Button
+            variant="outline"
+            className="w-full gap-2 sm:w-48"
+            onClick={() => onTool("palette")}
+          >
             前往配色方案 <ArrowRight className="size-4" />
           </Button>
         </div>

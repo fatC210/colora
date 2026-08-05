@@ -718,13 +718,23 @@ export function ExportDialog({
     "preview",
     "saved",
   ];
+  const tabMeta: Record<ExportModule, { icon: typeof FileJson; label: string }> = {
+    color: { icon: ClipboardCopy, label: "当前颜色" },
+    palette: { icon: SwatchBook, label: "配色方案" },
+    gradient: { icon: LayoutGrid, label: "渐变" },
+    image: { icon: ImageIcon, label: "图片取色" },
+    mixer: { icon: Blend, label: "颜色混合" },
+    contrast: { icon: Contrast, label: "对比度" },
+    preview: { icon: Monitor, label: "实时预览" },
+    saved: { icon: PaletteIcon, label: "收藏色板" },
+  };
   const chosen = module === "all" ? order : [module];
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent
-        className="flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-5xl flex-col overflow-hidden p-4 sm:p-6"
+        className="flex h-[80dvh] w-[960px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden p-4 sm:p-6"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           window.requestAnimationFrame(() => contentRef.current?.focus());
@@ -734,31 +744,47 @@ export function ExportDialog({
           <DialogTitle>{module === "all" ? "导出中心" : "导出当前模块"}</DialogTitle>
         </DialogHeader>
 
-        <div ref={contentRef} tabIndex={-1} className="min-h-0 overflow-y-auto pr-1 outline-none">
-          {module === "all" ? (
-            <Tabs defaultValue={order[0]} className="min-h-0 space-y-4">
-              <div className="overflow-x-auto pb-1">
-                <TabsList className="min-w-max justify-start">
-                  <TabsTrigger value="color">当前颜色</TabsTrigger>
-                  <TabsTrigger value="palette">配色方案</TabsTrigger>
-                  <TabsTrigger value="gradient">渐变</TabsTrigger>
-                  <TabsTrigger value="image">图片取色</TabsTrigger>
-                  <TabsTrigger value="mixer">颜色混合</TabsTrigger>
-                  <TabsTrigger value="contrast">对比度</TabsTrigger>
-                  <TabsTrigger value="preview">实时预览</TabsTrigger>
-                  <TabsTrigger value="saved">收藏色板</TabsTrigger>
-                </TabsList>
-              </div>
+        {module === "all" ? (
+          <Tabs defaultValue={order[0]} className="flex min-h-0 flex-1 flex-col">
+            <div className="-mx-4 shrink-0 overflow-x-auto border-b border-border px-4 sm:-mx-6 sm:px-6">
+              <TabsList className="colora-export-tabs min-w-max justify-start">
+                {order.map((key) => {
+                  const Icon = tabMeta[key].icon;
+                  return (
+                    <TabsTrigger
+                      key={key}
+                      value={key}
+                      aria-label={tabMeta[key].label}
+                      className="colora-export-tab gap-1.5"
+                    >
+                      <Icon className="size-4 colora-export-tab-icon" strokeWidth={1.6} />
+                      <span className="colora-export-tab-text">{tabMeta[key].label}</span>
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+            </div>
+            <div
+              ref={contentRef}
+              tabIndex={-1}
+              className="min-h-0 flex-1 overflow-y-auto pt-4 pr-1 outline-none"
+            >
               {order.map((item) => (
                 <TabsContent key={item} value={item} className="mt-0">
                   {sections[item]}
                 </TabsContent>
               ))}
-            </Tabs>
-          ) : (
+            </div>
+          </Tabs>
+        ) : (
+          <div
+            ref={contentRef}
+            tabIndex={-1}
+            className="min-h-0 flex-1 overflow-y-auto pr-1 outline-none"
+          >
             <div className="space-y-4">{chosen.map((item) => sections[item])}</div>
-          )}
-        </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

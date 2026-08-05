@@ -80,7 +80,7 @@ export function ContrastTool() {
 
   return (
     <div className="space-y-4">
-      <section className="panel flex flex-wrap items-center gap-6 p-4">
+      <section className="panel flex flex-wrap items-center gap-4 p-4 sm:gap-6">
         <Field label="前景色" value={fg} onChange={setFg} cbMode={cbMode} />
         <Tip label="交换前景色与背景色">
           <button
@@ -107,7 +107,7 @@ export function ContrastTool() {
       </section>
 
       <section
-        className="rounded-xl border border-border p-10"
+        className="rounded-xl border border-border p-6 sm:p-10"
         style={{ backgroundColor: simulateCB(bg, cbMode), color: simulateCB(fg, cbMode) }}
       >
         <h2 className="text-4xl font-bold tracking-tight sm:text-5xl">设计让信息清晰可见</h2>
@@ -116,7 +116,7 @@ export function ContrastTool() {
         </p>
         <button
           type="button"
-          className="mt-8 rounded-lg px-6 py-3 text-sm font-medium"
+          className="mt-6 rounded-lg px-6 py-3 text-sm font-medium sm:mt-8"
           style={{ backgroundColor: simulateCB(fg, cbMode), color: simulateCB(bg, cbMode) }}
         >
           主要按钮
@@ -124,7 +124,7 @@ export function ContrastTool() {
         <p className="mt-6 text-xs opacity-80">小号文字示例：12px 正文在此背景上的可读性表现。</p>
       </section>
 
-      <section className="panel flex flex-wrap items-center justify-between gap-8 p-6">
+      <section className="panel flex flex-wrap items-center justify-between gap-6 p-5 sm:gap-8 sm:p-6">
         <div>
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
             对比度比率
@@ -145,7 +145,9 @@ export function ContrastTool() {
               </button>
             </Tip>
           </p>
-          <p className="mt-1 font-mono text-6xl font-bold tracking-tight">{ratio.toFixed(1)} : 1</p>
+          <p className="mt-1 font-mono text-5xl font-bold tracking-tight sm:text-6xl">
+            {ratio.toFixed(1)} : 1
+          </p>
         </div>
         <div className="space-y-2">
           {[

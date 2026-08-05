@@ -245,7 +245,7 @@ export function PaletteTool() {
               ))}
             </div>
 
-            <div className="mt-5 flex gap-2">
+            <div className="mt-5 flex flex-wrap gap-2">
               <Button className="gap-2" onClick={favoriteCurrentPalette}>
                 <Heart className="size-4" /> 收藏当前配色
               </Button>

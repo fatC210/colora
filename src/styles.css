@@ -654,6 +654,157 @@
       height: 1.35rem;
     }
   }
+
+  @media (max-width: 768px) {
+    /* 移动端：侧边栏保持左侧纵向，仅显示图标 */
+    .colora-sidebar {
+      width: 56px;
+      height: 100dvh;
+      flex-direction: column;
+      border-right: 1px solid var(--color-sidebar-border);
+      overflow: visible;
+    }
+
+    .colora-sidebar-logo {
+      display: none;
+    }
+
+    .colora-sidebar-nav {
+      flex-direction: column;
+      flex: 1 1 auto;
+      gap: 0.25rem;
+      padding: 0.25rem 0.25rem;
+      overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-width: none;
+    }
+
+    .colora-sidebar-nav::-webkit-scrollbar {
+      display: none;
+    }
+
+    .colora-sidebar-active-indicator {
+      display: block;
+      height: 1.75rem;
+    }
+
+    .colora-sidebar-actions {
+      flex-direction: column;
+      gap: 0.25rem;
+      border-top: 1px solid var(--color-sidebar-border);
+      padding: 0.25rem 0.25rem 0.5rem;
+    }
+
+    .colora-sidebar-button {
+      flex-direction: column;
+      width: 100%;
+      min-height: 2.5rem;
+      padding: 0.4rem 0.25rem;
+      gap: 0;
+    }
+
+    .colora-sidebar-label {
+      display: none;
+    }
+
+    .colora-main {
+      height: 100dvh;
+      flex: 1 1 0%;
+      min-height: 0;
+    }
+
+    .colora-content-scroller {
+      height: 100%;
+      flex: 1 1 0%;
+    }
+  }
+}
+
+/*
+ * Export dialog tabs.
+ * Declared OUTSIDE @layer so they override Tailwind utilities
+ * (bg-muted / p-1 / h-9 / rounded-lg on the Radix TabsList/Trigger).
+ */
+.colora-export-tabs {
+  background-color: transparent;
+  padding: 0;
+  height: auto;
+  border-radius: 0;
+  gap: 0.125rem;
+}
+
+.colora-export-tabs .colora-tabs-indicator {
+  display: none;
+}
+
+.colora-export-tab {
+  position: relative;
+  flex: none;
+  width: auto;
+  padding: 0.55rem 0.5rem;
+  border-radius: 0;
+  overflow: hidden;
+  transition: color 180ms ease, font-weight 180ms ease, width 180ms ease;
+}
+
+.colora-export-tab[data-state="active"] {
+  width: 6rem;
+}
+
+.colora-export-tab-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.colora-export-tab-icon {
+  display: none;
+  transition: stroke-width 180ms ease;
+}
+
+.colora-export-tab:hover,
+.colora-export-tab[data-state="active"] {
+  font-weight: 700;
+}
+
+.colora-export-tab:hover .colora-export-tab-icon,
+.colora-export-tab[data-state="active"] .colora-export-tab-icon {
+  stroke-width: 2.2;
+}
+
+.colora-export-tab::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background-color: var(--color-foreground);
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.colora-export-tab:hover::after {
+  opacity: 0.45;
+}
+
+.colora-export-tab[data-state="active"]::after {
+  opacity: 1;
+}
+
+@media (max-width: 768px) {
+  .colora-export-tab-icon {
+    display: inline-flex;
+  }
+
+  .colora-export-tab-text {
+    display: none;
+  }
+
+  .colora-export-tab[data-state="active"] .colora-export-tab-text {
+    display: inline;
+  }
 }
 
 @utility checkerboard {

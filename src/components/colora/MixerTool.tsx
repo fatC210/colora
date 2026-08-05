@@ -273,7 +273,7 @@ export function MixerTool() {
           </span>
         </button>
         {showModes && (
-          <div className="flex gap-2 border-t border-border px-5 py-4">
+          <div className="flex flex-wrap gap-2 border-t border-border px-5 py-4">
             {MODES.map((m) => (
               <button
                 key={m.key}

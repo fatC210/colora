@@ -71,7 +71,7 @@ function ColoraApp() {
       >
         <div className="colora-content-scroller">
           {cbMode !== "none" && (
-            <div className="flex items-center justify-between gap-3 border-b border-border bg-muted px-6 py-3 text-sm">
+            <div className="flex items-center justify-between gap-3 border-b border-border bg-muted px-4 py-3 text-sm sm:px-6">
               <span>当前处于 {CB_LABELS[cbMode]} 模拟模式</span>
               <Tip label="退出色盲模拟">
                 <button
@@ -86,8 +86,8 @@ function ColoraApp() {
             </div>
           )}
 
-          <div className="px-6 py-6 lg:px-8">
-            <h1 className="mb-5 text-3xl font-bold tracking-tight">{title}</h1>
+          <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+            <h1 className="mb-4 text-2xl font-bold tracking-tight sm:mb-5 sm:text-3xl">{title}</h1>
             {tool === "home" && <HomeTool onTool={setTool} />}
             {tool === "palette" && <PaletteTool />}
             {tool === "gradient" && <GradientTool />}

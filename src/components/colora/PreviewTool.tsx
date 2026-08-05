@@ -831,7 +831,7 @@ export function PreviewTool() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-col flex-wrap items-start gap-3 sm:flex-row sm:items-center">
         <Select
           value={group}
           onValueChange={(g) => {
@@ -839,7 +839,7 @@ export function PreviewTool() {
             setDevice(DEVICE_GROUPS[g][0].label);
           }}
         >
-          <SelectTrigger className="w-40 gap-2">
+          <SelectTrigger className="w-full gap-2 sm:w-40">
             <CompactDeviceGroupPreview group={group} />
             <span className="min-w-0 flex-1 truncate text-left">{group}</span>
           </SelectTrigger>
@@ -856,7 +856,7 @@ export function PreviewTool() {
         </Select>
 
         <Select value={device} onValueChange={setDevice}>
-          <SelectTrigger className="w-64 gap-2">
+          <SelectTrigger className="w-full gap-2 sm:w-64">
             <CompactDeviceSizePreview width={dev.w} height={dev.h} />
             <span className="min-w-0 flex-1 truncate text-left">{device}</span>
           </SelectTrigger>
@@ -901,7 +901,7 @@ export function PreviewTool() {
 
       <div className="flex flex-wrap items-start gap-5">
         {cards.map((card) => (
-          <div key={card.id} className="panel w-[360px] p-4">
+          <div key={card.id} className="panel w-full max-w-[360px] p-4 sm:w-[360px]">
             <div className="mb-3 flex items-center justify-between">
               <span className="flex items-center gap-2 text-sm font-medium">
                 <span
@@ -1011,7 +1011,7 @@ export function PreviewTool() {
               <div className="mt-3 space-y-2">
                 {card.comps.map((c) => (
                   <div key={c.id} className="flex items-center gap-2 text-xs">
-                    <span className="w-20 shrink-0 truncate text-muted-foreground">
+                    <span className="w-16 shrink-0 truncate text-muted-foreground sm:w-20">
                       {COMPONENTS.find((x) => x.key === c.type)?.label}
                     </span>
                     <Popover>
@@ -1019,14 +1019,14 @@ export function PreviewTool() {
                         <button
                           type="button"
                           onClick={() => selectCustomColor(c.color)}
-                          className="flex h-7 min-w-28 items-center gap-2 rounded-md border border-border px-2 hover:bg-accent"
+                          className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md border border-border px-2 hover:bg-accent"
                           aria-label={`选择组件颜色 ${c.color}`}
                         >
                           <span
-                            className="size-4 rounded-sm border border-border/70"
+                            className="size-4 shrink-0 rounded-sm border border-border/70"
                             style={{ backgroundColor: simulateCB(c.color, cbMode) }}
                           />
-                          <span className="font-mono text-[11px]">{c.color}</span>
+                          <span className="truncate font-mono text-[11px]">{c.color}</span>
                         </button>
                       </PopoverTrigger>
                       <PopoverContent className="w-80 space-y-3 p-3">
@@ -1087,7 +1087,7 @@ export function PreviewTool() {
                           ),
                         })
                       }
-                      className="w-16 accent-foreground"
+                      className="w-12 shrink-0 accent-foreground sm:w-16"
                       aria-label="圆角"
                     />
                     <Tip label="删除组件">
