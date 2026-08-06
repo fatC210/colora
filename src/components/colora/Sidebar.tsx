@@ -430,22 +430,32 @@ export function Sidebar({
     const width = dragState.current.width;
     if (!aside) return;
     aside.dataset.dragging = "false";
+    // 拖拽期 transition 被禁用（data-dragging=true → transition:none），
+    // 这里先强制一次 reflow 让 transition 恢复，否则紧接着改 transform
+    // 会被合并进无过渡帧，导致回弹/滑出动画不生效。
+    void aside.offsetWidth;
 
     const shouldClose = dx < -(width * 0.25 || 80);
     if (shouldClose) {
+      // 侧边栏交给 CSS 过渡滑出（dx → -100%）；
+      // 同时立即通知父组件关闭，让遮罩层同步开始淡出，而不是等侧边栏动画结束。
       aside.style.transform = "translateX(-100%)";
+      onOpenChange?.(false);
+
+      // 过渡结束后清掉内联 transform，下次打开从干净状态开始。
+      // 过滤 propertyName：子元素（active-indicator 等）的 transitionend 会冒泡，
+      // 提前触发会让内联被清时 React 状态尚未更新而闪回。
       let finished = false;
       const done = () => {
         if (finished) return;
         finished = true;
-        aside.removeEventListener("transitionend", done);
-        // 先把 data-open 置为关闭态，让 CSS 解析为 -100%，
-        // 再清内联 transform——两者同为 -100%，避免清内联时闪回 translateX(0)
-        aside.dataset.open = "false";
+        aside.removeEventListener("transitionend", onEnd);
         aside.style.transform = "";
-        onOpenChange?.(false);
       };
-      aside.addEventListener("transitionend", done);
+      const onEnd = (e: TransitionEvent) => {
+        if (e.target === aside && e.propertyName === "transform") done();
+      };
+      aside.addEventListener("transitionend", onEnd);
       window.setTimeout(done, 320);
     } else {
       aside.style.transform = "";

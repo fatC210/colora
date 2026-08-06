@@ -76,14 +76,19 @@ export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
           Colora 是面向设计师与前端开发者的轻量级色彩工具。所见即所得，从选色到拿到代码不超过三步。
         </p>
 
-        <div className="mt-7 flex h-24 overflow-hidden rounded-xl border border-border sm:h-28">
+        <div className="mt-7 flex h-40 overflow-hidden rounded-xl border border-border sm:h-28">
           {palette.map((c, i) => (
             <Tip key={i} label={c}>
               <button
                 type="button"
                 onClick={() => setColor(c)}
                 className="flex-1 transition-[flex] duration-300 hover:flex-[1.4]"
-                style={{ backgroundColor: simulateCB(c, cbMode) }}
+                style={{
+                  backgroundColor: simulateCB(c, cbMode),
+                  // flex 子项亚像素取整会在相邻色块间透出 1px 容器底色，
+                  // 形成不规则的竖线缝隙；让每个色块相对前一个重叠 1px 可消除。
+                  marginLeft: i > 0 ? -1 : 0,
+                }}
                 aria-label={c}
               />
             </Tip>
@@ -107,18 +112,18 @@ export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
         </div>
       </section>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {TOOLS.filter((t) => t.id !== "home").map((t) => (
           <button
             key={t.id}
             type="button"
             onClick={() => onTool(t.id)}
-            className="panel flex items-start gap-3 p-5 text-left transition-colors hover:bg-accent"
+            className="panel flex flex-col items-center gap-2 p-4 text-center transition-colors hover:bg-accent sm:flex-row sm:items-start sm:gap-3 sm:p-5 sm:text-left"
           >
             <t.icon className="size-5 shrink-0" strokeWidth={1.6} />
             <span>
               <span className="block text-sm font-medium">{t.label}</span>
-              <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+              <span className="mt-1 hidden text-xs leading-relaxed text-muted-foreground sm:block">
                 {
                   {
                     palette: "基于色彩理论自动生成方案，支持锁定与自由选配。",

@@ -141,7 +141,7 @@ export function InfoPanel({ collapsed, onToggle }: { collapsed: boolean; onToggl
 }
 
 function InfoPanelBody() {
-  const { color, cbMode, favoriteColors, saveColor, removeColor, renameColor, setColor } =
+  const { color, cbMode, favoriteColors, saveColor, removeColor, renameColor, setColor, user } =
     useColora();
   const [compareOpen, setCompareOpen] = useState(false);
   const [comparePosition, setComparePosition] = useState(50);
@@ -216,24 +216,26 @@ function InfoPanelBody() {
             value={f.hex}
             className="min-w-0 flex-1 justify-between px-0 font-mono text-2xl font-semibold tracking-tight"
           />
-          <Tip label={favoriteLabel}>
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className={cn(
-                "shrink-0 rounded-xl bg-transparent text-foreground shadow-none transition-[color,transform] hover:-translate-y-0.5 hover:bg-transparent hover:text-rose-600 focus-visible:ring-2 focus-visible:ring-foreground/30 active:translate-y-0 dark:hover:bg-transparent dark:hover:text-rose-300",
-                isCurrentFavorite && "text-foreground hover:text-foreground dark:text-foreground",
-              )}
-              aria-label={favoriteLabel}
-              aria-pressed={isCurrentFavorite}
-              onClick={favoriteCurrentColor}
-            >
-              <Heart
-                className={cn("size-4 transition-transform", isCurrentFavorite && "fill-current")}
-              />
-            </Button>
-          </Tip>
+          {user && (
+            <Tip label={favoriteLabel}>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className={cn(
+                  "shrink-0 rounded-xl bg-transparent text-foreground shadow-none transition-[color,transform] hover:-translate-y-0.5 hover:bg-transparent hover:text-rose-600 focus-visible:ring-2 focus-visible:ring-foreground/30 active:translate-y-0 dark:hover:bg-transparent dark:hover:text-rose-300",
+                  isCurrentFavorite && "text-foreground hover:text-foreground dark:text-foreground",
+                )}
+                aria-label={favoriteLabel}
+                aria-pressed={isCurrentFavorite}
+                onClick={favoriteCurrentColor}
+              >
+                <Heart
+                  className={cn("size-4 transition-transform", isCurrentFavorite && "fill-current")}
+                />
+              </Button>
+            </Tip>
+          )}
         </div>
         <div className="mt-3 rounded-xl border border-border/70 bg-muted/20 p-3">
           <div className="flex items-center justify-between gap-2">
@@ -274,72 +276,74 @@ function InfoPanelBody() {
       </div>
 
       <div className="shrink-0 space-y-2">
-        <Section icon={Heart} title="收藏颜色">
-          {favoriteColors.length === 0 ? (
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              暂无收藏颜色。点击上方图标后可从这里一键应用继续调整。
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {favoriteColors.slice(0, 12).map((savedColor) => (
-                <div
-                  key={savedColor.id}
-                  className="flex min-w-0 items-center gap-2 rounded-md border border-border/70 p-1.5"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setColor(savedColor.hex)}
-                    className="size-7 shrink-0 rounded-md border border-border/70"
-                    style={{ backgroundColor: simulateCB(savedColor.hex, cbMode) }}
-                    aria-label={`应用颜色：${savedColor.name}`}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <InlineRename
-                      value={savedColor.name}
-                      editing={editingFavoriteColorId === savedColor.id}
-                      onEditingChange={(editing) =>
-                        setEditingFavoriteColorId(editing ? savedColor.id : null)
-                      }
-                      onSave={(nextName) => renameColor(savedColor.id, nextName)}
-                      className="w-full"
-                      textClassName="text-xs font-medium"
-                      inputClassName="w-full"
-                      ariaLabel="重命名颜色"
-                    />
+        {user && (
+          <Section icon={Heart} title="收藏颜色">
+            {favoriteColors.length === 0 ? (
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                暂无收藏颜色。点击上方图标后可从这里一键应用继续调整。
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {favoriteColors.slice(0, 12).map((savedColor) => (
+                  <div
+                    key={savedColor.id}
+                    className="flex min-w-0 items-center gap-2 rounded-md border border-border/70 p-1.5"
+                  >
                     <button
                       type="button"
                       onClick={() => setColor(savedColor.hex)}
-                      className="block font-mono text-[11px] text-muted-foreground hover:text-foreground"
+                      className="size-7 shrink-0 rounded-md border border-border/70"
+                      style={{ backgroundColor: simulateCB(savedColor.hex, cbMode) }}
                       aria-label={`应用颜色：${savedColor.name}`}
-                    >
-                      {savedColor.hex}
-                    </button>
+                    />
+                    <div className="min-w-0 flex-1">
+                      <InlineRename
+                        value={savedColor.name}
+                        editing={editingFavoriteColorId === savedColor.id}
+                        onEditingChange={(editing) =>
+                          setEditingFavoriteColorId(editing ? savedColor.id : null)
+                        }
+                        onSave={(nextName) => renameColor(savedColor.id, nextName)}
+                        className="w-full"
+                        textClassName="text-xs font-medium"
+                        inputClassName="w-full"
+                        ariaLabel="重命名颜色"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setColor(savedColor.hex)}
+                        className="block font-mono text-[11px] text-muted-foreground hover:text-foreground"
+                        aria-label={`应用颜色：${savedColor.name}`}
+                      >
+                        {savedColor.hex}
+                      </button>
+                    </div>
+                    <Tip label="重命名颜色">
+                      <button
+                        type="button"
+                        className="rounded p-1 text-muted-foreground hover:text-foreground"
+                        aria-label="重命名颜色"
+                        onClick={() => setEditingFavoriteColorId(savedColor.id)}
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                    </Tip>
+                    <Tip label="删除颜色">
+                      <button
+                        type="button"
+                        className="rounded p-1 text-muted-foreground hover:text-foreground"
+                        aria-label="删除颜色"
+                        onClick={() => removeColor(savedColor.id)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </Tip>
                   </div>
-                  <Tip label="重命名颜色">
-                    <button
-                      type="button"
-                      className="rounded p-1 text-muted-foreground hover:text-foreground"
-                      aria-label="重命名颜色"
-                      onClick={() => setEditingFavoriteColorId(savedColor.id)}
-                    >
-                      <Pencil className="size-3.5" />
-                    </button>
-                  </Tip>
-                  <Tip label="删除颜色">
-                    <button
-                      type="button"
-                      className="rounded p-1 text-muted-foreground hover:text-foreground"
-                      aria-label="删除颜色"
-                      onClick={() => removeColor(savedColor.id)}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  </Tip>
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
+                ))}
+              </div>
+            )}
+          </Section>
+        )}
 
         <Section icon={Hash} title="更多色值">
           <Row label="HEX" value={f.hex} />
