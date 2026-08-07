@@ -43,6 +43,9 @@ export function Tip({
   const timerRef = useRef<number | undefined>(undefined);
   const longPressedRef = useRef(false);
   const touchHoldingRef = useRef(false);
+  // 触摸轻点后短时间内屏蔽 Radix 原生 hover/focus 开启，避免单击闪现 tooltip
+  const recentTouchRef = useRef(false);
+  const recentTouchTimerRef = useRef<number | undefined>(undefined);
 
   const clearLongPress = useCallback(() => {
     if (timerRef.current !== undefined) {
@@ -51,7 +54,25 @@ export function Tip({
     }
   }, []);
 
-  useEffect(() => () => clearLongPress(), [clearLongPress]);
+  const markRecentTouch = useCallback(() => {
+    recentTouchRef.current = true;
+    if (recentTouchTimerRef.current !== undefined) {
+      window.clearTimeout(recentTouchTimerRef.current);
+    }
+    recentTouchTimerRef.current = window.setTimeout(() => {
+      recentTouchRef.current = false;
+    }, 400);
+  }, []);
+
+  useEffect(
+    () => () => {
+      clearLongPress();
+      if (recentTouchTimerRef.current !== undefined) {
+        window.clearTimeout(recentTouchTimerRef.current);
+      }
+    },
+    [clearLongPress],
+  );
 
   let trigger = children;
   if (isValidElement(children)) {
@@ -72,6 +93,7 @@ export function Tip({
         if (e.pointerType !== "touch") return;
         longPressedRef.current = false;
         touchHoldingRef.current = true;
+        markRecentTouch();
         clearLongPress();
         timerRef.current = window.setTimeout(() => {
           longPressedRef.current = true;
@@ -111,7 +133,16 @@ export function Tip({
   }
 
   return (
-    <Tooltip open={open} onOpenChange={setOpen} delayDuration={300}>
+    <Tooltip
+      open={open}
+      onOpenChange={(next) => {
+        // 触摸轻点后聚焦会触发 Radix 的 onOpenChange(true)，屏蔽以避免单击闪现 tooltip；
+        // 长按走 setOpen(true) 直调，不受影响；桌面端 hover/focus 正常响应。
+        if (next && recentTouchRef.current) return;
+        setOpen(next);
+      }}
+      delayDuration={300}
+    >
       <TooltipTrigger asChild>{trigger}</TooltipTrigger>
       <TooltipContent side={side}>{label}</TooltipContent>
     </Tooltip>

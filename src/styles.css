@@ -1085,6 +1085,26 @@
   }
 }
 
+@media (max-width: 767px) {
+  @keyframes colora-pour-path {
+    0% {
+      opacity: 0;
+      transform: translate(-50%, -16%) rotate(0deg) scale(0.88);
+    }
+    12% {
+      opacity: 1;
+    }
+    58% {
+      opacity: 1;
+      transform: translate(-50%, 30%) rotate(0deg) scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: translate(-50%, 44%) rotate(0deg) scale(1.08);
+    }
+  }
+}
+
 @keyframes colora-paint-stream {
   0% {
     opacity: 0;

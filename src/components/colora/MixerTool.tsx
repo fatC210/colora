@@ -134,7 +134,7 @@ export function MixerTool() {
             {i < items.length - 1 && (
               <span
                 aria-hidden="true"
-                className="pointer-events-none inline-flex w-7 select-none items-center justify-center"
+                className="pointer-events-none hidden w-7 select-none items-center justify-center md:inline-flex"
               >
                 <span className="font-mono text-2xl font-semibold leading-none text-foreground">
                   +
@@ -145,7 +145,7 @@ export function MixerTool() {
         ))}
         <Button
           variant="ghost"
-          className="h-10 w-fit justify-self-start gap-2 rounded-md border border-border/80 bg-muted/5 px-4 hover:border-foreground/40 hover:bg-muted/15"
+          className="h-10 w-fit justify-self-end gap-2 rounded-md border border-border/80 bg-muted/5 px-4 hover:border-foreground/40 hover:bg-muted/15 md:justify-self-start"
           onClick={() => updateItems([...items, { hex: randomHex(), weight: 20 }])}
         >
           <Plus className="size-4" /> 添加颜色
@@ -193,28 +193,28 @@ export function MixerTool() {
               return (
                 <span
                   key={`${mixKey}-${i}`}
-                  className="pointer-events-none absolute top-[-8rem] h-[34rem] w-28 -translate-x-1/2"
+                  className="pointer-events-none absolute top-[-6rem] h-[26rem] w-20 -translate-x-1/2 md:top-[-8rem] md:h-[34rem] md:w-28"
                   style={{
                     left: `${left}%`,
                     animation: `colora-pour-path 1.65s cubic-bezier(0.22, 1, 0.36, 1) ${i * 0.09}s both`,
                   }}
                 >
                   <span
-                    className="absolute left-1/2 top-0 h-48 w-8 -translate-x-1/2 rounded-full blur-[1px]"
+                    className="absolute left-1/2 top-0 h-36 w-6 -translate-x-1/2 rounded-full blur-[1px] md:h-48 md:w-8"
                     style={{
                       backgroundColor: simulateCB(it.hex, cbMode),
                       animation: `colora-paint-stream 1.35s ease-in ${i * 0.09}s both`,
                     }}
                   />
                   <span
-                    className="absolute bottom-24 left-1/2 size-16 -translate-x-1/2 rounded-full shadow-2xl"
+                    className="absolute bottom-20 left-1/2 size-12 -translate-x-1/2 rounded-full shadow-2xl md:bottom-24 md:size-16"
                     style={{
                       backgroundColor: simulateCB(it.hex, cbMode),
                       animation: `colora-paint-drop 1.35s ease-out ${i * 0.09}s both`,
                     }}
                   />
                   <span
-                    className="absolute bottom-16 left-1/2 size-56 -translate-x-1/2 rounded-full blur-2xl mix-blend-multiply"
+                    className="absolute bottom-12 left-1/2 size-40 -translate-x-1/2 rounded-full blur-2xl mix-blend-multiply md:bottom-16 md:size-56"
                     style={{
                       backgroundColor: simulateCB(it.hex, cbMode),
                       animation: `colora-paint-puddle 1.65s ease-in-out ${i * 0.09}s both`,

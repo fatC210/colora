@@ -147,7 +147,7 @@ export function PaletteTool() {
 
         <TabsContent value="auto" className="mt-4 space-y-4">
           <section className="panel p-5">
-            <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-4 sm:justify-start">
               <span className="text-sm font-medium">基础颜色</span>
               <div className="flex items-center gap-3">
                 <Popover>
@@ -195,7 +195,7 @@ export function PaletteTool() {
               </Select>
 
               {/* 桌面端：按钮组 */}
-              <div className="hidden flex-wrap gap-1 sm:flex">
+              <div className="hidden flex-wrap gap-1 sm:flex sm:ml-auto">
                 {HARMONIES.map((h) => (
                   <button
                     key={h.key}
@@ -315,8 +315,8 @@ function FreePicker() {
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h3 className="text-sm font-medium">自由选配（3-10 个颜色）</h3>
 
-        {/* 移动端：评分与评分条单独一行，左右对齐；带等级药丸 + 渐变条 */}
-        <div className="flex items-center justify-between gap-4 sm:hidden">
+        {/* 和谐度评分：等级药丸 + 渐变条，桌面端与移动端统一样式 */}
+        <div className="flex items-center justify-between gap-4">
           <div className="flex flex-col gap-1.5">
             <span className="text-xs text-muted-foreground">和谐度评分</span>
             <div className="flex items-baseline gap-2">
@@ -345,15 +345,6 @@ function FreePicker() {
               className="h-full rounded-full bg-gradient-to-r from-rose-500 via-amber-400 to-emerald-500 transition-[width] duration-300"
               style={{ width: `${score}%` }}
             />
-          </div>
-        </div>
-
-        {/* 桌面端：保持原样 */}
-        <div className="hidden items-center gap-3 sm:flex">
-          <span className="text-xs text-muted-foreground">和谐度评分</span>
-          <span className="font-mono text-lg font-semibold">{score}</span>
-          <div className="h-1.5 w-28 overflow-hidden rounded-full bg-muted">
-            <div className="h-full bg-foreground" style={{ width: `${score}%` }} />
           </div>
         </div>
       </div>

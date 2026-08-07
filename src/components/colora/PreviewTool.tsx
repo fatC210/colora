@@ -872,36 +872,38 @@ export function PreviewTool() {
           </SelectContent>
         </Select>
 
-        <Button
-          variant="outline"
-          className="gap-2"
-          onClick={() =>
-            setCards([
-              ...cards,
-              {
-                id: crypto.randomUUID(),
-                name: `预览卡片 ${String(cards.length + 1).padStart(2, "0")}`,
-                bg: palette[cards.length % palette.length] ?? "#EDEDED",
-                comps: [],
-              },
-            ])
-          }
-        >
-          <Plus className="size-4" /> 新建预览卡片
-        </Button>
-        <ExportDialog
-          module="preview"
-          trigger={
-            <Button variant="outline" className="gap-2">
-              <Download className="size-4" /> 导出当前预览
-            </Button>
-          }
-        />
+        <div className="flex w-full gap-3 sm:contents">
+          <Button
+            variant="outline"
+            className="flex-1 border-transparent bg-primary text-primary-foreground shadow hover:bg-primary/90 hover:text-primary-foreground sm:flex-none sm:border-input sm:bg-background sm:text-foreground sm:shadow-sm sm:hover:bg-accent sm:hover:text-accent-foreground"
+            onClick={() =>
+              setCards([
+                ...cards,
+                {
+                  id: crypto.randomUUID(),
+                  name: `预览卡片 ${String(cards.length + 1).padStart(2, "0")}`,
+                  bg: palette[cards.length % palette.length] ?? "#EDEDED",
+                  comps: [],
+                },
+              ])
+            }
+          >
+            <Plus className="size-4" /> 新建预览卡片
+          </Button>
+          <ExportDialog
+            module="preview"
+            trigger={
+              <Button variant="outline" className="flex-1 gap-2 sm:flex-none">
+                <Download className="size-4" /> 导出当前预览
+              </Button>
+            }
+          />
+        </div>
       </div>
 
       <div className="flex flex-wrap items-start gap-5">
         {cards.map((card) => (
-          <div key={card.id} className="panel w-full max-w-[360px] p-4 sm:w-[360px]">
+          <div key={card.id} className="panel w-full p-4 sm:w-[360px]">
             <div className="mb-3 flex items-center justify-between">
               <span className="flex items-center gap-2 text-sm font-medium">
                 <span
@@ -962,7 +964,10 @@ export function PreviewTool() {
                   </button>
                 ))}
                 {card.comps.length === 0 && (
-                  <p className="m-auto text-center text-xs text-muted-foreground">
+                  <p
+                    className="m-auto text-center text-xs opacity-80"
+                    style={{ color: bestTextOn(simulateCB(card.bg, cbMode)) }}
+                  >
                     点击下方添加组件，
                     <br />
                     预览配色效果

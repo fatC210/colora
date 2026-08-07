@@ -20,14 +20,14 @@ function Field({
   cbMode: Parameters<typeof simulateCB>[1];
 }) {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex w-full items-center gap-3 sm:w-auto">
       <span className="text-sm font-medium">{label}</span>
       <Popover>
         <Tip label={`选择${label}`}>
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="size-10 rounded-lg border border-border"
+              className="size-10 ml-auto shrink-0 rounded-lg border border-border sm:ml-0"
               style={{ backgroundColor: simulateCB(value, cbMode) }}
               aria-label={`选择${label}`}
             />
@@ -39,7 +39,7 @@ function Field({
       </Popover>
       <CopyText
         value={value}
-        className="h-10 rounded-lg border border-input px-3 font-mono text-sm"
+        className="h-10 gap-2 rounded-lg border border-input px-3 font-mono text-sm sm:gap-1"
       />
     </div>
   );
@@ -78,28 +78,49 @@ export function ContrastTool() {
     setContrastExport({ fg, bg, ratio, suggestions });
   }, [bg, fg, ratio, setContrastExport, suggestions]);
 
+  const swapButton = (
+    <Tip label="交换前景色与背景色">
+      <button
+        type="button"
+        onClick={() => {
+          setFg(bg);
+          setBg(fg);
+        }}
+        className="grid size-10 place-items-center rounded-lg border border-border text-muted-foreground hover:text-foreground"
+        aria-label="交换前景色与背景色"
+      >
+        <ArrowLeftRight className="size-4" />
+      </button>
+    </Tip>
+  );
+
   return (
     <div className="space-y-4">
-      <section className="panel flex flex-wrap items-center gap-4 p-4 sm:gap-6">
+      <section className="panel flex flex-col gap-4 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-6">
+        <div className="flex items-center justify-between sm:hidden">
+          <span className="text-xs font-medium text-muted-foreground">颜色设置</span>
+          <Tip label="交换前景色与背景色">
+            <button
+              type="button"
+              onClick={() => {
+                setFg(bg);
+                setBg(fg);
+              }}
+              className="grid size-8 place-items-center rounded-lg border border-border text-muted-foreground hover:text-foreground"
+              aria-label="交换前景色与背景色"
+            >
+              <ArrowLeftRight className="size-3.5 rotate-90" />
+            </button>
+          </Tip>
+        </div>
         <Field label="前景色" value={fg} onChange={setFg} cbMode={cbMode} />
-        <Tip label="交换前景色与背景色">
-          <button
-            type="button"
-            onClick={() => {
-              setFg(bg);
-              setBg(fg);
-            }}
-            className="grid size-10 place-items-center rounded-lg border border-border text-muted-foreground hover:text-foreground"
-            aria-label="交换前景色与背景色"
-          >
-            <ArrowLeftRight className="size-4" />
-          </button>
-        </Tip>
+        <div className="border-t border-border sm:hidden" />
+        <div className="hidden sm:contents">{swapButton}</div>
         <Field label="背景色" value={bg} onChange={setBg} cbMode={cbMode} />
         <ExportDialog
           module="contrast"
           trigger={
-            <Button variant="outline" className="gap-2">
+            <Button variant="outline" className="w-full gap-2 sm:w-auto">
               <List className="size-4" /> 导出当前检查
             </Button>
           }
@@ -130,7 +151,7 @@ export function ContrastTool() {
             对比度比率
             <Tip
               label={
-                <span className="block max-w-64 leading-relaxed">
+                <span className="block max-w-60 whitespace-normal leading-relaxed">
                   对比度比率表示前景色与背景色的亮度差异，范围为 1:1 到 21:1。普通正文建议至少
                   4.5:1，大号文字至少 3:1。
                 </span>
@@ -149,7 +170,7 @@ export function ContrastTool() {
             {ratio.toFixed(1)} : 1
           </p>
         </div>
-        <div className="space-y-2">
+        <div className="flex w-full gap-2 sm:w-auto sm:flex-col">
           {[
             { label: "AAA", pass: aaa },
             { label: "AA", pass: aa },
@@ -157,7 +178,7 @@ export function ContrastTool() {
             <div
               key={r.label}
               className={cn(
-                "flex w-40 items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium",
+                "flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium sm:w-40 sm:flex-none sm:justify-start sm:px-4",
                 r.pass ? "bg-accent text-foreground" : "bg-muted text-muted-foreground",
               )}
             >

@@ -17,7 +17,7 @@ import { CopyText, InlineRename, Tip } from "./primitives";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ExportDialog } from "./ExportDialog";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
 function Section({
   icon: Icon,
@@ -419,26 +419,123 @@ function InfoPanelBody() {
 
 function MobileInfoPanel() {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(
+    null,
+  );
+  const movedRef = useRef(false);
+
+  const SIZE = 48;
+  const MARGIN = 16;
+  const BOTTOM_GAP = 88; // 5.5rem，与原 bottom 偏移一致
+  const MOVE_THRESHOLD = 4;
+
+  useEffect(() => {
+    setPos({
+      x: window.innerWidth - SIZE - MARGIN,
+      y: window.innerHeight - SIZE - BOTTOM_GAP,
+    });
+  }, []);
+
+  useEffect(() => {
+    const onResize = () => {
+      setPos((p) => {
+        if (!p) return p;
+        const maxX = window.innerWidth - SIZE - MARGIN;
+        const maxY = window.innerHeight - SIZE - MARGIN;
+        return {
+          x: Math.min(Math.max(MARGIN, p.x), maxX),
+          y: Math.min(Math.max(MARGIN, p.y), maxY),
+        };
+      });
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const clampPos = (x: number, y: number) => {
+    const maxX = window.innerWidth - SIZE - MARGIN;
+    const maxY = window.innerHeight - SIZE - MARGIN;
+    return {
+      x: Math.min(Math.max(MARGIN, x), maxX),
+      y: Math.min(Math.max(MARGIN, y), maxY),
+    };
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!pos) return;
+    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y };
+    movedRef.current = false;
+    setDragging(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    if (Math.abs(dx) > MOVE_THRESHOLD || Math.abs(dy) > MOVE_THRESHOLD) {
+      movedRef.current = true;
+    }
+    setPos(clampPos(d.origX + dx, d.origY + dy));
+  };
+
+  const endDrag = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    setDragging(false);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    if (!d || !movedRef.current) return;
+    // 吸附到最近的左右屏幕边缘，垂直位置保持
+    setPos((p) => {
+      if (!p) return p;
+      const midX = p.x + SIZE / 2;
+      const snapX = midX < window.innerWidth / 2 ? MARGIN : window.innerWidth - SIZE - MARGIN;
+      return { x: snapX, y: p.y };
+    });
+  };
+
+  const onClick = () => {
+    if (movedRef.current) {
+      movedRef.current = false;
+      return; // 拖动后不打开面板
+    }
+    setOpen(true);
+  };
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <button
-          type="button"
-          aria-label="打开信息面板"
-          className="fixed right-4 bottom-[5.5rem] z-40 grid size-12 place-items-center rounded-full border border-border bg-surface text-foreground shadow-[var(--shadow-panel)] transition-transform hover:scale-105 active:scale-95 lg:hidden"
-        >
-          <Info className="size-5" strokeWidth={1.8} />
-        </button>
-      </SheetTrigger>
-      <SheetContent side="right" className="flex w-[92%] flex-col gap-0 p-0 sm:max-w-md">
-        <SheetHeader className="shrink-0 border-b border-border px-4 py-3 pr-10">
-          <SheetTitle className="text-base">信息面板</SheetTitle>
-        </SheetHeader>
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-          <InfoPanelBody />
-        </div>
-      </SheetContent>
-    </Sheet>
+    <>
+      <button
+        type="button"
+        aria-label="打开信息面板"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onClick={onClick}
+        style={pos ? { left: pos.x, top: pos.y } : undefined}
+        className={cn(
+          "fixed z-40 grid size-12 select-none touch-none place-items-center rounded-full border border-border bg-surface text-foreground shadow-[var(--shadow-panel)] transition-transform hover:scale-105 active:scale-95 lg:hidden",
+          !pos && "right-4 bottom-[5.5rem]",
+          pos && !dragging && "transition-[left,top,transform] duration-300 ease-out",
+        )}
+      >
+        <Info className="size-5" strokeWidth={1.8} />
+      </button>
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetContent side="right" className="flex w-[92%] flex-col gap-0 p-0 sm:max-w-md">
+          <SheetHeader className="shrink-0 border-b border-border px-4 py-3 pr-10">
+            <SheetTitle className="text-base">信息面板</SheetTitle>
+          </SheetHeader>
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+            <InfoPanelBody />
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }
