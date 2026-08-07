@@ -235,7 +235,11 @@ function AccountAction({ variant }: { variant: ActionVariant }) {
           )}
         </button>
       </PopoverTrigger>
-      <PopoverContent side={variant === "topbar" ? "bottom" : "right"} align="end" className="w-72">
+      <PopoverContent
+        side={variant === "topbar" ? "bottom" : "right"}
+        align="end"
+        className="colora-login-popover w-72"
+      >
         {user ? (
           <div className="space-y-3">
             <div className="flex items-center gap-3">
@@ -264,8 +268,12 @@ function AccountAction({ variant }: { variant: ActionVariant }) {
               }}
             >
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="login">登录</TabsTrigger>
-                <TabsTrigger value="register">注册</TabsTrigger>
+                <TabsTrigger value="login" className="w-full">
+                  登录
+                </TabsTrigger>
+                <TabsTrigger value="register" className="w-full">
+                  注册
+                </TabsTrigger>
               </TabsList>
             </Tabs>
             <form

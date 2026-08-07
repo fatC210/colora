@@ -930,6 +930,15 @@
   }
 }
 
+/* 移动端：关闭登录 popover 的开/关动画。
+   enter/exit 关键帧带 filter:blur(0)，会抑制子像素抗锯齿，使合成层内文字发虚。 */
+@media (max-width: 768px) {
+  .colora-login-popover[data-state="open"],
+  .colora-login-popover[data-state="closed"] {
+    animation: none !important;
+  }
+}
+
 /*
  * Export dialog tabs.
  * Declared OUTSIDE @layer so they override Tailwind utilities
