@@ -259,7 +259,7 @@ function AccountAction({ variant }: { variant: ActionVariant }) {
             </Button>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="flex min-h-[336px] flex-col gap-3">
             <Tabs
               value={mode}
               onValueChange={(v) => {
@@ -328,7 +328,7 @@ function AccountAction({ variant }: { variant: ActionVariant }) {
                 {mode === "login" ? "登录" : "注册并登录"}
               </Button>
             </form>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
+            <p className="mt-auto text-[11px] leading-relaxed text-muted-foreground">
               无需登录即可使用大部分工具，但登录后才能保存和管理配色方案。
             </p>
           </div>
