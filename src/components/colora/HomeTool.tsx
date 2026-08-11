@@ -128,6 +128,7 @@ export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
                   {
                     palette: "基于色彩理论自动生成方案，支持锁定与自由选配。",
                     gradient: "线性 / 径向 / 锥形 / Mesh 渐变可视化编辑。",
+                    canvas: "在画布上绘制线条与形状，颜色沿路径弧长分布。",
                     mixer: "模拟颜料混合，带液体融合动画与三种混合模式。",
                     image: "上传图片，K-means 提取主色与占比。",
                     contrast: "WCAG 对比度检测与智能替代色推荐。",

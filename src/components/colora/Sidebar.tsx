@@ -9,6 +9,7 @@ import {
   Menu,
   Moon,
   Palette,
+  Paintbrush,
   Smartphone,
   Sun,
   User,
@@ -25,12 +26,14 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tip } from "./primitives";
 
-export type ToolId = "home" | "palette" | "gradient" | "mixer" | "image" | "contrast" | "preview";
+export type ToolId =
+  "home" | "palette" | "gradient" | "canvas" | "mixer" | "image" | "contrast" | "preview";
 
-export const TOOLS: { id: ToolId; label: string; icon: typeof Home }[] = [
+export const TOOLS: { id: ToolId; label: string; icon: typeof Home; badge?: string }[] = [
   { id: "home", label: "首页", icon: Home },
   { id: "palette", label: "配色方案", icon: Palette },
   { id: "gradient", label: "渐变编辑", icon: Droplets },
+  { id: "canvas", label: "画布", icon: Paintbrush },
   { id: "mixer", label: "色彩混合", icon: Blend },
   { id: "image", label: "图片取色", icon: ImageIcon },
   { id: "contrast", label: "对比度检查", icon: Contrast },
@@ -53,12 +56,14 @@ function getUserInitial(user: string) {
 function NavItem({
   label,
   icon: Icon,
+  badge,
   active,
   onClick,
   buttonRef,
 }: {
   label: string;
   icon: typeof Home;
+  badge?: string;
   active?: boolean;
   onClick?: () => void;
   buttonRef?: (node: HTMLButtonElement | null) => void;
@@ -89,6 +94,11 @@ function NavItem({
           label
         )}
       </span>
+      {badge && (
+        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] leading-none text-primary">
+          {badge}
+        </span>
+      )}
     </button>
   );
 }
@@ -568,6 +578,7 @@ export function Sidebar({
               key={toolConfig.id}
               label={toolConfig.label}
               icon={toolConfig.icon}
+              badge={toolConfig.badge}
               active={tool === toolConfig.id}
               buttonRef={(node) => {
                 navItemRefs.current[index] = node;

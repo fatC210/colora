@@ -8,6 +8,7 @@ import { InfoPanel } from "@/components/colora/InfoPanel";
 import { HomeTool } from "@/components/colora/HomeTool";
 import { PaletteTool } from "@/components/colora/PaletteTool";
 import { GradientTool } from "@/components/colora/GradientTool";
+import { CanvasTool } from "@/components/colora/CanvasTool";
 import { MixerTool } from "@/components/colora/MixerTool";
 import { ImageTool } from "@/components/colora/ImageTool";
 import { ContrastTool } from "@/components/colora/ContrastTool";
@@ -95,21 +96,27 @@ function ColoraApp() {
             </div>
           )}
 
-          <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-            <h1 className="colora-page-title mb-4 text-2xl font-bold tracking-tight sm:mb-5 sm:text-3xl">
-              {title}
-            </h1>
-            {tool === "home" && <HomeTool onTool={setTool} />}
-            {tool === "palette" && <PaletteTool />}
-            {tool === "gradient" && <GradientTool />}
-            {tool === "mixer" && <MixerTool />}
-            {tool === "image" && <ImageTool />}
-            {tool === "contrast" && <ContrastTool />}
-            {tool === "preview" && <PreviewTool />}
-          </div>
+          {tool === "canvas" ? (
+            <CanvasTool />
+          ) : (
+            <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+              <h1 className="colora-page-title mb-4 text-2xl font-bold tracking-tight sm:mb-5 sm:text-3xl">
+                {title}
+              </h1>
+              {tool === "home" && <HomeTool onTool={setTool} />}
+              {tool === "palette" && <PaletteTool />}
+              {tool === "gradient" && <GradientTool />}
+              {tool === "mixer" && <MixerTool />}
+              {tool === "image" && <ImageTool />}
+              {tool === "contrast" && <ContrastTool />}
+              {tool === "preview" && <PreviewTool />}
+            </div>
+          )}
         </div>
 
-        <InfoPanel collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
+        {tool !== "canvas" && (
+          <InfoPanel collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
+        )}
       </main>
     </div>
   );
