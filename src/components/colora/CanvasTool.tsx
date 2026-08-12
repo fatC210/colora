@@ -3,7 +3,6 @@ import {
   Code2,
   Copy,
   Download,
-  GripVertical,
   Group,
   MousePointer2,
   Paintbrush,
@@ -12,7 +11,6 @@ import {
   Save,
   Shapes,
   Slash,
-  SlidersHorizontal,
   Sparkles,
   Trash2,
   Undo2,
@@ -121,7 +119,6 @@ const PRESETS: { value: ShapeType; label: string }[] = [
   { value: "heart", label: "心形" },
 ];
 const INTERP_SPACES: InterpSpace[] = ["rgb", "lab", "lch"];
-const FAB_SIZE = 48;
 
 const CANVAS_LAYOUTS: { value: CanvasLayout; label: string }[] = [
   { value: "grid", label: "方格" },
@@ -149,6 +146,39 @@ function gridColors(bg: string): { line: string; dot: string } {
   const dotAlpha = 0.16 + midness * 0.16; // 0.16 ~ 0.32
   const base = dark ? "255,255,255" : "15,23,42";
   return { line: `rgba(${base},${lineAlpha})`, dot: `rgba(${base},${dotAlpha})` };
+}
+
+/**
+ * 根据画布背景明度生成卷角的一组协调对比色（同灰阶、非生硬黑白）。
+ * 背景亮 → 卷角用深纸；背景暗 → 用浅纸；中灰背景拉大明度差保证可辨。
+ * 返回：fold 纸面、back 卷背面、edge 纸缘高光、shade 卷曲投影。
+ */
+function cornerTone(bg: string): { fold: string; back: string; edge: string; shade: string } {
+  const rgb = hexToRgb(bg);
+  if (!rgb) return { fold: "#3f3f46", back: "#18181b", edge: "#9ca3af", shade: "#00000066" };
+  const lum = relativeLuminance(rgb); // 0~1
+  const dark = lum < 0.5;
+  // 距中性点（0.5）的距离 → 反相强度。越接近中灰越需要极端反相保证对比
+  const pull = 0.5 + Math.abs(lum - 0.5) * 1.4; // 0.5(中性) ~ 1.2(端点)
+  const gray = (v: number) => `rgb(${v},${v},${v})`;
+  if (dark) {
+    // 暗背景 → 浅纸（高对比），卷背略暗，纸缘更高光
+    const f = Math.min(250, Math.round(205 + pull * 40)); // 235~250
+    return {
+      fold: gray(f),
+      back: gray(Math.max(150, f - 58)),
+      edge: gray(Math.min(255, f + 5)),
+      shade: "rgb(0 0 0 / 0.30)",
+    };
+  }
+  // 亮背景 → 深纸（高对比），卷背更暗，纸缘略亮
+  const f = Math.max(22, Math.round(180 - pull * 130)); // 24~58
+  return {
+    fold: gray(Math.round(f * 0.78)),
+    back: gray(Math.max(16, Math.round(f * 0.5))),
+    edge: gray(f),
+    shade: "rgb(0 0 0 / 0.22)",
+  };
 }
 
 // 适合作为画布背景的常用色（线条颜色不受其影响）
@@ -251,6 +281,102 @@ function getBounds(points: Point[]): Bounds {
   return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 }
 
+/**
+ * 单条二次贝塞尔曲线段 (p0→p2, 控制点 p1) 的包围盒。
+ * 渲染时 drawPath(curved) 用 quadraticCurveTo，曲线会凸出控制多边形，
+ * 直接取端点 min/max 会漏掉外凸部分，因此对 t 参数采样以包含真实弧线范围。
+ */
+function quadraticBounds(
+  p0: Point,
+  p1: Point,
+  p2: Point,
+  into: { minX: number; minY: number; maxX: number; maxY: number },
+) {
+  // 先纳入两端点与控制点（控制点本身不在曲线上，但若 t 极值落在 (0,1) 外则端点已是极值）
+  for (const p of [p0, p2]) {
+    if (p.x < into.minX) into.minX = p.x;
+    if (p.x > into.maxX) into.maxX = p.x;
+    if (p.y < into.minY) into.minY = p.y;
+    if (p.y > into.maxY) into.maxY = p.y;
+  }
+  // B(t) = (1-t)^2 p0 + 2(1-t)t p1 + t^2 p2，极值点 t = (p0 - p1) / (p0 - 2 p1 + p2)
+  for (const axis of ["x", "y"] as const) {
+    const denom = p0[axis] - 2 * p1[axis] + p2[axis];
+    if (denom === 0) continue;
+    const t = (p0[axis] - p1[axis]) / denom;
+    if (t > 0 && t < 1) {
+      const v = (1 - t) * (1 - t) * p0[axis] + 2 * (1 - t) * t * p1[axis] + t * t * p2[axis];
+      if (v < into.minX && axis === "x") into.minX = v;
+      if (v > into.maxX && axis === "x") into.maxX = v;
+      if (v < into.minY && axis === "y") into.minY = v;
+      if (v > into.maxY && axis === "y") into.maxY = v;
+    }
+  }
+}
+
+/**
+ * 单笔实际渲染几何的包围盒（与 drawPath / drawGradientStroke 口径一致）。
+ * 平滑笔触与曲线模式都会让真实弧线超出原始 points 的 min/max，这里按渲染路径计算。
+ */
+function renderBounds(stroke: Stroke): Bounds {
+  const points = renderPoints(stroke);
+  if (!points.length) return { minX: 0, minY: 0, maxX: 0, maxY: 0, width: 0, height: 0 };
+  if (points.length === 1) {
+    return {
+      minX: points[0].x,
+      minY: points[0].y,
+      maxX: points[0].x,
+      maxY: points[0].y,
+      width: 0,
+      height: 0,
+    };
+  }
+  const curved = stroke.kind === "brush" || stroke.shape === "wave";
+  const acc = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  if (!curved || points.length < 3) {
+    for (const p of points) {
+      if (p.x < acc.minX) acc.minX = p.x;
+      if (p.x > acc.maxX) acc.maxX = p.x;
+      if (p.y < acc.minY) acc.minY = p.y;
+      if (p.y > acc.maxY) acc.maxY = p.y;
+    }
+  } else {
+    // 与 drawPath 的二次贝塞尔分段一致：Q points[i] midpoint(i,i+1)，末段 lineTo(last)
+    for (let i = 1; i < points.length - 1; i++) {
+      const cur = points[i],
+        next = points[i + 1];
+      const mid = { x: (cur.x + next.x) / 2, y: (cur.y + next.y) / 2 };
+      const prev =
+        i === 1
+          ? points[0]
+          : { x: (points[i - 1].x + cur.x) / 2, y: (points[i - 1].y + cur.y) / 2 };
+      quadraticBounds(prev, cur, mid, acc);
+    }
+    const last = points[points.length - 1],
+      prevLast = points[points.length - 2];
+    // drawPath 末段为直线 lineTo(last)：从上一段终点 midpoint(prevLast,last) 直连 last。
+    // （toPathData 的 SVG 导出用 T 命令，但画布渲染以 drawPath 为准，故按直线计算。）
+    const endStart = { x: (prevLast.x + last.x) / 2, y: (prevLast.y + last.y) / 2 };
+    if (endStart.x < acc.minX) acc.minX = endStart.x;
+    if (endStart.x > acc.maxX) acc.maxX = endStart.x;
+    if (endStart.y < acc.minY) acc.minY = endStart.y;
+    if (endStart.y > acc.maxY) acc.maxY = endStart.y;
+    if (last.x < acc.minX) acc.minX = last.x;
+    if (last.x > acc.maxX) acc.maxX = last.x;
+    if (last.y < acc.minY) acc.minY = last.y;
+    if (last.y > acc.maxY) acc.maxY = last.y;
+  }
+  if (!Number.isFinite(acc.minX)) return getBounds(points);
+  return {
+    minX: acc.minX,
+    minY: acc.minY,
+    maxX: acc.maxX,
+    maxY: acc.maxY,
+    width: acc.maxX - acc.minX,
+    height: acc.maxY - acc.minY,
+  };
+}
+
 /** 选中笔画的联合包围盒（含线宽 padding）。returns null 表示无选中或无几何。 */
 function selectionBounds(strokes: Stroke[]): Bounds | null {
   if (!strokes.length) return null;
@@ -260,12 +386,34 @@ function selectionBounds(strokes: Stroke[]): Bounds | null {
     maxY = -Infinity;
   for (const s of strokes) {
     if (!s.points.length) continue;
-    const b = getBounds(s.points);
+    const b = renderBounds(s);
     const pad = s.width / 2 + 8;
     if (b.minX - pad < minX) minX = b.minX - pad;
     if (b.minY - pad < minY) minY = b.minY - pad;
     if (b.maxX + pad > maxX) maxX = b.maxX + pad;
     if (b.maxY + pad > maxY) maxY = b.maxY + pad;
+  }
+  if (!Number.isFinite(minX)) return null;
+  return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+/**
+ * 选中笔画点的联合真实包围盒（不含 padding）。
+ * 供 resize 缩放使用：以点的真实范围作为缩放基准，避免 padding 参与缩放造成杠杆放大。
+ */
+function unionRenderBounds(strokes: Stroke[]): Bounds | null {
+  if (!strokes.length) return null;
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  for (const s of strokes) {
+    if (!s.points.length) continue;
+    const b = renderBounds(s);
+    if (b.minX < minX) minX = b.minX;
+    if (b.minY < minY) minY = b.minY;
+    if (b.maxX > maxX) maxX = b.maxX;
+    if (b.maxY > maxY) maxY = b.maxY;
   }
   if (!Number.isFinite(minX)) return null;
   return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
@@ -290,24 +438,35 @@ function handlePoint(box: Bounds, handle: ResizeHandle): Point {
 }
 
 /**
- * 给定原始包围盒、手柄、原始指针与当前指针，计算缩放后的新包围盒，
- * 并返回把"旧坐标→新坐标"映射到任意点的函数。
- * 拖动某手柄时，其对角（或对边）固定不动。
+ * 给定原始包围盒（无 padding 的真实点范围）、手柄、按下指针与当前指针，
+ * 计算把"旧坐标→新坐标"映射到任意点的函数。
+ * 拖动某手柄时，其对角（或对边）固定不动；手柄边随鼠标位移精确跟随。
+ * box 必须是笔画点的真实包围盒（不含 padding），否则 padding 会参与缩放造成杠杆放大。
  */
 function resizeTransform(box: Bounds, handle: ResizeHandle, origin: Point, current: Point) {
-  // 固定锚点：与拖动手柄相对的边/角
-  const anchorNW = handle.includes("w") || handle === "n" || handle === "s";
-  const anchorN = handle.includes("n") || handle === "e" || handle === "w";
   // 对边手柄（n/s/e/w）只缩放一个轴，另一个轴保持
-  const isVertical = handle === "n" || handle === "s";
-  const isHorizontal = handle === "e" || handle === "w";
+  const isVertical = handle === "n" || handle === "s"; // 上下拖动，固定 Y 对边，X 不变
+  const isHorizontal = handle === "e" || handle === "w"; // 左右拖动，固定 X 对边，Y 不变
 
-  const fixedX = anchorNW ? box.maxX : box.minX; // 西侧手柄固定 maxX，东侧固定 minX
-  const fixedY = anchorN ? box.maxY : box.minY; // 北侧手柄固定 maxY，南侧固定 minY
+  // 手柄所在的边（按下时的坐标）；固定边为对边
+  const handleIsEast = handle.includes("e");
+  const handleIsSouth = handle.includes("s");
+  const handleEdgeX = handleIsEast ? box.maxX : box.minX; // e/ne/se 取 maxX；w/nw/sw 取 minX；n/s 不用
+  const handleEdgeY = handleIsSouth ? box.maxY : box.minY; // s/se/sw 取 maxY；n/ne/nw 取 minY；e/w 不用
+  const fixedX = handleIsEast ? box.minX : box.maxX; // 东侧手柄固定西边(minX)，西侧固定东边(maxX)
+  const fixedY = handleIsSouth ? box.minY : box.maxY; // 南侧手柄固定北边(minY)，北侧固定南边(maxY)
 
-  // 当前指针相对固定锚点的位移 / 原始指针位移 = 缩放比（按下点为基准，避免正反馈）
-  const sx = isVertical ? 1 : (current.x - fixedX) / (origin.x - fixedX || 1);
-  const sy = isHorizontal ? 1 : (current.y - fixedY) / (origin.y - fixedY || 1);
+  // 鼠标位移 → 手柄边位移 → 新手柄边坐标
+  const dx = current.x - origin.x;
+  const dy = current.y - origin.y;
+  const newHandleEdgeX = handleEdgeX + dx;
+  const newHandleEdgeY = handleEdgeY + dy;
+
+  // 缩放比 = 新距离 / 原距离（以固定边为原点）
+  const spanX = handleEdgeX - fixedX || 1;
+  const spanY = handleEdgeY - fixedY || 1;
+  const sx = isVertical ? 1 : (newHandleEdgeX - fixedX) / spanX;
+  const sy = isHorizontal ? 1 : (newHandleEdgeY - fixedY) / spanY;
 
   const mapPoint = (p: Point): Point => {
     if (isVertical) return { x: p.x, y: fixedY + (p.y - fixedY) * sy };
@@ -401,7 +560,7 @@ function boxIntersectsStroke(box: SelectionBox, stroke: Stroke) {
     right = Math.max(box.start.x, box.end.x),
     top = Math.min(box.start.y, box.end.y),
     bottom = Math.max(box.start.y, box.end.y);
-  const bounds = getBounds(stroke.points);
+  const bounds = renderBounds(stroke);
   return bounds.maxX >= left && bounds.minX <= right && bounds.maxY >= top && bounds.minY <= bottom;
 }
 function escapeAttr(value: string) {
@@ -571,7 +730,7 @@ function renderScene({
     strokes
       .filter((stroke) => selectedIds.includes(stroke.id))
       .forEach((stroke) => {
-        const bounds = getBounds(stroke.points),
+        const bounds = renderBounds(stroke),
           padding = stroke.width / 2 + 8;
         ctx.strokeRect(
           bounds.minX - padding,
@@ -646,19 +805,11 @@ export function CanvasTool() {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
   const rampRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const scaledRef = useRef(false);
   const stopDragRafRef = useRef(0);
   const stopDragInfoRef = useRef<{ stopId: string; x: number; y: number } | null>(null);
-  const panelDragRef = useRef<{
-    offX: number;
-    offY: number;
-    moved: boolean;
-    startX: number;
-    startY: number;
-  } | null>(null);
   const rampDragRef = useRef<{ stopId: string; moved: boolean } | null>(null);
 
   const [mode, setMode] = useState<Mode>("select");
@@ -677,8 +828,17 @@ export function CanvasTool() {
   const bgColorAutoRef = useRef(true); // 是否仍为自动跟随主题的默认色（用户未手动改色）
   const [undoStack, setUndoStack] = useState<SceneSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<SceneSnapshot[]>([]);
-  const [panelOpen, setPanelOpen] = useState(false);
-  const [panelPos, setPanelPos] = useState<{ x: number; y: number } | null>(null);
+  // 面板动画状态机：closed（卸载，只显示卷角）→ opening（翻开中）→ open（展开）→ closing（翻回中）→ closed
+  const [panelAnim, setPanelAnim] = useState<"closed" | "opening" | "open" | "closing">("closed");
+
+  const openPanel = useCallback(() => setPanelAnim("opening"), []);
+  const closePanel = useCallback(() => setPanelAnim((s) => (s === "open" ? "closing" : s)), []);
+  const onPanelAnimationEnd = useCallback((event: React.AnimationEvent) => {
+    // 只响应翻页动画自身，避免子元素动画冒泡误触发状态转换
+    if (event.animationName !== "colora-page-open" && event.animationName !== "colora-page-close")
+      return;
+    setPanelAnim((s) => (s === "opening" ? "open" : s === "closing" ? "closed" : s));
+  }, []);
 
   const selectedStrokes = useMemo(
     () => strokes.filter((stroke) => selectedIds.includes(stroke.id)),
@@ -726,28 +886,6 @@ export function CanvasTool() {
       })),
     );
   }, [viewSize]);
-
-  // 面板默认位置：右下角（首次有尺寸且无保存位置时）
-  useEffect(() => {
-    if (panelPos) return;
-    if (viewSize.w === 0 || viewSize.h === 0) return;
-    try {
-      const saved = localStorage.getItem("colora.canvas.panelPos");
-      if (saved) {
-        const p = JSON.parse(saved) as { x: number; y: number };
-        if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
-          setPanelPos(p);
-          return;
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-    setPanelPos({
-      x: Math.max(0, viewSize.w - FAB_SIZE - 24),
-      y: Math.max(0, viewSize.h - FAB_SIZE - 24),
-    });
-  }, [panelPos, viewSize]);
 
   const commitStrokes = useCallback(
     (next: Stroke[]) => {
@@ -1327,11 +1465,14 @@ export function CanvasTool() {
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     const origin = canvasPoint(event);
+    // box 用点的真实包围盒（无 padding），缩放以点的真实范围为基准，
+    // 避免外框 padding 参与缩放导致"鼠标动一点、线条大幅变动"的杠杆放大。
+    const box = unionRenderBounds(selectedStrokes) ?? { ...selBounds };
     dragRef.current = {
       type: "resize",
       handle,
       origin,
-      box: { ...selBounds },
+      box,
       startStrokes: cloneStrokes(selectedStrokes),
       startGroups: cloneGroups(groups),
     };
@@ -1343,12 +1484,14 @@ export function CanvasTool() {
       if (drag?.type !== "resize") return;
       const { mapPoint } = resizeTransform(drag.box, drag.handle, drag.origin, point);
       const ids = new Set(selectedIds);
+      const snapshot = drag.startStrokes; // 始终从按下时的原始点快照映射，避免在已缩放点上重复应用导致指数累积
       setStrokes((current) =>
-        current.map((stroke) =>
-          ids.has(stroke.id)
-            ? { ...stroke, points: stroke.points.map((p) => mapPoint(p)) }
-            : stroke,
-        ),
+        current.map((stroke) => {
+          if (!ids.has(stroke.id)) return stroke;
+          const original = snapshot.find((s) => s.id === stroke.id);
+          if (!original) return stroke;
+          return { ...stroke, points: original.points.map((p) => mapPoint(p)) };
+        }),
       );
     },
     [selectedIds],
@@ -1366,62 +1509,6 @@ export function CanvasTool() {
     }
     dragRef.current = null;
   }, [strokes]);
-
-  // ---- 浮动面板拖动 ----
-  const onPanelPointerDown = (event: React.PointerEvent) => {
-    if (!panelPos) return;
-    event.stopPropagation();
-    const container = containerRef.current;
-    const panel = panelRef.current;
-    if (!container || !panel) return;
-    const cRect = container.getBoundingClientRect();
-    const pRect = panel.getBoundingClientRect();
-    panelDragRef.current = {
-      offX: event.clientX - cRect.left - (pRect.left - cRect.left),
-      offY: event.clientY - cRect.top - (pRect.top - cRect.top),
-      moved: false,
-      startX: event.clientX,
-      startY: event.clientY,
-    };
-    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-  };
-  const onPanelPointerMove = (event: React.PointerEvent) => {
-    const d = panelDragRef.current;
-    if (!d) return;
-    if (Math.hypot(event.clientX - d.startX, event.clientY - d.startY) > 4) d.moved = true;
-    if (!d.moved) return;
-    const container = containerRef.current;
-    const panel = panelRef.current;
-    if (!container || !panel) return;
-    const cw = container.clientWidth;
-    const ch = container.clientHeight;
-    const pw = panel.offsetWidth;
-    const ph = panel.offsetHeight;
-    const x = clamp(event.clientX - d.offX, 0, Math.max(0, cw - pw));
-    const y = clamp(event.clientY - d.offY, 0, Math.max(0, ch - ph));
-    setPanelPos({ x, y });
-  };
-  const onPanelPointerUp = (event: React.PointerEvent) => {
-    const d = panelDragRef.current;
-    panelDragRef.current = null;
-    if (d && !d.moved) {
-      // 收起态下短按视为点击展开
-      if (!panelOpen) setPanelOpen(true);
-    }
-    try {
-      (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
-    } catch {
-      /* ignore */
-    }
-  };
-  useEffect(() => {
-    if (!panelPos) return;
-    try {
-      localStorage.setItem("colora.canvas.panelPos", JSON.stringify(panelPos));
-    } catch {
-      /* ignore */
-    }
-  }, [panelPos]);
 
   // ---- 面板内斜坡条手柄拖动（改 pos） ----
   const onRampHandlePointerDown = (event: React.PointerEvent, stopId: string) => {
@@ -1468,10 +1555,6 @@ export function CanvasTool() {
         updateSelectedGroup((g) => ({ ...g, stops: g.stops.filter((s) => s.id !== stopId) }));
     } else removeStopFromSelected(stopId);
   };
-
-  const panelStyle: React.CSSProperties = panelPos
-    ? { left: panelPos.x, top: panelPos.y }
-    : { right: 24, bottom: 24 };
 
   return (
     <section
@@ -1646,34 +1729,33 @@ export function CanvasTool() {
         </div>
       </div>
 
-      {/* 浮动可拖动折叠面板 */}
-      <div
-        ref={panelRef}
-        style={panelStyle}
-        className={cn(
-          "absolute z-30 touch-none",
-          panelOpen
-            ? "flex max-h-[70dvh] w-80 flex-col overflow-hidden rounded-2xl border border-border/60 bg-background/95 shadow-2xl backdrop-blur-md"
-            : "size-12 rounded-full border border-border/60 bg-background/80 shadow-xl backdrop-blur-md",
+      {/* 右上角书页卷角：hover 卷边，点击翻页展开编辑面板 */}
+      <div className="page-3d absolute right-0 top-0 z-30">
+        {panelAnim === "closed" && (
+          <button
+            type="button"
+            aria-label="展开编辑面板"
+            onClick={openPanel}
+            className="colora-corner absolute right-0 top-0 size-16 cursor-pointer backdrop-blur-md"
+          />
         )}
-      >
-        {panelOpen ? (
-          <>
-            <div
-              className="flex shrink-0 cursor-grab items-center gap-1.5 border-b border-border/60 px-3 py-2 active:cursor-grabbing"
-              onPointerDown={onPanelPointerDown}
-              onPointerMove={onPanelPointerMove}
-              onPointerUp={onPanelPointerUp}
-              onPointerCancel={onPanelPointerUp}
-            >
-              <GripVertical className="size-4 text-muted-foreground" />
+        {panelAnim !== "closed" && (
+          <div
+            onAnimationEnd={onPanelAnimationEnd}
+            className={cn(
+              "absolute right-0 top-0 flex max-h-[70dvh] w-80 flex-col overflow-hidden rounded-b-2xl rounded-l-2xl border border-border/60 bg-background/95 shadow-2xl backdrop-blur-md",
+              panelAnim === "opening" && "animate-page-open",
+              panelAnim === "closing" && "animate-page-close",
+            )}
+          >
+            <div className="flex shrink-0 items-center gap-1.5 border-b border-border/60 px-3 py-2">
               <span className="flex-1 text-xs font-medium tracking-wide text-muted-foreground">
                 编辑
               </span>
               <button
                 type="button"
                 onPointerDown={(e) => e.stopPropagation()}
-                onClick={() => setPanelOpen(false)}
+                onClick={closePanel}
                 aria-label="收起面板"
                 className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
               >
@@ -1978,22 +2060,62 @@ export function CanvasTool() {
                 </p>
               </div>
             </div>
-          </>
-        ) : (
-          <button
-            type="button"
-            aria-label="展开编辑面板"
-            onPointerDown={onPanelPointerDown}
-            onPointerMove={onPanelPointerMove}
-            onPointerUp={onPanelPointerUp}
-            onPointerCancel={onPanelPointerUp}
-            className="grid size-full place-items-center rounded-full text-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <SlidersHorizontal className="size-5" strokeWidth={1.6} />
-          </button>
+          </div>
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * 右上角书页卷角（SVG）。
+ * 画一个被掀起且向后翻卷的纸角：主体纸面 + 翻卷的背面(弧形) + 纸缘高光 + 投影。
+ * 颜色随画布背景明度自动取对比色，保证任意背景上都清晰可辨。
+ */
+function CornerFold({ bg }: { bg: string }) {
+  const t = useMemo(() => cornerTone(bg), [bg]);
+  return (
+    <svg
+      viewBox="0 0 64 64"
+      className="h-full w-full"
+      aria-hidden="true"
+      preserveAspectRatio="none"
+    >
+      {/* 投影：卷背在画布上的柔和投影 */}
+      <ellipse cx="44" cy="54" rx="26" ry="9" fill={t.shade} />
+      {/* 纸面：右上角的主体三角形 */}
+      <path
+        d="M2 2 L62 2 L62 62 Z"
+        fill={t.fold}
+      />
+      {/* 纸面上淡淡的斜向高光，模拟纸面质感 */}
+      <path
+        d="M2 2 L62 2 L62 62 Z"
+        fill="none"
+        stroke={t.edge}
+        strokeOpacity="0.35"
+        strokeWidth="1"
+      />
+      {/* 卷背面：从斜边向右下翻卷的弧形纸背 */}
+      <path
+        d="M3 3 C20 20 44 46 62 61 C50 44 30 20 3 3 Z"
+        fill={t.back}
+      />
+      {/* 纸缘高光：卷背的卷曲边缘亮线 */}
+      <path
+        d="M3 3 C20 20 44 46 62 61"
+        fill="none"
+        stroke={t.edge}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeOpacity="0.85"
+      />
+      {/* 卷背内缘的过渡暗面 */}
+      <path
+        d="M3 3 C20 20 44 46 62 61 C44 40 20 16 3 3 Z"
+        fill="rgb(0 0 0 / 0.06)"
+      />
+    </svg>
   );
 }
 
