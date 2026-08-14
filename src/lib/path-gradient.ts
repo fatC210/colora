@@ -188,11 +188,12 @@ export function drawGradientStroke(
   closed = false,
 ) {
   if (points.length < 2) return;
-  const dense = tessellate(points, 3, closed);
+  const dense = tessellate(points, 1.5, closed);
   const cum = arcLengths(dense);
   const total = cum.at(-1) ?? 0;
   ctx.lineWidth = width;
   ctx.lineCap = "round";
+  ctx.lineJoin = "round";
   for (let i = 0; i < dense.length - 1; i++) {
     const a = dense[i],
       b = dense[i + 1];
@@ -218,7 +219,7 @@ export function svgGradientStroke(
   mixBlend = false,
 ): string {
   if (points.length < 2) return "";
-  const dense = tessellate(points, 3, closed);
+  const dense = tessellate(points, 1.5, closed);
   const cum = arcLengths(dense);
   const total = cum.at(-1) ?? 0;
   const lines: string[] = [];
