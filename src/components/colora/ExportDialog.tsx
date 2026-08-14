@@ -130,7 +130,7 @@ function colorPng(colors: string[], labels: string[] = []) {
     ctx.fillStyle = color;
     ctx.fillRect(x, 0, 240, height - 70);
     ctx.fillStyle = bestTextOn(color);
-    ctx.font = "20px monospace";
+    ctx.font = "20px Inter, 'Noto Sans SC', system-ui, sans-serif";
     ctx.fillText(labels[index] ?? color, x + 18, height - 28);
   });
   return canvas;

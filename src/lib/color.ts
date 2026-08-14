@@ -316,6 +316,47 @@ export function interpolate(a: string, b: string, t: number, space: InterpSpace)
   return rgbToHex(labToRgb(lchToLab({ l: A.l + (B.l - A.l) * t, c: A.c + (B.c - A.c) * t, h: A.h + dh * t })));
 }
 
+// ---- Alpha-aware colors (rgba CSS strings for canvas/SVG) ----
+// alpha 用 0..100（与 UI 百分比一致）；内部转 0..1 组装 rgba()。
+const clampAlpha = (p: number) => Math.min(100, Math.max(0, p));
+
+/** hex(#RRGGBB) + alpha(0..100) → "rgba(r,g,b,a)"，供 canvas strokeStyle / SVG stroke 直接使用 */
+export function hexAlphaToCss(hex: string, alphaPercent: number): string {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${(clampAlpha(alphaPercent) / 100).toFixed(3)})`;
+}
+
+/**
+ * 在指定空间插值两个带 alpha 的色标，返回 rgba() 字符串。
+ * 颜色通道复用 interpolate 的 rgb/lab/lch 逻辑（lch 色相走最短弧），
+ * alpha 在三个空间都用同一条线性插值，与色彩空间无关。
+ */
+export function interpolateAlpha(
+  a: { hex: string; alpha: number },
+  b: { hex: string; alpha: number },
+  t: number,
+  space: InterpSpace,
+): string {
+  const hex = interpolate(a.hex, b.hex, t, space);
+  const { r, g, b: bb } = hexToRgb(hex);
+  const aa = clampAlpha(a.alpha) / 100;
+  const ab = clampAlpha(b.alpha) / 100;
+  const alpha = aa + (ab - aa) * t;
+  return `rgba(${Math.round(r)},${Math.round(g)},${Math.round(bb)},${alpha.toFixed(3)})`;
+}
+
+/** 与 interpolateAlpha 相同的插值，但返回拆分的 { hex, alpha(0..100) }，供新增色标取色用 */
+export function interpolateStop(
+  a: { hex: string; alpha: number },
+  b: { hex: string; alpha: number },
+  t: number,
+  space: InterpSpace,
+): { hex: string; alpha: number } {
+  const hex = interpolate(a.hex, b.hex, t, space);
+  const alpha = clampAlpha(a.alpha) + (clampAlpha(b.alpha) - clampAlpha(a.alpha)) * t;
+  return { hex, alpha: Math.round(alpha) };
+}
+
 // ---- Colorblind simulation matrices ----
 export type CBMode = "none" | "protanopia" | "deuteranopia" | "tritanopia" | "achromatopsia";
 

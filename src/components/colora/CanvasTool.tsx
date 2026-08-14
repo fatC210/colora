@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowUpDown,
   Code2,
   Copy,
   Download,
@@ -11,19 +12,19 @@ import {
   Save,
   Shapes,
   Slash,
+  SlidersHorizontal,
   Sparkles,
   Trash2,
   Undo2,
   Ungroup,
-  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ColorPicker } from "./primitives";
 import { cn } from "@/lib/utils";
 import { useColora } from "@/lib/colora-store";
 import {
-  colorAtPercent,
   createStopId,
   drawGradientStroke,
   type InterpSpace,
@@ -32,19 +33,20 @@ import {
   pointAtLength,
   percentToLength,
   shapePoints as makeShapePoints,
-  smoothPoints,
+  stopAtPercent,
   svgGradientStroke,
   totalLength,
   type Point,
   type ShapeType,
 } from "@/lib/path-gradient";
-import { bestTextOn, relativeLuminance, hexToRgb } from "@/lib/color";
+import { bestTextOn, relativeLuminance, hexToRgb, hslToRgb, rgbToHex, rgbToHsl, hexAlphaToCss } from "@/lib/color";
 
 type Mode = "select" | "brush" | "line" | "shape";
 type StrokeKind = "brush" | "line" | "shape";
 type PaintMode = "solid" | "gradient";
 type OverlapMode = "mix" | "cover";
 type CanvasLayout = "grid" | "blank" | "dots";
+type InspectorTab = "line" | "canvas";
 type StrokePaint = { mode: PaintMode; solid: string; stops: PathStop[]; space: InterpSpace };
 type Stroke = {
   id: string;
@@ -53,8 +55,6 @@ type Stroke = {
   shape?: ShapeType;
   points: Point[];
   width: number;
-  smooth: boolean;
-  smoothing: number;
   paint: StrokePaint;
   groupId?: string;
 };
@@ -96,9 +96,9 @@ type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 const INITIAL_W = 1120;
 const INITIAL_H = 720;
 const DEFAULT_STOPS: PathStop[] = [
-  { id: "stop-a", hex: "#8B5CF6", pos: 0 },
-  { id: "stop-b", hex: "#06B6D4", pos: 50 },
-  { id: "stop-c", hex: "#F97316", pos: 100 },
+  { id: "stop-a", hex: "#8B5CF6", pos: 0, alpha: 100 },
+  { id: "stop-b", hex: "#06B6D4", pos: 50, alpha: 100 },
+  { id: "stop-c", hex: "#F97316", pos: 100, alpha: 100 },
 ];
 const SHAPES: { value: ShapeType; label: string }[] = [
   { value: "circle", label: "圆形" },
@@ -149,39 +149,31 @@ function gridColors(bg: string): { line: string; dot: string } {
 }
 
 /**
- * 根据画布背景明度生成卷角的一组协调对比色（同灰阶、非生硬黑白）。
- * 背景亮 → 卷角用深纸；背景暗 → 用浅纸；中灰背景拉大明度差保证可辨。
- * 返回：fold 纸面、back 卷背面、edge 纸缘高光、shade 卷曲投影。
+ * Build shared colors for the inspector trigger and floating panel.
  */
-function cornerTone(bg: string): { fold: string; back: string; edge: string; shade: string } {
+function inspectorTone(bg: string): { surface: string; icon: string; border: string; shade: string } {
   const rgb = hexToRgb(bg);
-  if (!rgb) return { fold: "#3f3f46", back: "#18181b", edge: "#9ca3af", shade: "#00000066" };
-  const lum = relativeLuminance(rgb); // 0~1
+  const lum = relativeLuminance(rgb);
   const dark = lum < 0.5;
-  // 距中性点（0.5）的距离 → 反相强度。越接近中灰越需要极端反相保证对比
-  const pull = 0.5 + Math.abs(lum - 0.5) * 1.4; // 0.5(中性) ~ 1.2(端点)
-  const gray = (v: number) => `rgb(${v},${v},${v})`;
+
   if (dark) {
-    // 暗背景 → 浅纸（高对比），卷背略暗，纸缘更高光
-    const f = Math.min(250, Math.round(205 + pull * 40)); // 235~250
     return {
-      fold: gray(f),
-      back: gray(Math.max(150, f - 58)),
-      edge: gray(Math.min(255, f + 5)),
-      shade: "rgb(0 0 0 / 0.30)",
+      surface: "rgb(10 10 10 / 0.96)",
+      icon: "rgb(229 229 229)",
+      border: "rgb(255 255 255 / 0.10)",
+      shade: "rgb(0 0 0 / 0.38)",
     };
   }
-  // 亮背景 → 深纸（高对比），卷背更暗，纸缘略亮
-  const f = Math.max(22, Math.round(180 - pull * 130)); // 24~58
+
   return {
-    fold: gray(Math.round(f * 0.78)),
-    back: gray(Math.max(16, Math.round(f * 0.5))),
-    edge: gray(f),
-    shade: "rgb(0 0 0 / 0.22)",
+    surface: "rgb(250 250 250 / 0.96)",
+    icon: "rgb(24 24 27)",
+    border: "rgb(0 0 0 / 0.12)",
+    shade: "rgb(0 0 0 / 0.18)",
   };
 }
 
-// 适合作为画布背景的常用色（线条颜色不受其影响）
+// 适合用作画布背景的常用色（线条颜色不受其影响）
 const CANVAS_BG_PRESETS: { hex: string; label: string }[] = [
   { hex: "#FFFFFF", label: "纯白" },
   { hex: "#F5F1E8", label: "茶白" },
@@ -236,8 +228,6 @@ const initialStrokes: Stroke[] = [
       { x: 930, y: 222 },
     ],
     width: 24,
-    smooth: true,
-    smoothing: 72,
     paint: defaultPaint("#8B5CF6"),
   },
   {
@@ -256,14 +246,12 @@ const initialStrokes: Stroke[] = [
       { x: 972, y: 587 },
     ],
     width: 16,
-    smooth: true,
-    smoothing: 90,
     paint: {
       mode: "gradient",
       solid: "#06B6D4",
       stops: [
-        { id: "demo-2-a", hex: "#06B6D4", pos: 0 },
-        { id: "demo-2-b", hex: "#22C55E", pos: 100 },
+        { id: "demo-2-a", hex: "#06B6D4", pos: 0, alpha: 100 },
+        { id: "demo-2-b", hex: "#22C55E", pos: 100, alpha: 100 },
       ],
       space: "rgb",
     },
@@ -282,99 +270,11 @@ function getBounds(points: Point[]): Bounds {
 }
 
 /**
- * 单条二次贝塞尔曲线段 (p0→p2, 控制点 p1) 的包围盒。
- * 渲染时 drawPath(curved) 用 quadraticCurveTo，曲线会凸出控制多边形，
- * 直接取端点 min/max 会漏掉外凸部分，因此对 t 参数采样以包含真实弧线范围。
- */
-function quadraticBounds(
-  p0: Point,
-  p1: Point,
-  p2: Point,
-  into: { minX: number; minY: number; maxX: number; maxY: number },
-) {
-  // 先纳入两端点与控制点（控制点本身不在曲线上，但若 t 极值落在 (0,1) 外则端点已是极值）
-  for (const p of [p0, p2]) {
-    if (p.x < into.minX) into.minX = p.x;
-    if (p.x > into.maxX) into.maxX = p.x;
-    if (p.y < into.minY) into.minY = p.y;
-    if (p.y > into.maxY) into.maxY = p.y;
-  }
-  // B(t) = (1-t)^2 p0 + 2(1-t)t p1 + t^2 p2，极值点 t = (p0 - p1) / (p0 - 2 p1 + p2)
-  for (const axis of ["x", "y"] as const) {
-    const denom = p0[axis] - 2 * p1[axis] + p2[axis];
-    if (denom === 0) continue;
-    const t = (p0[axis] - p1[axis]) / denom;
-    if (t > 0 && t < 1) {
-      const v = (1 - t) * (1 - t) * p0[axis] + 2 * (1 - t) * t * p1[axis] + t * t * p2[axis];
-      if (v < into.minX && axis === "x") into.minX = v;
-      if (v > into.maxX && axis === "x") into.maxX = v;
-      if (v < into.minY && axis === "y") into.minY = v;
-      if (v > into.maxY && axis === "y") into.maxY = v;
-    }
-  }
-}
-
-/**
- * 单笔实际渲染几何的包围盒（与 drawPath / drawGradientStroke 口径一致）。
- * 平滑笔触与曲线模式都会让真实弧线超出原始 points 的 min/max，这里按渲染路径计算。
+ * 单笔实际渲染几何的包围盒。渲染为原始折线（直线段），故直接取 points 的 min/max。
  */
 function renderBounds(stroke: Stroke): Bounds {
   const points = renderPoints(stroke);
-  if (!points.length) return { minX: 0, minY: 0, maxX: 0, maxY: 0, width: 0, height: 0 };
-  if (points.length === 1) {
-    return {
-      minX: points[0].x,
-      minY: points[0].y,
-      maxX: points[0].x,
-      maxY: points[0].y,
-      width: 0,
-      height: 0,
-    };
-  }
-  const curved = stroke.kind === "brush" || stroke.shape === "wave";
-  const acc = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
-  if (!curved || points.length < 3) {
-    for (const p of points) {
-      if (p.x < acc.minX) acc.minX = p.x;
-      if (p.x > acc.maxX) acc.maxX = p.x;
-      if (p.y < acc.minY) acc.minY = p.y;
-      if (p.y > acc.maxY) acc.maxY = p.y;
-    }
-  } else {
-    // 与 drawPath 的二次贝塞尔分段一致：Q points[i] midpoint(i,i+1)，末段 lineTo(last)
-    for (let i = 1; i < points.length - 1; i++) {
-      const cur = points[i],
-        next = points[i + 1];
-      const mid = { x: (cur.x + next.x) / 2, y: (cur.y + next.y) / 2 };
-      const prev =
-        i === 1
-          ? points[0]
-          : { x: (points[i - 1].x + cur.x) / 2, y: (points[i - 1].y + cur.y) / 2 };
-      quadraticBounds(prev, cur, mid, acc);
-    }
-    const last = points[points.length - 1],
-      prevLast = points[points.length - 2];
-    // drawPath 末段为直线 lineTo(last)：从上一段终点 midpoint(prevLast,last) 直连 last。
-    // （toPathData 的 SVG 导出用 T 命令，但画布渲染以 drawPath 为准，故按直线计算。）
-    const endStart = { x: (prevLast.x + last.x) / 2, y: (prevLast.y + last.y) / 2 };
-    if (endStart.x < acc.minX) acc.minX = endStart.x;
-    if (endStart.x > acc.maxX) acc.maxX = endStart.x;
-    if (endStart.y < acc.minY) acc.minY = endStart.y;
-    if (endStart.y > acc.maxY) acc.maxY = endStart.y;
-    if (last.x < acc.minX) acc.minX = last.x;
-    if (last.x > acc.maxX) acc.maxX = last.x;
-    if (last.y < acc.minY) acc.minY = last.y;
-    if (last.y > acc.maxY) acc.maxY = last.y;
-  }
-  if (!Number.isFinite(acc.minX)) return getBounds(points);
-  return {
-    minX: acc.minX,
-    minY: acc.minY,
-    maxX: acc.maxX,
-    maxY: acc.maxY,
-    width: acc.maxX - acc.minX,
-    height: acc.maxY - acc.minY,
-  };
+  return getBounds(points);
 }
 
 /** 选中笔画的联合包围盒（含线宽 padding）。returns null 表示无选中或无几何。 */
@@ -476,11 +376,7 @@ function resizeTransform(box: Bounds, handle: ResizeHandle, origin: Point, curre
   return { mapPoint, sx, sy };
 }
 function renderPoints(stroke: Stroke) {
-  return stroke.kind === "brush" || stroke.shape === "wave"
-    ? stroke.smooth
-      ? smoothPoints(stroke.points, stroke.smoothing)
-      : stroke.points
-    : stroke.points;
+  return stroke.points;
 }
 function isClosedShape(stroke: Stroke) {
   return Boolean(
@@ -501,43 +397,22 @@ function paintSource(stroke: Stroke, groups: StrokeGroup[]) {
     };
   return stroke.paint;
 }
-function toPathData(points: Point[], curved: boolean) {
+// 始终输出原始折线（直线段），不二次贝塞尔平滑——与画布渲染及沿路径渐变几何一致。
+function toPathData(points: Point[]) {
   if (!points.length) return "";
-  if (!curved || points.length < 3)
-    return points
-      .map(
-        (point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`,
-      )
-      .join(" ");
-  let d = `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
-  for (let index = 1; index < points.length - 1; index++) {
-    const current = points[index],
-      next = points[index + 1];
-    d += ` Q ${current.x.toFixed(1)} ${current.y.toFixed(1)} ${((current.x + next.x) / 2).toFixed(1)} ${((current.y + next.y) / 2).toFixed(1)}`;
-  }
-  const last = points[points.length - 1];
-  return `${d} T ${last.x.toFixed(1)} ${last.y.toFixed(1)}`;
+  return points
+    .map(
+      (point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`,
+    )
+    .join(" ");
 }
-function drawPath(ctx: CanvasRenderingContext2D, points: Point[], curved: boolean, closed = false) {
+// 始终以原始折线（直线段）描边，不二次贝塞尔平滑——与沿路径渐变的直线细分几何一致，
+// 切换"纯色/沿路径"只改颜色，不改线条形状与走向（转角保持原样）。
+function drawPath(ctx: CanvasRenderingContext2D, points: Point[], closed = false) {
   if (points.length < 2) return;
   ctx.beginPath();
   ctx.moveTo(points[0].x, points[0].y);
-  if (!curved || points.length < 3)
-    points.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
-  else {
-    for (let index = 1; index < points.length - 1; index++) {
-      const current = points[index],
-        next = points[index + 1];
-      ctx.quadraticCurveTo(
-        current.x,
-        current.y,
-        (current.x + next.x) / 2,
-        (current.y + next.y) / 2,
-      );
-    }
-    const last = points[points.length - 1];
-    ctx.lineTo(last.x, last.y);
-  }
+  points.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
   if (closed) ctx.closePath();
 }
 function pointToSegmentDistance(point: Point, a: Point, b: Point) {
@@ -595,12 +470,6 @@ function getNextStopPosition(stops: PathStop[]) {
   }
   return Math.round((gapStart + gapEnd) / 2);
 }
-/** 把按 pos 排序的 stops 拼成 CSS 线性渐变字符串（面板斜坡条预览用，rgb 插值） */
-function rampCss(stops: PathStop[]) {
-  const sorted = [...stops].sort((a, b) => a.pos - b.pos);
-  if (!sorted.length) return "#000000";
-  return `linear-gradient(to right, ${sorted.map((s) => `${s.hex} ${s.pos}%`).join(", ")})`;
-}
 
 function drawBackground(
   ctx: CanvasRenderingContext2D,
@@ -652,6 +521,8 @@ function renderScene({
   offscreen,
   bgLayout = "grid",
   bgColor,
+  showBackground = true,
+  showSelection = true,
 }: {
   ctx: CanvasRenderingContext2D;
   size: Size;
@@ -663,11 +534,13 @@ function renderScene({
   offscreen?: HTMLCanvasElement | null;
   bgLayout?: CanvasLayout;
   bgColor: string;
+  showBackground?: boolean;
+  showSelection?: boolean;
 }) {
   const { w, h } = size;
   if (w === 0 || h === 0) return;
   ctx.clearRect(0, 0, w, h);
-  drawBackground(ctx, size, bgLayout, bgColor);
+  if (showBackground) drawBackground(ctx, size, bgLayout, bgColor);
 
   const drawStroke = (target: CanvasRenderingContext2D, stroke: Stroke) => {
     const points = renderPoints(stroke);
@@ -675,7 +548,7 @@ function renderScene({
     const source = paintSource(stroke, groups);
     const closed = isClosedShape(stroke);
     if (source.mode === "solid") {
-      drawPath(target, points, stroke.kind === "brush" || stroke.shape === "wave", closed);
+      drawPath(target, points, closed);
       target.strokeStyle = source.solid;
       target.lineWidth = stroke.width;
       target.lineCap = "round";
@@ -717,11 +590,11 @@ function renderScene({
     ctx.setLineDash([10, 8]);
     ctx.strokeStyle = "rgba(2, 132, 199, 0.9)";
     ctx.lineWidth = 3;
-    drawPath(ctx, points, draft.type !== "line", draft.type === "shape");
+    drawPath(ctx, points, draft.type === "shape");
     ctx.stroke();
     ctx.restore();
   }
-  if (selectedIds.length) {
+  if (showSelection && selectedIds.length) {
     ctx.save();
     ctx.globalCompositeOperation = "source-over";
     ctx.strokeStyle = "rgba(37, 99, 235, 0.92)";
@@ -771,6 +644,7 @@ function createSvg(
   overlapMode: OverlapMode,
   bgLayout: CanvasLayout,
   bgColor: string,
+  includeBackground = true,
 ) {
   const groupsXml: string[] = [];
   const mix = overlapMode === "mix";
@@ -780,9 +654,7 @@ function createSvg(
     const source = paintSource(stroke, groups);
     const closed = isClosedShape(stroke);
     if (source.mode === "solid") {
-      const d =
-        toPathData(points, stroke.kind === "brush" || stroke.shape === "wave") +
-        (closed ? " Z" : "");
+      const d = toPathData(points) + (closed ? " Z" : "");
       groupsXml.push(
         `<path d="${d}" fill="none" stroke="${escapeAttr(source.solid)}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round"${mix ? ' style="mix-blend-mode:multiply"' : ""} />`,
       );
@@ -805,12 +677,10 @@ export function CanvasTool() {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenRef = useRef<HTMLCanvasElement | null>(null);
-  const rampRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const scaledRef = useRef(false);
   const stopDragRafRef = useRef(0);
   const stopDragInfoRef = useRef<{ stopId: string; x: number; y: number } | null>(null);
-  const rampDragRef = useRef<{ stopId: string; moved: boolean } | null>(null);
 
   const [mode, setMode] = useState<Mode>("select");
   const [shape, setShape] = useState<ShapeType>("circle");
@@ -828,17 +698,14 @@ export function CanvasTool() {
   const bgColorAutoRef = useRef(true); // 是否仍为自动跟随主题的默认色（用户未手动改色）
   const [undoStack, setUndoStack] = useState<SceneSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<SceneSnapshot[]>([]);
-  // 面板动画状态机：closed（卸载，只显示卷角）→ opening（翻开中）→ open（展开）→ closing（翻回中）→ closed
-  const [panelAnim, setPanelAnim] = useState<"closed" | "opening" | "open" | "closing">("closed");
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("canvas");
 
-  const openPanel = useCallback(() => setPanelAnim("opening"), []);
-  const closePanel = useCallback(() => setPanelAnim((s) => (s === "open" ? "closing" : s)), []);
-  const onPanelAnimationEnd = useCallback((event: React.AnimationEvent) => {
-    // 只响应翻页动画自身，避免子元素动画冒泡误触发状态转换
-    if (event.animationName !== "colora-page-open" && event.animationName !== "colora-page-close")
-      return;
-    setPanelAnim((s) => (s === "opening" ? "open" : s === "closing" ? "closed" : s));
-  }, []);
+  const openCanvasInspector = useCallback(() => {
+    setInspectorTab("canvas");
+    setInspectorOpen((open) => !(open && inspectorTab === "canvas"));
+  }, [inspectorTab]);
+  const closeInspector = useCallback(() => setInspectorOpen(false), []);
 
   const selectedStrokes = useMemo(
     () => strokes.filter((stroke) => selectedIds.includes(stroke.id)),
@@ -852,8 +719,31 @@ export function CanvasTool() {
     return groups.find((groupItem) => groupItem.id === groupId);
   }, [groups, selectedStrokes]);
 
+  useEffect(() => {
+    if (mode !== "select") return;
+    if (!selectedStrokes.length) return;
+    setInspectorTab("line");
+    setInspectorOpen(true);
+  }, [mode, selectedStrokes.length]);
+
+  useEffect(() => {
+    if (mode !== "select" || selectedStrokes.length || inspectorTab !== "line") return;
+    setInspectorOpen(false);
+  }, [inspectorTab, mode, selectedStrokes.length]);
+
   // 选中笔画的联合包围盒（用于显示变换手柄）。框选/拖动中不显示。
   const selBounds = useMemo(() => selectionBounds(selectedStrokes), [selectedStrokes]);
+
+  // Shared colors for the inspector trigger and panel
+  const cornerStyle = useMemo<React.CSSProperties>(() => {
+    const c = inspectorTone(bgColor);
+    return {
+      "--inspector-surface": c.surface,
+      "--inspector-icon": c.icon,
+      "--inspector-border": c.border,
+      "--inspector-shade": c.shade,
+    } as React.CSSProperties;
+  }, [bgColor]);
 
   // 主题变化时，若用户未手动改过画布背景色，则跟随主题切换默认色
   useEffect(() => {
@@ -1004,6 +894,7 @@ export function CanvasTool() {
       return;
     }
     setSelectedIds([]);
+    closeInspector();
     setSelectionBox({ start: point, end: point });
     dragRef.current = { type: "marquee", start: point };
   };
@@ -1046,8 +937,6 @@ export function CanvasTool() {
           kind: "brush",
           points: [...draft.points, point],
           width: brushWidth,
-          smooth: false,
-          smoothing: 55,
           paint: defaultPaint("#7C3AED"),
         });
       setDraft(null);
@@ -1063,8 +952,6 @@ export function CanvasTool() {
           shape: isLine ? undefined : shape,
           points: isLine ? [draft.start, point] : makeShapePoints(shape, draft.start, point),
           width: brushWidth,
-          smooth: true,
-          smoothing: 70,
           paint: defaultPaint(isLine ? "#0EA5E9" : "#F97316"),
         });
       }
@@ -1103,9 +990,11 @@ export function CanvasTool() {
     const points = renderPoints(selectedStroke);
     const pos = nearestPercentOnPath(points, point);
     const source = selectedStroke.paint;
+    const picked = stopAtPercent(source.stops, pos, source.space);
     const newStop: PathStop = {
       id: createStopId("stop"),
-      hex: colorAtPercent(source.stops, pos, source.space),
+      hex: picked.hex,
+      alpha: picked.alpha,
       pos: Math.round(pos),
     };
     commitStrokes(
@@ -1122,6 +1011,11 @@ export function CanvasTool() {
     commitStrokes(
       strokes.map((stroke) => (stroke.id === selectedStroke.id ? updater(stroke) : stroke)),
     );
+  };
+  const updateSelectedStrokes = (updater: (stroke: Stroke) => Stroke) => {
+    if (!selectedIds.length) return;
+    const ids = new Set(selectedIds);
+    commitStrokes(strokes.map((stroke) => (ids.has(stroke.id) ? updater(stroke) : stroke)));
   };
   const updateSelectedGroup = (updater: (group: StrokeGroup) => StrokeGroup) => {
     if (!selectedGroup) return;
@@ -1196,7 +1090,7 @@ export function CanvasTool() {
         ...stroke.paint,
         stops: [
           ...stroke.paint.stops,
-          { id: createStopId("stop"), hex: colorAtPercent(source.stops, pos, source.space), pos },
+          { id: createStopId("stop"), hex: stopAtPercent(source.stops, pos, source.space).hex, alpha: 100, pos },
         ],
       },
     }));
@@ -1352,8 +1246,6 @@ export function CanvasTool() {
         { x: cx + halfW, y: cy + halfH },
       ),
       width: brushWidth,
-      smooth: true,
-      smoothing: 70,
       paint: defaultPaint("#8B5CF6"),
     });
     setMode("select");
@@ -1384,6 +1276,92 @@ export function CanvasTool() {
     link.download = `colora-canvas-${scale}x.png`;
     link.href = canvas.toDataURL("image/png");
     link.click();
+  };
+  const selectedExportBounds = () => {
+    const bounds = unionRenderBounds(selectedStrokes);
+    if (!bounds) return undefined;
+    const padding = Math.max(16, Math.max(...selectedStrokes.map((stroke) => stroke.width)) / 2 + 12);
+    const minX = clamp(Math.floor(bounds.minX - padding), 0, viewSize.w);
+    const minY = clamp(Math.floor(bounds.minY - padding), 0, viewSize.h);
+    const maxX = clamp(Math.ceil(bounds.maxX + padding), 0, viewSize.w);
+    const maxY = clamp(Math.ceil(bounds.maxY + padding), 0, viewSize.h);
+    return {
+      minX,
+      minY,
+      maxX,
+      maxY,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY),
+    };
+  };
+  const selectedScene = () => {
+    const ids = new Set(selectedIds);
+    const selected = strokes.filter((stroke) => ids.has(stroke.id));
+    const selectedStrokeIds = new Set(selected.map((stroke) => stroke.id));
+    const selectedGroups = groups
+      .map((groupItem) => ({
+        ...groupItem,
+        strokeIds: groupItem.strokeIds.filter((id) => selectedStrokeIds.has(id)),
+      }))
+      .filter((groupItem) => groupItem.strokeIds.length > 1);
+    return { selected, selectedGroups };
+  };
+  const exportSelectedPng = (includeBackground: boolean) => {
+    const bounds = selectedExportBounds();
+    if (!bounds) return;
+    const { selected, selectedGroups } = selectedScene();
+    const canvas = document.createElement("canvas");
+    canvas.width = bounds.width;
+    canvas.height = bounds.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.translate(-bounds.minX, -bounds.minY);
+    const off = document.createElement("canvas");
+    off.width = viewSize.w;
+    off.height = viewSize.h;
+    renderScene({
+      ctx,
+      size: viewSize,
+      strokes: selected,
+      groups: selectedGroups,
+      overlapMode,
+      offscreen: off,
+      bgLayout,
+      bgColor,
+      showBackground: includeBackground,
+      showSelection: false,
+    });
+    const link = document.createElement("a");
+    link.download = includeBackground ? "colora-selection-bg.png" : "colora-selection.png";
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  };
+  const selectedSvgCode = (includeBackground: boolean) => {
+    const bounds = selectedExportBounds();
+    if (!bounds) return "";
+    const { selected, selectedGroups } = selectedScene();
+    const shifted = selected.map((stroke) => ({
+      ...stroke,
+      points: stroke.points.map((point) => ({ x: point.x - bounds.minX, y: point.y - bounds.minY })),
+    }));
+    return createSvg(
+      { w: bounds.width, h: bounds.height },
+      shifted,
+      selectedGroups,
+      overlapMode,
+      bgLayout,
+      bgColor,
+      includeBackground,
+    );
+  };
+  const exportSelectedSvg = (includeBackground: boolean) => {
+    const code = selectedSvgCode(includeBackground);
+    if (!code) return;
+    downloadText(
+      includeBackground ? "colora-selection-bg.svg" : "colora-selection.svg",
+      code,
+      "image/svg+xml",
+    );
   };
   const svgCode = useMemo(
     () => createSvg(viewSize, strokes, groups, overlapMode, bgLayout, bgColor),
@@ -1510,50 +1488,102 @@ export function CanvasTool() {
     dragRef.current = null;
   }, [strokes]);
 
-  // ---- 面板内斜坡条手柄拖动（改 pos） ----
-  const onRampHandlePointerDown = (event: React.PointerEvent, stopId: string) => {
-    event.stopPropagation();
-    rampDragRef.current = { stopId, moved: false };
-    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-  };
-  const onRampHandlePointerMove = (event: React.PointerEvent) => {
-    const d = rampDragRef.current;
-    if (!d) return;
-    const ramp = rampRef.current;
-    if (!ramp) return;
-    const rect = ramp.getBoundingClientRect();
-    const pos = clamp(((event.clientX - rect.left) / rect.width) * 100, 0, 100);
-    if (selectedGroup) setGroupStopPos(d.stopId, pos);
-    else setStopPos(d.stopId, pos);
-  };
-  const onRampHandlePointerUp = (event: React.PointerEvent) => {
-    rampDragRef.current = null;
-    try {
-      (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
-    } catch {
-      /* ignore */
-    }
-  };
-
-  // 当前编辑的色标来源（组或选中笔画）
-  const setEditingSpace = (s: InterpSpace) => {
-    if (selectedGroup) updateSelectedGroup((g) => ({ ...g, space: s }));
-    else if (selectedStroke)
-      updateSelectedStroke((st) => ({ ...st, paint: { ...st.paint, space: s } }));
-  };
-  const setEditingStopPos = (stopId: string, pos: number) => {
-    if (selectedGroup) setGroupStopPos(stopId, pos);
-    else setStopPos(stopId, pos);
-  };
-  const setEditingStopHex = (stopId: string, hex: string) => {
-    if (selectedGroup) setGroupStop(stopId, hex);
-    else setSelectedPaintStop(stopId, hex);
-  };
-  const removeEditingStop = (stopId: string) => {
+  const selectionPaint = selectedGroup
+    ? {
+        mode: "gradient" as PaintMode,
+        solid: selectedStroke?.paint.solid ?? "#7C3AED",
+        stops: selectedGroup.stops,
+        space: selectedGroup.space,
+      }
+    : selectedStrokes[0]?.paint;
+  const updateSelectionPaint = (updater: (paint: StrokePaint) => StrokePaint) => {
     if (selectedGroup) {
-      if (selectedGroup.stops.length > 2)
-        updateSelectedGroup((g) => ({ ...g, stops: g.stops.filter((s) => s.id !== stopId) }));
-    } else removeStopFromSelected(stopId);
+      updateSelectedGroup((groupItem) => {
+        const next = updater({
+          mode: "gradient",
+          solid: selectedStroke?.paint.solid ?? "#7C3AED",
+          stops: cloneStops(groupItem.stops),
+          space: groupItem.space,
+        });
+        return { ...groupItem, stops: cloneStops(next.stops), space: next.space };
+      });
+      return;
+    }
+    updateSelectedStrokes((stroke) => ({ ...stroke, paint: updater(clonePaint(stroke.paint)) }));
+  };
+  const setSelectionStopPos = (stopId: string, pos: number) => {
+    if (!selectionPaint) return;
+    const index = selectionPaint.stops.findIndex((stop) => stop.id === stopId);
+    if (index < 0) return;
+    updateSelectionPaint((paint) => ({
+      ...paint,
+      stops: paint.stops.map((stop, i) =>
+        i === index ? { ...stop, pos: clamp(Math.round(pos), 0, 100) } : stop,
+      ),
+    }));
+  };
+  const setSelectionStopHex = (stopId: string, hex: string) => {
+    if (!selectionPaint) return;
+    const index = selectionPaint.stops.findIndex((stop) => stop.id === stopId);
+    if (index < 0) return;
+    updateSelectionPaint((paint) => ({
+      ...paint,
+      stops: paint.stops.map((stop, i) => (i === index ? { ...stop, hex } : stop)),
+    }));
+  };
+  const setSelectionStopAlpha = (stopId: string, alpha: number) => {
+    if (!selectionPaint) return;
+    const index = selectionPaint.stops.findIndex((stop) => stop.id === stopId);
+    if (index < 0) return;
+    updateSelectionPaint((paint) => ({
+      ...paint,
+      stops: paint.stops.map((stop, i) =>
+        i === index ? { ...stop, alpha: clamp(Math.round(alpha), 0, 100) } : stop,
+      ),
+    }));
+  };
+  // 复制色标：在 sorted 中该色标之后插入同色同 alpha 的新色标，pos 比原值 +1（夹到 100）
+  const duplicateSelectionStop = (stopId: string) => {
+    if (!selectionPaint) return;
+    const sorted = [...selectionPaint.stops].sort((a, b) => a.pos - b.pos);
+    const idx = sorted.findIndex((stop) => stop.id === stopId);
+    if (idx < 0) return;
+    const src = sorted[idx];
+    const newStop: PathStop = {
+      id: createStopId("stop"),
+      hex: src.hex,
+      alpha: src.alpha,
+      pos: clamp(src.pos + 1, 0, 100),
+    };
+    updateSelectionPaint((paint) => ({ ...paint, stops: [...paint.stops, newStop] }));
+  };
+  const addSelectionStop = () => {
+    if (!selectionPaint) return;
+    const pos = getNextStopPosition(selectionPaint.stops);
+    const newStop = {
+      id: createStopId("stop"),
+      hex: stopAtPercent(selectionPaint.stops, pos, selectionPaint.space).hex,
+      alpha: 100,
+      pos,
+    };
+    updateSelectionPaint((paint) => ({ ...paint, stops: [...paint.stops, newStop] }));
+  };
+  const removeSelectionStop = (stopId: string) => {
+    if (!selectionPaint || selectionPaint.stops.length <= 2) return;
+    const index = selectionPaint.stops.findIndex((stop) => stop.id === stopId);
+    if (index < 0) return;
+    updateSelectionPaint((paint) => ({
+      ...paint,
+      stops: paint.stops.filter((_, i) => i !== index),
+    }));
+  };
+  // 翻转色标顺序：把每个色标的位置镜像翻转（pos → 100 - pos），从而把颜色排列反过来
+  const reverseSelectionStops = () => {
+    if (!selectionPaint) return;
+    updateSelectionPaint((paint) => ({
+      ...paint,
+      stops: paint.stops.map((stop) => ({ ...stop, pos: clamp(100 - stop.pos, 0, 100) })),
+    }));
   };
 
   return (
@@ -1585,7 +1615,7 @@ export function CanvasTool() {
               type="button"
               aria-label={`色标 ${Math.round(stop.pos)}%`}
               className="pointer-events-auto absolute size-5 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-white shadow-[0_0_0_1px_var(--color-border),0_6px_18px_rgb(0_0_0/0.30)] outline-none transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring"
-              style={{ left: `${left}%`, top: `${top}%`, backgroundColor: stop.hex }}
+              style={{ left: `${left}%`, top: `${top}%`, backgroundColor: hexAlphaToCss(stop.hex, stop.alpha) }}
               onPointerDown={(event) => {
                 event.stopPropagation();
                 event.currentTarget.setPointerCapture(event.pointerId);
@@ -1729,554 +1759,650 @@ export function CanvasTool() {
         </div>
       </div>
 
-      {/* 右上角书页卷角：hover 卷边，点击翻页展开编辑面板 */}
-      <div className="page-3d absolute right-0 top-0 z-30">
-        {panelAnim === "closed" && (
-          <button
-            type="button"
-            aria-label="展开编辑面板"
-            onClick={openPanel}
-            className="colora-corner absolute right-0 top-0 size-16 cursor-pointer backdrop-blur-md"
-          />
-        )}
-        {panelAnim !== "closed" && (
+      <div
+        className="pointer-events-none absolute right-3 top-3 z-40 flex max-w-[calc(100vw-1.5rem)] flex-col items-end gap-2"
+        style={cornerStyle}
+      >
+        <button
+          type="button"
+          aria-label="打开画布设置"
+          aria-expanded={inspectorOpen}
+          onClick={openCanvasInspector}
+          className="colora-inspector-trigger pointer-events-auto inline-flex size-9 items-center justify-center overflow-hidden rounded-md border shadow-lg backdrop-blur-md"
+        >
+          <SlidersHorizontal className="size-3.5" strokeWidth={2.2} />
+        </button>
+        {inspectorOpen && (
           <div
-            onAnimationEnd={onPanelAnimationEnd}
-            className={cn(
-              "absolute right-0 top-0 flex max-h-[70dvh] w-80 flex-col overflow-hidden rounded-b-2xl rounded-l-2xl border border-border/60 bg-background/95 shadow-2xl backdrop-blur-md",
-              panelAnim === "opening" && "animate-page-open",
-              panelAnim === "closing" && "animate-page-close",
-            )}
+            className="colora-inspector-panel pointer-events-auto flex w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-md animate-inspector-open"
+            onPointerDown={(event) => event.stopPropagation()}
           >
-            <div className="flex shrink-0 items-center gap-1.5 border-b border-border/60 px-3 py-2">
-              <span className="flex-1 text-xs font-medium tracking-wide text-muted-foreground">
-                编辑
-              </span>
-              <button
-                type="button"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={closePanel}
-                aria-label="收起面板"
-                className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                <X className="size-4" />
-              </button>
+            <div className="flex shrink-0 items-center gap-2 border-b border-border/50 px-3 py-2.5">
+              <div className="grid flex-1 grid-cols-2 rounded-xl bg-background/45 p-1">
+                <button
+                  type="button"
+                  onClick={() => setInspectorTab("line")}
+                  disabled={!selectedStrokes.length}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-40",
+                    inspectorTab === "line"
+                      ? "bg-foreground text-background shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  线条
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInspectorTab("canvas")}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                    inspectorTab === "canvas"
+                      ? "bg-foreground text-background shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  画布
+                </button>
+              </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
-              <p className="mb-2 text-[11px] text-muted-foreground">
-                {selectedStrokes.length
-                  ? `已选中 ${selectedStrokes.length} 条线条`
-                  : "选择线条后可编辑颜色、粗细与平滑。"}
-              </p>
 
-              <SliderRow
-                label="默认线宽"
-                value={brushWidth}
-                unit="px"
-                min={1}
-                max={100}
-                onChange={setBrushWidth}
-              />
-
-              {selectedStroke && !selectedGroup && (
-                <ColorEditor
-                  title={selectedStroke.name}
-                  paint={selectedStroke.paint}
-                  rampRef={rampRef}
-                  onRampHandlePointerDown={onRampHandlePointerDown}
-                  onRampHandlePointerMove={onRampHandlePointerMove}
-                  onRampHandlePointerUp={onRampHandlePointerUp}
-                  onStopPos={setEditingStopPos}
-                  onStopHex={setEditingStopHex}
-                  onRemoveStop={removeEditingStop}
-                  onAddStop={addStopToSelected}
-                  onSetSpace={setEditingSpace}
-                  onSetMode={(m) =>
-                    updateSelectedStroke((stroke) => ({
-                      ...stroke,
-                      paint: { ...stroke.paint, mode: m },
-                    }))
-                  }
-                  onSetSolid={(hex) =>
-                    updateSelectedStroke((stroke) => ({
-                      ...stroke,
-                      paint: { ...stroke.paint, solid: hex },
-                    }))
-                  }
-                  extra={
-                    selectedStroke.kind === "brush" ? (
-                      <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
-                        <label className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">平滑</span>
-                          <input
-                            type="checkbox"
-                            checked={selectedStroke.smooth}
-                            onChange={(event) =>
-                              updateSelectedStroke((stroke) => ({
-                                ...stroke,
-                                smooth: event.target.checked,
-                              }))
-                            }
-                          />
-                        </label>
-                        <SliderRow
-                          label="平滑度"
-                          value={selectedStroke.smoothing}
-                          unit="%"
-                          min={0}
-                          max={100}
-                          onChange={(v) =>
-                            updateSelectedStroke((stroke) => ({ ...stroke, smoothing: v }))
-                          }
-                        />
+            <div className="max-h-[min(70dvh,560px)] overflow-y-auto overflow-x-hidden p-3">
+              {inspectorTab === "line" ? (
+                selectedStrokes.length ? (
+                  <div className="space-y-3">
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">
+                        {selectedStrokes.length === 1 ? "线条" : `已选中 ${selectedStrokes.length} 条线条`}
                       </div>
-                    ) : null
-                  }
-                />
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        调整颜色、粗细、重叠方式，并导出当前选中线条。
+                      </p>
+                    </div>
+
+                    <SliderRow
+                      label="线宽"
+                      value={selectedStrokes[0]?.width ?? brushWidth}
+                      unit="px"
+                      min={1}
+                      max={100}
+                      onChange={(value) => updateSelectedStrokes((stroke) => ({ ...stroke, width: value }))}
+                    />
+
+                    {selectionPaint && (
+                      <ColorEditor
+                        title={selectedGroup ? "组合渐变" : "颜色"}
+                        subtitle={selectedGroup ? "统一色阶沿组内每条线条分布" : undefined}
+                        paint={selectionPaint}
+                        onStopPos={setSelectionStopPos}
+                        onStopHex={setSelectionStopHex}
+                        onStopAlpha={setSelectionStopAlpha}
+                        onRemoveStop={removeSelectionStop}
+                        onDuplicateStop={duplicateSelectionStop}
+                        onCopyHex={(stopId) => {
+                          const stop = selectionPaint.stops.find((s) => s.id === stopId);
+                          if (stop) copyText(stop.hex.toUpperCase(), "已复制 hex 值");
+                        }}
+                        onAddStop={addSelectionStop}
+                        onSetSpace={(space) => updateSelectionPaint((paint) => ({ ...paint, space }))}
+                        onSetMode={(paintMode) => updateSelectionPaint((paint) => ({ ...paint, mode: paintMode }))}
+                        onSetSolid={(hex) => updateSelectionPaint((paint) => ({ ...paint, solid: hex }))}
+                        onReverse={reverseSelectionStops}
+                      />
+                    )}
+
+                    <div className="space-y-2 border-t border-border/60 pt-3">
+                      <div className="text-[11px] font-medium text-muted-foreground">重叠处理</div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <Button type="button" size="sm" variant={overlapMode === "mix" ? "default" : "outline"} className="h-8 text-xs" onClick={() => setOverlapMode("mix")}>自动混色</Button>
+                        <Button type="button" size="sm" variant={overlapMode === "cover" ? "default" : "outline"} className="h-8 text-xs" onClick={() => setOverlapMode("cover")}>前层覆盖</Button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1.5 border-t border-border/60 pt-3">
+                      <Button type="button" size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={createGroup} disabled={selectedIds.length < 2}><Group className="size-3.5" /> 组合</Button>
+                      <Button type="button" size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={ungroup} disabled={!selectedGroup}><Ungroup className="size-3.5" /> 取消</Button>
+                      <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => moveLayer("front")}>上移顶层</Button>
+                      <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => moveLayer("back")}>下移底层</Button>
+                      <Button type="button" size="sm" variant="destructive" className="col-span-2 h-8 gap-1 text-xs" onClick={deleteSelected}><Trash2 className="size-3.5" /> 删除选中</Button>
+                    </div>
+
+                    <div className="space-y-2 border-t border-border/60 pt-3">
+                      <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"><Download className="size-3.5" /> 导出选中</div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => exportSelectedPng(false)}>透明 PNG</Button>
+                        <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => exportSelectedPng(true)}>背景 PNG</Button>
+                        <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => exportSelectedSvg(false)}>透明 SVG</Button>
+                        <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => exportSelectedSvg(true)}>背景 SVG</Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
+                    选择线条后可编辑颜色、粗细与导出选中内容。
+                  </div>
+                )
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">画布</div>
+                    <p className="mt-1 text-[11px] text-muted-foreground">编辑背景，并导出整张画布。</p>
+                  </div>
+
+                  <div className="space-y-2 border-t border-border/60 pt-3">
+                    <div className="text-[11px] font-medium text-muted-foreground">画布背景</div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {CANVAS_LAYOUTS.map((item) => (
+                        <Button key={item.value} type="button" size="sm" variant={bgLayout === item.value ? "default" : "outline"} className="h-8 text-xs" onClick={() => setBgLayout(item.value)}>{item.label}</Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 border-t border-border/60 pt-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[11px] font-medium text-muted-foreground">画布颜色</div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          bgColorAutoRef.current = true;
+                          setBgColor(defaultCanvasBg(isDark));
+                        }}
+                        className="text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+                      >
+                        跟随主题
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {CANVAS_BG_PRESETS.map((item) => (
+                        <button
+                          key={item.hex}
+                          type="button"
+                          title={`${item.label} ${item.hex}`}
+                          aria-label={`${item.label} ${item.hex}`}
+                          onClick={() => {
+                            bgColorAutoRef.current = false;
+                            setBgColor(item.hex);
+                          }}
+                          className={cn(
+                            "flex h-9 items-center justify-center rounded-md border text-[10px]",
+                            bgColor.toUpperCase() === item.hex ? "border-foreground ring-2 ring-ring" : "border-border/60",
+                          )}
+                          style={{ backgroundColor: item.hex, color: bestTextOn(item.hex) }}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 border-t border-border/60 pt-3">
+                    <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"><Download className="size-3.5" /> 导出整张画布</div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[1, 2, 3].map((scale) => (
+                        <Button key={scale} type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => exportPng(scale)}>PNG {scale}×</Button>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => downloadText("colora-canvas.svg", svgCode, "image/svg+xml")}>SVG</Button>
+                      <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => downloadText("colora-canvas.json", jsonCode, "application/json")}>JSON</Button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <Button type="button" size="sm" variant="secondary" className="h-8 gap-1 text-xs" onClick={() => copyText(svgCode, "SVG 代码已复制")}><Code2 className="size-3.5" /> SVG</Button>
+                      <Button type="button" size="sm" variant="secondary" className="h-8 gap-1 text-xs" onClick={() => copyText(jsonCode, "JSON 已复制")}><Copy className="size-3.5" /> JSON</Button>
+                    </div>
+                    <Button type="button" size="sm" variant="outline" onClick={saveLocal} className="h-8 w-full gap-1 text-xs"><Save className="size-3.5" /> 保存到我的方案</Button>
+                    <p className="text-[10px] leading-relaxed text-muted-foreground">颜色随路径弯曲分布，CSS 无法表达任意路径渐变，故不提供 CSS 导出。</p>
+                  </div>
+                </div>
               )}
-
-              {selectedGroup && (
-                <ColorEditor
-                  title="组合渐变"
-                  subtitle="统一色阶沿组内每条线条各自的路径分布"
-                  paint={{
-                    mode: "gradient",
-                    solid: selectedStroke?.paint.solid ?? "#7C3AED",
-                    stops: selectedGroup.stops,
-                    space: selectedGroup.space,
-                  }}
-                  rampRef={rampRef}
-                  onRampHandlePointerDown={onRampHandlePointerDown}
-                  onRampHandlePointerMove={onRampHandlePointerMove}
-                  onRampHandlePointerUp={onRampHandlePointerUp}
-                  onStopPos={setEditingStopPos}
-                  onStopHex={setEditingStopHex}
-                  onRemoveStop={removeEditingStop}
-                  onAddStop={addStopToSelected}
-                  onSetSpace={setEditingSpace}
-                  hideModeToggle
-                />
-              )}
-
-              <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-[11px] font-medium text-muted-foreground">画布背景</div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      bgColorAutoRef.current = true;
-                      setBgColor(defaultCanvasBg(isDark));
-                    }}
-                    className="text-[10px] text-muted-foreground underline-offset-2 hover:underline"
-                  >
-                    跟随主题
-                  </button>
-                </div>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {CANVAS_LAYOUTS.map((item) => (
-                    <Button
-                      key={item.value}
-                      type="button"
-                      size="sm"
-                      variant={bgLayout === item.value ? "default" : "outline"}
-                      className="h-7 text-xs"
-                      onClick={() => setBgLayout(item.value)}
-                    >
-                      {item.label}
-                    </Button>
-                  ))}
-                </div>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {CANVAS_BG_PRESETS.map((item) => (
-                    <button
-                      key={item.hex}
-                      type="button"
-                      title={`${item.label} ${item.hex}`}
-                      aria-label={`${item.label} ${item.hex}`}
-                      onClick={() => {
-                        bgColorAutoRef.current = false;
-                        setBgColor(item.hex);
-                      }}
-                      className={cn(
-                        "flex h-9 items-center justify-center rounded-md border text-[10px] transition-transform hover:scale-[1.03]",
-                        bgColor.toUpperCase() === item.hex
-                          ? "border-foreground ring-2 ring-ring"
-                          : "border-border/60",
-                      )}
-                      style={{ backgroundColor: item.hex, color: bestTextOn(item.hex) }}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
-                <div className="text-[11px] font-medium text-muted-foreground">重叠处理</div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={overlapMode === "mix" ? "default" : "outline"}
-                    className="h-7 text-xs"
-                    onClick={() => setOverlapMode("mix")}
-                  >
-                    自动混色
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={overlapMode === "cover" ? "default" : "outline"}
-                    className="h-7 text-xs"
-                    onClick={() => setOverlapMode("cover")}
-                  >
-                    前层覆盖
-                  </Button>
-                </div>
-              </div>
-
-              <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-border/60 pt-3">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-7 gap-1 text-xs"
-                  onClick={createGroup}
-                  disabled={selectedIds.length < 2}
-                >
-                  <Group className="size-3.5" /> 组合
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-7 gap-1 text-xs"
-                  onClick={ungroup}
-                  disabled={!selectedGroup}
-                >
-                  <Ungroup className="size-3.5" /> 取消
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-xs"
-                  onClick={() => moveLayer("front")}
-                  disabled={!selectedIds.length}
-                >
-                  上移顶层
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-xs"
-                  onClick={() => moveLayer("back")}
-                  disabled={!selectedIds.length}
-                >
-                  下移底层
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="destructive"
-                  className="col-span-2 h-7 gap-1 text-xs"
-                  onClick={deleteSelected}
-                  disabled={!selectedIds.length}
-                >
-                  <Trash2 className="size-3.5" /> 删除选中
-                </Button>
-              </div>
-
-              <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
-                <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-                  <Download className="size-3.5" /> 导出
-                </div>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {[1, 2, 3].map((scale) => (
-                    <Button
-                      key={scale}
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs"
-                      onClick={() => exportPng(scale)}
-                    >
-                      PNG {scale}×
-                    </Button>
-                  ))}
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs"
-                    onClick={() => downloadText("colora-canvas.svg", svgCode, "image/svg+xml")}
-                  >
-                    SVG
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs"
-                    onClick={() => downloadText("colora-canvas.json", jsonCode, "application/json")}
-                  >
-                    JSON
-                  </Button>
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    className="h-7 gap-1 text-xs"
-                    onClick={() => copyText(svgCode, "SVG 代码已复制")}
-                  >
-                    <Code2 className="size-3.5" /> SVG
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    className="h-7 gap-1 text-xs"
-                    onClick={() => copyText(jsonCode, "JSON 已复制")}
-                  >
-                    <Copy className="size-3.5" /> JSON
-                  </Button>
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={saveLocal}
-                  className="h-7 w-full gap-1 text-xs"
-                >
-                  <Save className="size-3.5" /> 保存到我的方案
-                </Button>
-                <p className="text-[10px] leading-relaxed text-muted-foreground">
-                  颜色随路径弯曲分布，CSS 无法表达任意路径渐变，故不提供 CSS 导出。
-                </p>
-              </div>
             </div>
           </div>
         )}
       </div>
+
     </section>
   );
 }
 
-/**
- * 右上角书页卷角（SVG）。
- * 画一个被掀起且向后翻卷的纸角：主体纸面 + 翻卷的背面(弧形) + 纸缘高光 + 投影。
- * 颜色随画布背景明度自动取对比色，保证任意背景上都清晰可辨。
- */
-function CornerFold({ bg }: { bg: string }) {
-  const t = useMemo(() => cornerTone(bg), [bg]);
-  return (
-    <svg
-      viewBox="0 0 64 64"
-      className="h-full w-full"
-      aria-hidden="true"
-      preserveAspectRatio="none"
-    >
-      {/* 投影：卷背在画布上的柔和投影 */}
-      <ellipse cx="44" cy="54" rx="26" ry="9" fill={t.shade} />
-      {/* 纸面：右上角的主体三角形 */}
-      <path
-        d="M2 2 L62 2 L62 62 Z"
-        fill={t.fold}
-      />
-      {/* 纸面上淡淡的斜向高光，模拟纸面质感 */}
-      <path
-        d="M2 2 L62 2 L62 62 Z"
-        fill="none"
-        stroke={t.edge}
-        strokeOpacity="0.35"
-        strokeWidth="1"
-      />
-      {/* 卷背面：从斜边向右下翻卷的弧形纸背 */}
-      <path
-        d="M3 3 C20 20 44 46 62 61 C50 44 30 20 3 3 Z"
-        fill={t.back}
-      />
-      {/* 纸缘高光：卷背的卷曲边缘亮线 */}
-      <path
-        d="M3 3 C20 20 44 46 62 61"
-        fill="none"
-        stroke={t.edge}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeOpacity="0.85"
-      />
-      {/* 卷背内缘的过渡暗面 */}
-      <path
-        d="M3 3 C20 20 44 46 62 61 C44 40 20 16 3 3 Z"
-        fill="rgb(0 0 0 / 0.06)"
-      />
-    </svg>
-  );
-}
-
-/** 极简单色风颜色编辑器：斜坡条 + 细色标行 + mono 数字 + 插值空间分段 */
+/** 极简单色风颜色编辑器：HSL 拾色 + 色标行（圆点连线 / 位置% / 颜色方块 / 透明度%）+ 插值空间分段 */
 function ColorEditor({
   title,
   subtitle,
   paint,
-  rampRef,
-  onRampHandlePointerDown,
-  onRampHandlePointerMove,
-  onRampHandlePointerUp,
   onStopPos,
   onStopHex,
+  onStopAlpha,
   onRemoveStop,
+  onDuplicateStop,
+  onCopyHex,
   onAddStop,
   onSetSpace,
   onSetMode,
   onSetSolid,
+  onReverse,
   hideModeToggle,
   extra,
 }: {
   title: string;
   subtitle?: string;
   paint: StrokePaint;
-  rampRef: React.RefObject<HTMLDivElement | null>;
-  onRampHandlePointerDown: (e: React.PointerEvent, stopId: string) => void;
-  onRampHandlePointerMove: (e: React.PointerEvent) => void;
-  onRampHandlePointerUp: (e: React.PointerEvent) => void;
   onStopPos: (stopId: string, pos: number) => void;
   onStopHex: (stopId: string, hex: string) => void;
+  onStopAlpha: (stopId: string, alpha: number) => void;
   onRemoveStop: (stopId: string) => void;
+  onDuplicateStop: (stopId: string) => void;
+  onCopyHex: (stopId: string) => void;
   onAddStop: () => void;
   onSetSpace: (space: InterpSpace) => void;
   onSetMode?: (mode: PaintMode) => void;
   onSetSolid?: (hex: string) => void;
+  onReverse?: () => void;
   hideModeToggle?: boolean;
   extra?: React.ReactNode;
 }) {
+  const [activeStopId, setActiveStopId] = useState<string | null>(null);
+  const [editingPosId, setEditingPosId] = useState<string | null>(null);
+  const [editingAlphaId, setEditingAlphaId] = useState<string | null>(null);
   const stops = paint.stops;
+  const sortedStops = useMemo(() => [...stops].sort((a, b) => a.pos - b.pos), [stops]);
+  const activeStop = sortedStops.find((stop) => stop.id === activeStopId) ?? sortedStops[0];
+  const activeHex = paint.mode === "solid" ? paint.solid : activeStop?.hex ?? paint.solid;
+  const activeHsl = rgbToHsl(hexToRgb(activeHex));
+  const hueColor = rgbToHex(hslToRgb({ h: activeHsl.h, s: 100, l: 50 }));
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!sortedStops.length) return;
+    if (!activeStopId || !sortedStops.some((stop) => stop.id === activeStopId)) {
+      setActiveStopId(sortedStops[0].id);
+    }
+  }, [activeStopId, sortedStops]);
+
+  const setActiveHex = (hex: string) => {
+    if (paint.mode === "solid") onSetSolid?.(hex);
+    else if (activeStop) onStopHex(activeStop.id, hex);
+  };
+  const setActiveHsl = (next: { h?: number; s?: number; l?: number }) => {
+    setActiveHex(
+      rgbToHex(
+        hslToRgb({
+          h: next.h ?? activeHsl.h,
+          s: clamp(next.s ?? activeHsl.s, 0, 100),
+          l: clamp(next.l ?? activeHsl.l, 0, 100),
+        }),
+      ),
+    );
+  };
+  const pickFromSquare = (clientX: number, clientY: number) => {
+    const picker = pickerRef.current;
+    if (!picker) return;
+    const rect = picker.getBoundingClientRect();
+    const s = clamp(((clientX - rect.left) / rect.width) * 100, 0, 100);
+    const l = clamp(100 - ((clientY - rect.top) / rect.height) * 100, 0, 100);
+    setActiveHsl({ s, l });
+  };
+
   return (
-    <div className="space-y-2.5">
-      <div>
-        <div className="text-xs font-medium">{title}</div>
-        {subtitle && <div className="mt-0.5 text-[11px] text-muted-foreground">{subtitle}</div>}
-      </div>
-
-      {!hideModeToggle && onSetMode && (
-        <div className="flex gap-1">
-          {(["solid", "gradient"] as PaintMode[]).map((m) => (
+    <div className="space-y-3">
+      <div className="overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-950 p-3 text-neutral-100 shadow-2xl shadow-black/30">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold text-neutral-100">{title}</div>
+            {subtitle && <div className="mt-1 text-[11px] text-neutral-500">{subtitle}</div>}
+          </div>
+          {onReverse && (
             <button
-              key={m}
               type="button"
-              onClick={() => onSetMode(m)}
-              className={cn(
-                "rounded-full px-2.5 py-1 font-mono text-[11px] uppercase",
-                paint.mode === m
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:bg-accent",
-              )}
+              onClick={onReverse}
+              title="翻转颜色顺序"
+              aria-label="翻转颜色顺序"
+              className="inline-flex size-7 items-center justify-center rounded-md border border-neutral-700/70 bg-neutral-900 text-neutral-400 transition-colors hover:border-neutral-600 hover:text-neutral-100"
             >
-              {m === "solid" ? "纯色" : "渐变"}
+              <ArrowUpDown className="size-3.5" />
             </button>
-          ))}
+          )}
         </div>
-      )}
 
-      {paint.mode === "solid" ? (
-        onSetSolid && (
-          <div className="rounded-lg border border-border/60 p-2">
-            <ColorPicker compact value={paint.solid} onChange={onSetSolid} />
-          </div>
-        )
-      ) : (
-        <div className="space-y-2.5">
-          {/* 斜坡条 + 手柄 */}
-          <div ref={rampRef} className="relative h-7 w-full rounded-md border border-border/60">
-            <div className="absolute inset-0 rounded-md" style={{ background: rampCss(stops) }} />
-            {[...stops]
-              .sort((a, b) => a.pos - b.pos)
-              .map((stop) => (
-                <div
-                  key={stop.id}
-                  onPointerDown={(e) => onRampHandlePointerDown(e, stop.id)}
-                  onPointerMove={onRampHandlePointerMove}
-                  onPointerUp={onRampHandlePointerUp}
-                  onPointerCancel={onRampHandlePointerUp}
-                  className="absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none rounded-[4px] border border-foreground/70 shadow active:cursor-grabbing"
-                  style={{ left: `${clamp(stop.pos, 0, 100)}%`, backgroundColor: stop.hex }}
-                  aria-label={`色标 ${Math.round(stop.pos)}%`}
-                />
-              ))}
-          </div>
-
-          {/* 插值空间 */}
-          <div className="flex gap-1">
-            {INTERP_SPACES.map((s) => (
+        {!hideModeToggle && onSetMode && (
+          <div className="mb-3 grid grid-cols-2 rounded-lg bg-neutral-900 p-1">
+            {(["solid", "gradient"] as PaintMode[]).map((modeOption) => (
               <button
-                key={s}
+                key={modeOption}
                 type="button"
-                onClick={() => onSetSpace(s)}
+                onClick={() => onSetMode(modeOption)}
                 className={cn(
-                  "rounded-full px-2.5 py-1 font-mono text-[11px] uppercase",
-                  paint.space === s
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground hover:bg-accent",
+                  "rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+                  paint.mode === modeOption
+                    ? "bg-neutral-100 text-neutral-950"
+                    : "text-neutral-500 hover:text-neutral-200",
                 )}
               >
-                {s}
+                {modeOption === "solid" ? "纯色" : "沿路径"}
               </button>
             ))}
           </div>
+        )}
 
-          {/* 色标列表 */}
-          <div className="divide-y divide-border/60 overflow-hidden rounded-md border border-border/60">
-            {[...stops]
-              .sort((a, b) => a.pos - b.pos)
-              .map((stop) => (
-                <div key={stop.id} className="flex items-center gap-2 bg-background/60 px-2 py-1.5">
-                  <SwatchPopover hex={stop.hex} onChange={(hex) => onStopHex(stop.id, hex)} />
-                  <span className="flex-1 truncate font-mono text-xs">
-                    {stop.hex.toUpperCase()}
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={Math.round(stop.pos)}
-                    onChange={(event) => onStopPos(stop.id, Number(event.target.value))}
-                    className="h-6 w-14 rounded border border-input bg-background px-1 text-right font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
-                    aria-label="色标位置百分比"
-                  />
-                  <span className="font-mono text-[10px] text-muted-foreground">%</span>
-                  <button
-                    type="button"
-                    aria-label="删除色标"
-                    disabled={stops.length <= 2}
-                    onClick={() => onRemoveStop(stop.id)}
-                    className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
-              ))}
-          </div>
-
-          <button
-            type="button"
-            onClick={onAddStop}
-            className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-border/70 py-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <Plus className="size-3" /> 添加色标
-          </button>
-          <p className="text-[10px] leading-relaxed text-muted-foreground">
-            拖动画布上的圆点可沿路径移动色标，选中后按 ←/→ 微调（Shift 加速）。
-          </p>
+        <div
+          ref={pickerRef}
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            pickFromSquare(event.clientX, event.clientY);
+          }}
+          onPointerMove={(event) => {
+            if (event.buttons !== 1) return;
+            pickFromSquare(event.clientX, event.clientY);
+          }}
+          className="relative h-36 w-full cursor-crosshair touch-none overflow-hidden rounded-md border border-neutral-700/70 shadow-inner"
+          style={{
+            background: `linear-gradient(to top, #000 0%, rgba(0,0,0,0) 54%, rgba(255,255,255,0.92) 100%), linear-gradient(to right, #ffffff 0%, ${hueColor} 100%)`,
+          }}
+        >
+          <span
+            className="pointer-events-none absolute size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.75)]"
+            style={{ left: `${clamp(activeHsl.s, 0, 100)}%`, top: `${100 - clamp(activeHsl.l, 0, 100)}%`, backgroundColor: activeHex }}
+          />
         </div>
-      )}
+
+        <div className="mt-3 space-y-2">
+          <ColorSlider
+            label="H"
+            value={Math.round(activeHsl.h)}
+            max={360}
+            unit="°"
+            markerColor={activeHex}
+            track="linear-gradient(to right, #f00 0%, #ff0 16.6%, #0f0 33.3%, #0ff 50%, #00f 66.6%, #f0f 83.3%, #f00 100%)"
+            onChange={(value) => setActiveHsl({ h: value })}
+          />
+          <ColorSlider
+            label="S"
+            value={Math.round(activeHsl.s)}
+            max={100}
+            unit="%"
+            track={`linear-gradient(to right, ${rgbToHex(hslToRgb({ h: activeHsl.h, s: 0, l: activeHsl.l }))}, ${rgbToHex(hslToRgb({ h: activeHsl.h, s: 100, l: activeHsl.l }))})`}
+            onChange={(value) => setActiveHsl({ s: value })}
+          />
+          <ColorSlider
+            label="L"
+            value={Math.round(activeHsl.l)}
+            max={100}
+            unit="%"
+            track={`linear-gradient(to right, #000 0%, ${hueColor} 50%, #fff 100%)`}
+            onChange={(value) => setActiveHsl({ l: value })}
+          />
+        </div>
+
+        {paint.mode === "gradient" ? (
+          <>
+            <div className="mt-4 flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-neutral-600">
+              <span>混合</span>
+              <div className="flex rounded-md bg-black/50 p-0.5 tracking-normal">
+                {INTERP_SPACES.map((space) => (
+                  <button
+                    key={space}
+                    type="button"
+                    onClick={() => onSetSpace(space)}
+                    className={cn(
+                      "rounded px-2 py-1 font-mono text-[10px] uppercase transition-colors",
+                      paint.space === space
+                        ? "bg-neutral-700 text-neutral-100"
+                        : "text-neutral-500 hover:text-neutral-200",
+                    )}
+                  >
+                    {space === "rgb" ? "RGB" : space.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="relative mt-3 rounded-lg border border-neutral-800 bg-neutral-950/70 py-2">
+              {sortedStops.map((stop, i) => {
+                const isActive = activeStop?.id === stop.id;
+                const editingPos = editingPosId === stop.id;
+                const editingAlpha = editingAlphaId === stop.id;
+                return (
+                  <ContextMenu key={stop.id}>
+                    <ContextMenuTrigger asChild>
+                      <div
+                        onContextMenu={(e) => setActiveStopId(stop.id)}
+                        className={cn(
+                          "relative grid grid-cols-[20px_minmax(54px,1fr)_20px_minmax(54px,1fr)] items-center gap-2 px-2 py-1.5 text-xs transition-colors cursor-default",
+                          isActive ? "bg-neutral-900/80" : "hover:bg-neutral-900/50",
+                        )}
+                      >
+                        {/* 选择圆点 + 连接相邻圆点的竖线 */}
+                        <div className="relative mx-auto h-6 w-5">
+                          {i > 0 && (
+                            <span className="absolute left-1/2 top-0 h-2 w-px -translate-x-1/2 bg-neutral-700" />
+                          )}
+                          {i < sortedStops.length - 1 && (
+                            <span className="absolute bottom-0 left-1/2 h-2 w-px -translate-x-1/2 bg-neutral-700" />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setActiveStopId(stop.id)}
+                            className={cn(
+                              "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border",
+                              isActive
+                                ? "size-3 border-white bg-white"
+                                : "size-2.5 border-neutral-400 bg-neutral-950",
+                            )}
+                            aria-label="选择色标"
+                          />
+                        </div>
+
+                        {/* 位置 % */}
+                        {editingPos ? (
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            autoFocus
+                            defaultValue={Math.round(stop.pos)}
+                            ref={(el) => {
+                              el?.focus();
+                              el?.select();
+                            }}
+                            onBlur={(e) => {
+                              const v = Number(e.target.value);
+                              if (Number.isFinite(v)) onStopPos(stop.id, v);
+                              setEditingPosId(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.nativeEvent.isComposing) return;
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                const v = Number(e.currentTarget.value);
+                                if (Number.isFinite(v)) onStopPos(stop.id, v);
+                                setEditingPosId(null);
+                              }
+                              if (e.key === "Escape") {
+                                e.preventDefault();
+                                setEditingPosId(null);
+                              }
+                            }}
+                            className="h-7 w-full appearance-none rounded-md border border-neutral-700 bg-black/30 px-1 text-right font-mono text-sm font-semibold text-neutral-100 outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            aria-label="色标位置百分比"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveStopId(stop.id);
+                              setEditingPosId(stop.id);
+                            }}
+                            className="flex items-baseline justify-end gap-0.5 rounded px-0.5 py-0.5 text-right font-mono text-sm font-semibold text-neutral-200 hover:bg-neutral-900"
+                            aria-label="编辑位置"
+                          >
+                            <span>{Math.round(stop.pos)}</span>
+                            <span className="text-[9px] text-neutral-500">%</span>
+                          </button>
+                        )}
+
+                        {/* 颜色方块（选中白框） */}
+                        <button
+                          type="button"
+                          onClick={() => setActiveStopId(stop.id)}
+                          className={cn(
+                            "size-4 rounded-none border",
+                            isActive ? "border-white ring-2 ring-white" : "border-neutral-700",
+                          )}
+                          style={{ backgroundColor: hexAlphaToCss(stop.hex, stop.alpha) }}
+                          aria-label="选择色标"
+                        />
+
+                        {/* 透明度 % */}
+                        {editingAlpha ? (
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            autoFocus
+                            defaultValue={Math.round(stop.alpha)}
+                            ref={(el) => {
+                              el?.focus();
+                              el?.select();
+                            }}
+                            onBlur={(e) => {
+                              const v = Number(e.target.value);
+                              if (Number.isFinite(v)) onStopAlpha(stop.id, v);
+                              setEditingAlphaId(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.nativeEvent.isComposing) return;
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                const v = Number(e.currentTarget.value);
+                                if (Number.isFinite(v)) onStopAlpha(stop.id, v);
+                                setEditingAlphaId(null);
+                              }
+                              if (e.key === "Escape") {
+                                e.preventDefault();
+                                setEditingAlphaId(null);
+                              }
+                            }}
+                            className="h-7 w-full appearance-none rounded-md border border-neutral-700 bg-black/30 px-1 text-right font-mono text-sm font-semibold text-neutral-100 outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            aria-label="色标透明度百分比"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveStopId(stop.id);
+                              setEditingAlphaId(stop.id);
+                            }}
+                            className="flex items-baseline justify-end gap-0.5 rounded px-0.5 py-0.5 text-right font-mono text-sm font-semibold text-neutral-200 hover:bg-neutral-900"
+                            aria-label="编辑透明度"
+                          >
+                            <span>{Math.round(stop.alpha)}</span>
+                            <span className="text-[9px] text-neutral-500">%</span>
+                          </button>
+                        )}
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem onSelect={() => onDuplicateStop(stop.id)}>
+                        复制
+                      </ContextMenuItem>
+                      <ContextMenuItem onSelect={() => onCopyHex(stop.id)}>
+                        复制 hex 值
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        disabled={stops.length <= 2}
+                        onSelect={() => onRemoveStop(stop.id)}
+                      >
+                        删除
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              onClick={onAddStop}
+              className="mt-2 flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-neutral-800 py-1.5 text-[11px] text-neutral-500 hover:border-neutral-600 hover:text-neutral-200"
+            >
+              <Plus className="size-3" /> 添加
+            </button>
+          </>
+        ) : (
+          onSetSolid && (
+            <div className="mt-4 flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950/70 p-2">
+              <span className="size-8 rounded-md border border-neutral-700" style={{ backgroundColor: paint.solid }} />
+              <input
+                value={paint.solid.toUpperCase()}
+                onChange={(event) => {
+                  const normalized = normalizeHex(event.target.value);
+                  if (normalized) onSetSolid(normalized);
+                }}
+                className="h-8 min-w-0 flex-1 rounded-md border border-neutral-800 bg-black/30 px-2 font-mono text-xs text-neutral-100 outline-none focus:border-neutral-500"
+                aria-label="HEX 颜色值"
+              />
+            </div>
+          )
+        )}
+      </div>
 
       {extra}
     </div>
+  );
+}
+
+function ColorSlider({
+  label,
+  value,
+  max,
+  unit,
+  track,
+  markerColor,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  unit: string;
+  track: string;
+  markerColor?: string;
+  onChange: (value: number) => void;
+}) {
+  const pct = (value / max) * 100;
+  return (
+    <label className="grid grid-cols-[18px_minmax(0,1fr)_48px] items-center gap-2 text-[11px] text-neutral-500">
+      <span className="font-mono">{label}:</span>
+      <div className="relative h-3">
+        <div
+          className="pointer-events-none absolute top-1/2 h-1.5 w-full -translate-y-1/2 rounded-full"
+          style={{ background: track }}
+        />
+        <input
+          type="range"
+          min={0}
+          max={max}
+          value={value}
+          onChange={(event) => onChange(Number(event.target.value))}
+          className="absolute inset-0 h-full w-full cursor-pointer appearance-none bg-transparent [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-transparent [&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-transparent"
+        />
+        {/* 自定义手柄：色标作为其居中子元素，永远处于手柄正中心、无位移 */}
+        <span
+          className="pointer-events-none absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-neutral-100 shadow-[0_0_0_1px_rgba(0,0,0,0.45)]"
+          style={{ left: `${pct}%` }}
+        >
+          {markerColor && (
+            <span
+              className="absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full"
+              style={{ backgroundColor: markerColor }}
+            />
+          )}
+        </span>
+      </div>
+      <span className="flex items-baseline justify-end gap-0.5 font-mono">
+        <span className="text-neutral-200">{value}</span>
+        <span className="text-[9px] text-neutral-500">{unit}</span>
+      </span>
+    </label>
   );
 }
 

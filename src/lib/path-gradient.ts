@@ -11,12 +11,12 @@
 // lineCap=round 让相邻段在关节处自然衔接；混色（multiply）模式下由调用方
 // 用离屏 canvas 先在 source-over 内画完整条笔画再贴回，避免段间接缝变暗。
 
-import { interpolate, type InterpSpace } from "./color";
+import { interpolateAlpha, interpolateStop, type InterpSpace } from "./color";
 
 export type Point = { x: number; y: number };
 
-/** 路径色标：pos 为沿弧长的百分比 0..100 */
-export type PathStop = { id: string; hex: string; pos: number };
+/** 路径色标：pos 为沿弧长的百分比 0..100；alpha 为透明度百分比 0..100（100=不透明） */
+export type PathStop = { id: string; hex: string; pos: number; alpha: number };
 
 export type { InterpSpace };
 
@@ -99,28 +99,56 @@ export function nearestPercentOnPath(points: Point[], p: Point): number {
   return lengthToPercent(bestLen, total);
 }
 
-/** 把 stops 按 pos 排序后在指定百分比处插值出颜色；超出首尾夹取端点色 */
+/** 把 stops 按 pos 排序后在指定百分比处插值出颜色；超出首尾夹取端点色。返回 rgba() 字符串（含 alpha） */
 export function colorAtPercent(stops: PathStop[], percent: number, space: InterpSpace): string {
   const sorted = [...stops].sort((a, b) => a.pos - b.pos);
-  if (sorted.length === 0) return "#000000";
-  if (sorted.length === 1) return sorted[0].hex;
+  if (sorted.length === 0) return "rgba(0,0,0,1)";
+  if (sorted.length === 1) return hexAlpha(sorted[0]);
   const p = clamp(percent, 0, 100);
-  if (p <= sorted[0].pos) return sorted[0].hex;
-  if (p >= sorted[sorted.length - 1].pos) return sorted[sorted.length - 1].hex;
+  if (p <= sorted[0].pos) return hexAlpha(sorted[0]);
+  if (p >= sorted[sorted.length - 1].pos) return hexAlpha(sorted[sorted.length - 1]);
   for (let i = 0; i < sorted.length - 1; i++) {
     const a = sorted[i],
       b = sorted[i + 1];
     if (p >= a.pos && p <= b.pos) {
       const span = b.pos - a.pos;
       const t = span > 0 ? (p - a.pos) / span : 0;
-      return interpolate(a.hex, b.hex, t, space);
+      return interpolateAlpha({ hex: a.hex, alpha: a.alpha }, { hex: b.hex, alpha: b.alpha }, t, space);
     }
   }
-  return sorted[sorted.length - 1].hex;
+  return hexAlpha(sorted[sorted.length - 1]);
+}
+
+/** 把单个 PathStop 的 hex+alpha 转成 rgba() 字符串 */
+function hexAlpha(stop: PathStop): string {
+  return interpolateAlpha({ hex: stop.hex, alpha: stop.alpha }, { hex: stop.hex, alpha: stop.alpha }, 0, "rgb");
+}
+
+/** 在指定百分比处取插值后的 {hex, alpha}，用于在该位置新增一个色标 */
+export function stopAtPercent(stops: PathStop[], percent: number, space: InterpSpace): { hex: string; alpha: number } {
+  const sorted = [...stops].sort((a, b) => a.pos - b.pos);
+  if (sorted.length === 0) return { hex: "#000000", alpha: 100 };
+  if (sorted.length === 1) return { hex: sorted[0].hex, alpha: sorted[0].alpha };
+  const p = clamp(percent, 0, 100);
+  if (p <= sorted[0].pos) return { hex: sorted[0].hex, alpha: sorted[0].alpha };
+  if (p >= sorted[sorted.length - 1].pos) return { hex: sorted[sorted.length - 1].hex, alpha: sorted[sorted.length - 1].alpha };
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i],
+      b = sorted[i + 1];
+    if (p >= a.pos && p <= b.pos) {
+      const span = b.pos - a.pos;
+      const t = span > 0 ? (p - a.pos) / span : 0;
+      return interpolateStop({ hex: a.hex, alpha: a.alpha }, { hex: b.hex, alpha: b.alpha }, t, space);
+    }
+  }
+  const last = sorted[sorted.length - 1];
+  return { hex: last.hex, alpha: last.alpha };
 }
 
 /**
  * 把折线细分为密折线（段长 ≤ maxSeg），用于沿弧长逐段着色。
+ * 直线细分只在直线段上插点，不改变折线形状与走向——与纯色描边的原始折线几何一致，
+ * 切换"纯色/沿路径"时只改颜色，不变形状。
  * 闭合形状（circle/star 等）传入 closed=true 时在首尾补一段，保证环绕处也有着色。
  */
 export function tessellate(points: Point[], maxSeg = 3, closed = false): Point[] {
@@ -274,22 +302,6 @@ export function shapePoints(shape: ShapeType, start: Point, end: Point): Point[]
   return Array.from({ length: 72 }, (_, index) => {
     const progress = index / 71;
     return { x: minX + progress * width, y: cy + Math.sin(progress * Math.PI * 4) * height * 0.42 };
-  });
-}
-
-/** 平滑折线（移动平均），amount 0..100 */
-export function smoothPoints(points: Point[], amount: number): Point[] {
-  if (points.length < 3 || amount <= 0) return points;
-  const strength = clamp(amount / 100, 0, 1);
-  return points.map((point, index) => {
-    if (index === 0 || index === points.length - 1) return point;
-    const prev = points[index - 1],
-      next = points[index + 1];
-    const average = { x: (prev.x + point.x + next.x) / 3, y: (prev.y + point.y + next.y) / 3 };
-    return {
-      x: point.x + (average.x - point.x) * strength,
-      y: point.y + (average.y - point.y) * strength,
-    };
   });
 }
 
