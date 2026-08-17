@@ -968,6 +968,36 @@ export function CanvasTool() {
     };
     updateSelectionPaint((paint) => ({ ...paint, stops: [...paint.stops, newStop] }));
   };
+  // 删除色标：保留至少 2 个色标
+  const removeSelectionStop = (stopId: string) => {
+    if (!selectionPaint) return;
+    if (selectionPaint.stops.length <= 2) return;
+    updateSelectionPaint((paint) => ({
+      ...paint,
+      stops: paint.stops.filter((stop) => stop.id !== stopId),
+    }));
+  };
+  // 拖拽排序：把 from 色标挪到 to 色标的排序位置，按新顺序在 [0,100] 上均匀重排位置
+  const reorderSelectionStops = (fromId: string, toId: string) => {
+    if (!selectionPaint || fromId === toId) return;
+    const stops = selectionPaint.stops;
+    const sorted = [...stops].sort((a, b) => a.pos - b.pos);
+    const fromIdx = sorted.findIndex((s) => s.id === fromId);
+    const toIdx = sorted.findIndex((s) => s.id === toId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    // 取出 from 后插入到 to 的位置（拖到下方=插到其下方，故 toIdx+1）
+    const [moved] = sorted.splice(fromIdx, 1);
+    const insertAt = fromIdx < toIdx ? toIdx : toIdx + 1;
+    sorted.splice(insertAt, 0, moved);
+    // 等差重排位置
+    const n = sorted.length;
+    const newPos = new Map<string, number>();
+    sorted.forEach((s, i) => newPos.set(s.id, clamp(Math.round((i / (n + 1)) * 100), 0, 100)));
+    updateSelectionPaint((paint) => ({
+      ...paint,
+      stops: paint.stops.map((s) => (newPos.has(s.id) ? { ...s, pos: newPos.get(s.id)! } : s)),
+    }));
+  };
   // 翻转色标顺序：把每个色标的位置镜像翻转（pos → 100 - pos），从而把颜色排列反过来
   const reverseSelectionStops = () => {
     if (!selectionPaint) return;
@@ -1229,6 +1259,8 @@ export function CanvasTool() {
                         onStopHex={setSelectionStopHex}
                         onStopAlpha={setSelectionStopAlpha}
                         onDuplicateStop={duplicateSelectionStop}
+                        onDeleteStop={removeSelectionStop}
+                        onReorderStops={reorderSelectionStops}
                         onCopyHex={(stopId) => {
                           const stop = selectionPaint.stops.find((s) => s.id === stopId);
                           if (stop) copyText(stop.hex.toUpperCase(), "已复制 hex 值");

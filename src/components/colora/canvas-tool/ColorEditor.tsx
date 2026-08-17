@@ -22,8 +22,10 @@ export function ColorEditor({
   onStopHex,
   onStopAlpha,
   onDuplicateStop,
+  onDeleteStop,
   onCopyHex,
   onAddStop,
+  onReorderStops,
   onSetSpace,
   onSetMode,
   onSetSolid,
@@ -38,8 +40,10 @@ export function ColorEditor({
   onStopHex: (stopId: string, hex: string) => void;
   onStopAlpha: (stopId: string, alpha: number) => void;
   onDuplicateStop: (stopId: string) => void;
+  onDeleteStop: (stopId: string) => void;
   onCopyHex: (stopId: string) => void;
   onAddStop: () => void;
+  onReorderStops: (fromId: string, toId: string) => void;
   onSetSpace: (space: InterpSpace) => void;
   onSetMode?: (mode: PaintMode) => void;
   onSetSolid?: (hex: string) => void;
@@ -50,6 +54,85 @@ export function ColorEditor({
   const [activeStopId, setActiveStopId] = useState<string | null>(null);
   const [editingPosId, setEditingPosId] = useState<string | null>(null);
   const [editingAlphaId, setEditingAlphaId] = useState<string | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const longPressTimerRef = useRef<{ timer: ReturnType<typeof setTimeout>; startX: number; startY: number; stopId: string } | null>(null);
+
+  // 可原地全选编辑的百分比数字：数字与 % 始终是同一 flex 行内两个独立 span，
+// 编辑只是把数字 span 标为 contentEditable 并全选其文本，布局/位置完全不变；% 不可编辑。
+  const renderEditablePercent = (
+    value: number,
+    editing: boolean,
+    onStart: () => void,
+    onSubmit: (v: number) => void,
+    onCancel: () => void,
+    align: "left" | "right",
+  ) => (
+    <span
+      className={cn(
+        "flex h-6 min-w-0 items-center gap-0.5 rounded px-1 font-mono text-xs font-semibold text-neutral-200 hover:bg-neutral-900",
+        align === "right" ? "justify-end" : "justify-start",
+      )}
+      aria-label="编辑百分比"
+    >
+      {editing ? (
+        <span
+          contentEditable
+          suppressContentEditableWarning
+          role="button"
+          tabIndex={-1}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          ref={(el) => {
+            if (!el) return;
+            if (el.dataset.focused === "true") return;
+            el.dataset.focused = "true";
+            const sel = window.getSelection();
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+            el.focus();
+          }}
+          onBlur={(e) => {
+            const v = Number(e.currentTarget.textContent?.replace(/[^0-9.\-]/g, ""));
+            if (Number.isFinite(v)) onSubmit(clamp(Math.round(v), 0, 100));
+            onCancel();
+            if (e.currentTarget) e.currentTarget.dataset.focused = "false";
+          }}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing) return;
+            if (e.key === "Enter") {
+              e.preventDefault();
+              const v = Number(e.currentTarget.textContent?.replace(/[^0-9.\-]/g, ""));
+              if (Number.isFinite(v)) onSubmit(clamp(Math.round(v), 0, 100));
+              e.currentTarget.blur();
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+          }}
+          className="min-w-0 cursor-text select-text outline-none"
+          style={{ caretColor: "rgb(245 245 245)" }}
+        >
+          {Math.round(value)}
+        </span>
+      ) : (
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={() => onStart()}
+          className="min-w-0 cursor-text"
+        >
+          {Math.round(value)}
+        </span>
+      )}
+      <span className="pointer-events-none select-none text-[9px] text-neutral-500">%</span>
+    </span>
+  );
   const stops = paint.stops;
   const sortedStops = useMemo(() => [...stops].sort((a, b) => a.pos - b.pos), [stops]);
   const activeStop = sortedStops.find((stop) => stop.id === activeStopId) ?? sortedStops[0];
@@ -202,10 +285,11 @@ export function ColorEditor({
               </div>
             </div>
 
-            <div className="relative mt-3 rounded-lg border border-neutral-800 bg-neutral-950/70 py-2">
+            <div ref={listRef} className="relative mt-3 rounded-lg border border-neutral-800 bg-neutral-950/70 py-2 touch-none">
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute bottom-7 left-5 top-7 z-0 w-px rounded-full bg-neutral-500"
+                className="pointer-events-none absolute bottom-7 top-7 z-10 w-px rounded-full bg-neutral-500"
+                style={{ left: "18px" }}
               />
               {sortedStops.map((stop, i) => {
                 const isActive = activeStop?.id === stop.id;
@@ -216,72 +300,123 @@ export function ColorEditor({
                     <ContextMenuTrigger asChild>
                       <div
                         onContextMenu={(e) => setActiveStopId(stop.id)}
+                        onPointerDown={(e) => {
+                          // 长按空白区域 400ms 后进入拖拽排序/调位模式
+                          if (e.button !== 0) return;
+                          if ((e.target as HTMLElement).closest("button, input, [contenteditable], [role=\"button\"]")) return;
+                          setActiveStopId(stop.id);
+                          // 捕获指针，保证移动/抬起事件持续派发到本行（即便指针离开行）
+                          try {
+                            e.currentTarget.setPointerCapture(e.pointerId);
+                          } catch {
+                            /* 忽略 */
+                          }
+                          const startX = e.clientX;
+                          const startY = e.clientY;
+                          const timer = setTimeout(() => {
+                            longPressTimerRef.current = null;
+                            setDragId(stop.id);
+                          }, 400);
+                          longPressTimerRef.current = { timer, startX, startY, stopId: stop.id };
+                        }}
+                        onPointerMove={(e) => {
+                          const lp = longPressTimerRef.current;
+                          // 拖拽中：根据指针 Y 找到悬停的行，实时重排（数值同步变化）
+                          if (dragId === stop.id) {
+                            const list = listRef.current;
+                            if (!list) return;
+                            const rows = Object.entries(rowRefs.current)
+                              .map(([id, el]) => (el ? { id, mid: el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2 } : null))
+                              .filter(Boolean) as { id: string; mid: number }[];
+                            // 指针在第 i 与第 i+1 行之间时，目标索引 = i+1；用相邻行中点判定
+                            let targetId: string | null = null;
+                            for (let k = 0; k < rows.length - 1; k++) {
+                              if (e.clientY >= rows[k].mid && e.clientY < rows[k + 1].mid) {
+                                targetId = rows[k + 1].id;
+                                break;
+                              }
+                            }
+                            if (!targetId && rows.length) {
+                              if (e.clientY < rows[0].mid) targetId = rows[0].id;
+                              else targetId = rows[rows.length - 1].id;
+                            }
+                            setDragOverId(targetId);
+                            if (targetId && targetId !== stop.id) onReorderStops(stop.id, targetId);
+                            return;
+                          }
+                          // 未进入拖拽：若移动超容差则取消长按
+                          if (!lp) return;
+                          if (Math.abs(e.clientX - lp.startX) > 6 || Math.abs(e.clientY - lp.startY) > 6) {
+                            clearTimeout(lp.timer);
+                            longPressTimerRef.current = null;
+                          }
+                        }}
+                        onPointerUp={(e) => {
+                          if (longPressTimerRef.current) {
+                            clearTimeout(longPressTimerRef.current.timer);
+                            longPressTimerRef.current = null;
+                          }
+                          try {
+                            e.currentTarget.releasePointerCapture(e.pointerId);
+                          } catch {
+                            /* 忽略 */
+                          }
+                          if (dragId) {
+                            setDragId(null);
+                            setDragOverId(null);
+                          }
+                        }}
+                        onPointerCancel={(e) => {
+                          if (longPressTimerRef.current) {
+                            clearTimeout(longPressTimerRef.current.timer);
+                            longPressTimerRef.current = null;
+                          }
+                          try {
+                            e.currentTarget.releasePointerCapture(e.pointerId);
+                          } catch {
+                            /* 忽略 */
+                          }
+                          if (dragId) {
+                            setDragId(null);
+                            setDragOverId(null);
+                          }
+                        }}
+                        ref={(el) => {
+                          rowRefs.current[stop.id] = el;
+                        }}
                         className={cn(
-                          "relative grid min-h-14 grid-cols-[24px_minmax(54px,1fr)_28px_minmax(54px,1fr)] items-center gap-2 px-2 py-2 text-xs transition-colors cursor-default",
+                          "relative grid min-h-10 grid-cols-[20px_52px_26px_1fr_52px] items-center gap-1.5 px-2 py-1.5 text-xs transition-colors",
+                          dragId === stop.id ? "cursor-grabbing opacity-40" : dragId ? "cursor-grab" : "cursor-default",
                           isActive ? "bg-neutral-900/80" : "hover:bg-neutral-900/50",
+                          dragOverId === stop.id && dragId !== stop.id && "ring-1 ring-inset ring-neutral-400",
                         )}
                       >
                         {/* 选择圆点 + 连接相邻圆点的竖线 */}
-                        <div className="relative mx-auto h-7 w-6">
+                        <div className="relative mx-auto h-6 w-5">
                           <button
                             type="button"
                             onClick={() => setActiveStopId(stop.id)}
                             className={cn(
                               "absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full border",
                               isActive
-                                ? "size-4 border-white bg-white shadow-[0_0_0_2px_rgb(0_0_0/0.75)]"
-                                : "size-3.5 border-neutral-400 bg-neutral-950 shadow-[0_0_0_1px_rgb(0_0_0/0.75)]",
+                                ? "size-3.5 border-white bg-white shadow-[0_0_0_2px_rgb(0_0_0/0.75)]"
+                                : "size-3 border-neutral-400 bg-neutral-950 shadow-[0_0_0_1px_rgb(0_0_0/0.75)]",
                             )}
                             aria-label="选择色标"
                           />
                         </div>
 
-                        {/* 位置 % */}
-                        {editingPos ? (
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            autoFocus
-                            defaultValue={Math.round(stop.pos)}
-                            ref={(el) => {
-                              el?.focus();
-                              el?.select();
-                            }}
-                            onBlur={(e) => {
-                              const v = Number(e.target.value);
-                              if (Number.isFinite(v)) onStopPos(stop.id, v);
-                              setEditingPosId(null);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.nativeEvent.isComposing) return;
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                const v = Number(e.currentTarget.value);
-                                if (Number.isFinite(v)) onStopPos(stop.id, v);
-                                setEditingPosId(null);
-                              }
-                              if (e.key === "Escape") {
-                                e.preventDefault();
-                                setEditingPosId(null);
-                              }
-                            }}
-                            className="h-7 w-full appearance-none rounded-md border border-neutral-700 bg-black/30 px-1 text-right font-mono text-sm font-semibold text-neutral-100 outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                            aria-label="色标位置百分比"
-                          />
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveStopId(stop.id);
-                              setEditingPosId(stop.id);
-                            }}
-                            className="flex items-baseline justify-end gap-0.5 rounded px-0.5 py-0.5 text-right font-mono text-sm font-semibold text-neutral-200 hover:bg-neutral-900"
-                            aria-label="编辑位置"
-                          >
-                            <span>{Math.round(stop.pos)}</span>
-                            <span className="text-[9px] text-neutral-500">%</span>
-                          </button>
+                        {/* 位置 %：原地全选编辑，% 始终显示 */}
+                        {renderEditablePercent(
+                          stop.pos,
+                          editingPos,
+                          () => {
+                            setActiveStopId(stop.id);
+                            setEditingPosId(stop.id);
+                          },
+                          (v) => onStopPos(stop.id, v),
+                          () => setEditingPosId(null),
+                          "right",
                         )}
 
                         {/* 颜色方块（选中白框） */}
@@ -289,7 +424,7 @@ export function ColorEditor({
                           type="button"
                           onClick={() => setActiveStopId(stop.id)}
                           className={cn(
-                            "grid size-7 place-items-center rounded-[5px] border-2 bg-transparent p-[3px]",
+                            "grid size-6 shrink-0 place-items-center rounded-[5px] border-2 bg-transparent p-[3px]",
                             isActive ? "border-white" : "border-transparent",
                           )}
                           aria-label="选择色标"
@@ -300,52 +435,22 @@ export function ColorEditor({
                           />
                         </button>
 
-                        {/* 透明度 % */}
-                        {editingAlpha ? (
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            autoFocus
-                            defaultValue={Math.round(stop.alpha)}
-                            ref={(el) => {
-                              el?.focus();
-                              el?.select();
-                            }}
-                            onBlur={(e) => {
-                              const v = Number(e.target.value);
-                              if (Number.isFinite(v)) onStopAlpha(stop.id, v);
-                              setEditingAlphaId(null);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.nativeEvent.isComposing) return;
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                const v = Number(e.currentTarget.value);
-                                if (Number.isFinite(v)) onStopAlpha(stop.id, v);
-                                setEditingAlphaId(null);
-                              }
-                              if (e.key === "Escape") {
-                                e.preventDefault();
-                                setEditingAlphaId(null);
-                              }
-                            }}
-                            className="h-7 w-full appearance-none rounded-md border border-neutral-700 bg-black/30 px-1 text-right font-mono text-sm font-semibold text-neutral-100 outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                            aria-label="色标透明度百分比"
-                          />
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveStopId(stop.id);
-                              setEditingAlphaId(stop.id);
-                            }}
-                            className="flex items-baseline justify-end gap-0.5 rounded px-0.5 py-0.5 text-right font-mono text-sm font-semibold text-neutral-200 hover:bg-neutral-900"
-                            aria-label="编辑透明度"
-                          >
-                            <span>{Math.round(stop.alpha)}</span>
-                            <span className="text-[9px] text-neutral-500">%</span>
-                          </button>
+                        {/* hex 编码 */}
+                        <span className="min-w-0 truncate font-mono text-[11px] text-neutral-400">
+                          {stop.hex.toUpperCase()}
+                        </span>
+
+                        {/* 透明度 %：最右侧，原地全选编辑 */}
+                        {renderEditablePercent(
+                          stop.alpha,
+                          editingAlpha,
+                          () => {
+                            setActiveStopId(stop.id);
+                            setEditingAlphaId(stop.id);
+                          },
+                          (v) => onStopAlpha(stop.id, v),
+                          () => setEditingAlphaId(null),
+                          "right",
                         )}
                       </div>
                     </ContextMenuTrigger>
@@ -355,6 +460,12 @@ export function ColorEditor({
                       </ContextMenuItem>
                       <ContextMenuItem onSelect={() => onCopyHex(stop.id)}>
                         复制 hex 值
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        disabled={sortedStops.length <= 2}
+                        onSelect={() => onDeleteStop(stop.id)}
+                      >
+                        删除
                       </ContextMenuItem>
                     </ContextMenuContent>
                   </ContextMenu>
