@@ -13,7 +13,9 @@ export function pointToSegmentDistance(point: Point, a: Point, b: Point) {
 }
 export function hitStroke(stroke: Stroke, point: Point) {
   const points = renderPoints(stroke),
-    threshold = stroke.width / 2 + 8;
+    // 严格按线条本身命中：阈值 = 线条半宽。点必须落在线条宽度范围内才算选中，
+    // 线条外的空白一概不算命中。
+    threshold = stroke.width / 2;
   for (let index = 0; index < points.length - 1; index++)
     if (pointToSegmentDistance(point, points[index], points[index + 1]) <= threshold) return true;
   return false;

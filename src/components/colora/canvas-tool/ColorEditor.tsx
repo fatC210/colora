@@ -83,6 +83,7 @@ export function ColorEditor({
           suppressContentEditableWarning
           role="button"
           tabIndex={-1}
+          data-stop-handle="edit"
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
           ref={(el) => {
@@ -124,13 +125,20 @@ export function ColorEditor({
         <span
           role="button"
           tabIndex={0}
+          data-stop-handle="number"
           onClick={() => onStart()}
           className="min-w-0 cursor-text"
         >
           {Math.round(value)}
         </span>
       )}
-      <span className="pointer-events-none select-none text-[9px] text-neutral-500">%</span>
+      <span
+        data-stop-handle="unit"
+        onClick={() => onStart()}
+        className="cursor-text select-none text-[9px] text-neutral-500"
+      >
+        %
+      </span>
     </span>
   );
   const stops = paint.stops;
@@ -301,9 +309,12 @@ export function ColorEditor({
                       <div
                         onContextMenu={(e) => setActiveStopId(stop.id)}
                         onPointerDown={(e) => {
-                          // 长按空白区域 400ms 后进入拖拽排序/调位模式
+                          // 长按行任意空白区域 400ms 后进入拖拽调位模式。
+                          // 仅当点中真正的可交互内容（数字/单位/正在编辑的文本、圆点/色块按钮）时才不拖；
+                          // 点空白（行 padding、按钮间 gap、hex 列、百分比列的 padding 等）一律可拖。
                           if (e.button !== 0) return;
-                          if ((e.target as HTMLElement).closest("button, input, [contenteditable], [role=\"button\"]")) return;
+                          const hit = (e.target as HTMLElement).closest("[data-stop-handle], button");
+                          if (hit) return;
                           setActiveStopId(stop.id);
                           // 捕获指针，保证移动/抬起事件持续派发到本行（即便指针离开行）
                           try {
@@ -321,14 +332,21 @@ export function ColorEditor({
                         }}
                         onPointerMove={(e) => {
                           const lp = longPressTimerRef.current;
-                          // 拖拽中：根据指针 Y 找到悬停的行，实时重排（数值同步变化）
+                          // 拖拽中：把被拖色标的 pos 实时设为指针在列表中的垂直百分比。
+                          // pos 即位置，顺序由 pos 自动决定 —— 垂直拖同时调整顺序与具体位置。
                           if (dragId === stop.id) {
                             const list = listRef.current;
                             if (!list) return;
+                            const rect = list.getBoundingClientRect();
+                            // 列表上下各留半行高作为缓冲，使首尾能到 0%/100%
+                            const pad = rect.height / (sortedStops.length * 2);
+                            const ratio = (e.clientY - (rect.top + pad)) / (rect.height - pad * 2);
+                            const pos = clamp(Math.round(ratio * 100), 0, 100);
+                            onStopPos(stop.id, pos);
+                            // 同时根据指针 Y 计算悬停行，给重排视觉反馈
                             const rows = Object.entries(rowRefs.current)
                               .map(([id, el]) => (el ? { id, mid: el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2 } : null))
                               .filter(Boolean) as { id: string; mid: number }[];
-                            // 指针在第 i 与第 i+1 行之间时，目标索引 = i+1；用相邻行中点判定
                             let targetId: string | null = null;
                             for (let k = 0; k < rows.length - 1; k++) {
                               if (e.clientY >= rows[k].mid && e.clientY < rows[k + 1].mid) {
@@ -341,7 +359,6 @@ export function ColorEditor({
                               else targetId = rows[rows.length - 1].id;
                             }
                             setDragOverId(targetId);
-                            if (targetId && targetId !== stop.id) onReorderStops(stop.id, targetId);
                             return;
                           }
                           // 未进入拖拽：若移动超容差则取消长按
@@ -419,18 +436,19 @@ export function ColorEditor({
                           "right",
                         )}
 
-                        {/* 颜色方块（选中白框） */}
+                        {/* 颜色方块（选中白框）：外框 rounded-[5px] + inset 3px + 内色块 rounded-[2px]
+                            满足 外圆角 = inset + 内圆角 (5 = 3 + 2)，圆角同心，色块在白框内视觉居中 */}
                         <button
                           type="button"
                           onClick={() => setActiveStopId(stop.id)}
                           className={cn(
-                            "grid size-6 shrink-0 place-items-center rounded-[5px] border-2 bg-transparent p-[3px]",
+                            "relative size-6 shrink-0 rounded-[5px] border-2 bg-transparent",
                             isActive ? "border-white" : "border-transparent",
                           )}
                           aria-label="选择色标"
                         >
                           <span
-                            className="size-full rounded-[2px]"
+                            className="absolute inset-[3px] rounded-[2px]"
                             style={{ backgroundColor: hexAlphaToCss(stop.hex, stop.alpha) }}
                           />
                         </button>
