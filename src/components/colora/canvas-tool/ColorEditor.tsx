@@ -13,6 +13,70 @@ import { clamp } from "./utils";
 import { ColorSlider } from "./ColorSlider";
 import type { InterpSpace, PaintMode, StrokePaint } from "./types";
 
+/** 滚轮式数值：整个数字作为一条整体在垂直方向从旧值滚到新值（像翻牌器/滚筒）。
+ *  条带 [from, to]：translateY 0→-100%，露出 to；上下渐变遮罩让进出滚轮的旧/新值渐隐。
+ *  快速连续变化（两次变化间隔 < 80ms）时直接 snap 到当前值（当前数值正常显示），不滚动；
+ *  变化节奏放慢时才播放滚动动画。 */
+function RollingValue({ value, className }: { value: number; className?: string }) {
+  const [from, setFrom] = useState(value);
+  const [to, setTo] = useState(value);
+  const [offset, setOffset] = useState(1); // 0..1，1 = 露出 to（当前值）
+  const rafRef = useRef(0);
+  const lastChangeRef = useRef(0);
+  useEffect(() => {
+    if (value === to) return;
+    const now = performance.now();
+    const since = now - lastChangeRef.current;
+    lastChangeRef.current = now;
+    setFrom(to); // 旧值 = 上一个当前值
+    setTo(value); // 新值 = 当前值
+    cancelAnimationFrame(rafRef.current);
+    if (since < 80) {
+      // 快速：直接显示当前值，不滚动（避免拖拽时数值滞后/看不到）
+      setOffset(1);
+      return;
+    }
+    // 慢速：从旧值滚到新值
+    setOffset(0);
+    const t0 = now;
+    const dur = 150;
+    const tick = (n: number) => {
+      const t = Math.min(1, (n - t0) / dur);
+      setOffset(1 - Math.pow(1 - t, 3)); // easeOutCubic
+      if (t < 1) rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+  }, [value, to]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+  return (
+    <span
+      className={cn(
+        "relative flex h-6 items-center justify-end gap-0.5 overflow-hidden px-1 font-mono text-xs font-semibold text-neutral-200",
+        className,
+      )}
+      style={{ height: "1.5rem" }}
+    >
+      <span className="block tabular-nums" style={{ transform: `translateY(${-offset * 100}%)` }}>
+        <span className="block text-right leading-none" style={{ height: "1.5rem" }}>
+          {from}
+        </span>
+        <span className="block text-right leading-none" style={{ height: "1.5rem" }}>
+          {to}
+        </span>
+      </span>
+      <span className="ml-0.5 text-[9px] text-neutral-500">%</span>
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "linear-gradient(to bottom, rgba(21,21,23,0.92) 0%, rgba(21,21,23,0) 38%, rgba(21,21,23,0) 62%, rgba(21,21,23,0.92) 100%)",
+        }}
+      />
+    </span>
+  );
+}
+
 /** 极简单色风颜色编辑器：HSL 拾色 + 色标行（圆点连线 / 位置% / 颜色方块 / 透明度%）+ 插值空间分段 */
 export function ColorEditor({
   title,
@@ -24,8 +88,8 @@ export function ColorEditor({
   onDuplicateStop,
   onDeleteStop,
   onCopyHex,
-  onAddStop,
-  onReorderStops,
+  onAddStopAt,
+  onDropStop,
   onSetSpace,
   onSetMode,
   onSetSolid,
@@ -42,8 +106,8 @@ export function ColorEditor({
   onDuplicateStop: (stopId: string) => void;
   onDeleteStop: (stopId: string) => void;
   onCopyHex: (stopId: string) => void;
-  onAddStop: () => void;
-  onReorderStops: (fromId: string, toId: string) => void;
+  onAddStopAt: (pos: number) => string;
+  onDropStop: (draggedId: string, orderedIds: string[], pos: number) => void;
   onSetSpace: (space: InterpSpace) => void;
   onSetMode?: (mode: PaintMode) => void;
   onSetSolid?: (hex: string) => void;
@@ -56,9 +120,16 @@ export function ColorEditor({
   const [editingAlphaId, setEditingAlphaId] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [dropIndex, setDropIndex] = useState(-1); // 被拖行目标插入索引（冻结顺序中）
+  const [dragCursor, setDragCursor] = useState(0); // 被拖行目标槽位（浮点，按下槽 + 整行高倍数位移）
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const listRef = useRef<HTMLDivElement | null>(null);
-  const longPressTimerRef = useRef<{ timer: ReturnType<typeof setTimeout>; startX: number; startY: number; stopId: string } | null>(null);
+  const dragCandidateRef = useRef<{ stopId: string; startX: number; startY: number; index: number } | null>(null);
+  // 拖拽期间冻结排序：记录按下时的顺序与被拖行索引，拖拽中行保持原位、用 transform 让位/跟随，松手再按 pos 重排。
+  const dragSnapshotRef = useRef<string[] | null>(null);
+  const dragDraggedIndexRef = useRef(-1); // 按下时被拖行在冻结顺序中的索引
+  const rowHRef = useRef(52); // 一行（含行间 gap）的单元高度，拖拽中用 offsetTop 测量
+  const dropPosRef = useRef(0); // 被拖行当前自定义 pos（按下到松手期间随光标更新）
 
   // 可原地全选编辑的百分比数字：数字与 % 始终是同一 flex 行内两个独立 span，
 // 编辑只是把数字 span 标为 contentEditable 并全选其文本，布局/位置完全不变；% 不可编辑。
@@ -143,6 +214,26 @@ export function ColorEditor({
   );
   const stops = paint.stops;
   const sortedStops = useMemo(() => [...stops].sort((a, b) => a.pos - b.pos), [stops]);
+  // 拖拽中保持按下时的顺序（冻结），行不重排，靠 transform 让位/跟随，松手再按 pos 落位。
+  const renderStops = useMemo(() => {
+    if (!dragId || !dragSnapshotRef.current) return sortedStops;
+    return dragSnapshotRef.current
+      .map((id) => stops.find((s) => s.id === id))
+      .filter(Boolean) as typeof sortedStops;
+  }, [dragId, sortedStops, stops]);
+  // 一行（含行间 gap）的单元高度：拖拽中用两行 offsetTop 差值测量（offsetTop 不受 transform 影响）
+  const measureRowUnit = () => {
+    const snapshot = dragSnapshotRef.current;
+    if (snapshot && snapshot.length > 1) {
+      const a = rowRefs.current[snapshot[0]];
+      const b = rowRefs.current[snapshot[1]];
+      if (a && b) {
+        const h = b.offsetTop - a.offsetTop;
+        if (h > 0) return h;
+      }
+    }
+    return 52;
+  };
   const activeStop = sortedStops.find((stop) => stop.id === activeStopId) ?? sortedStops[0];
   const activeHex = paint.mode === "solid" ? paint.solid : activeStop?.hex ?? paint.solid;
   const activeHsl = rgbToHsl(hexToRgb(activeHex));
@@ -296,98 +387,159 @@ export function ColorEditor({
             <div ref={listRef} className="relative mt-3 rounded-lg border border-neutral-800 bg-neutral-950/70 py-2 touch-none">
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute bottom-7 top-7 z-10 w-px rounded-full bg-neutral-500"
-                style={{ left: "18px" }}
+                className={cn(
+                  "pointer-events-none absolute bottom-7 top-7 z-10 w-px rounded-full bg-neutral-500 transition-opacity duration-200",
+                  dragId ? "opacity-0" : "opacity-100",
+                )}
+                style={{ left: "22px" }}
               />
-              {sortedStops.map((stop, i) => {
+              {renderStops.map((stop, i) => {
                 const isActive = activeStop?.id === stop.id;
                 const editingPos = editingPosId === stop.id;
                 const editingAlpha = editingAlphaId === stop.id;
-                return (
+                return [
+                  i > 0 && (
+                    <div
+                      key={`gap-${stop.id}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-label="在两色之间添加色标"
+                      onClick={() => {
+                        // 点击两行之间整条带状区域即在两色标中点插入新色标，
+                        // 颜色取该位置插值色，并自动选中以便立即微调。
+                        const mid = Math.round((renderStops[i - 1].pos + stop.pos) / 2);
+                        const newId = onAddStopAt(mid);
+                        if (newId) setActiveStopId(newId);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          const mid = Math.round((renderStops[i - 1].pos + stop.pos) / 2);
+                          const newId = onAddStopAt(mid);
+                          if (newId) setActiveStopId(newId);
+                        }
+                      }}
+                      className="group relative flex h-3 cursor-pointer items-center"
+                    >
+                      <span className="pointer-events-none absolute left-[22px] top-1/2 z-20 flex size-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-neutral-700 bg-neutral-950 text-neutral-300 opacity-0 transition-opacity group-hover:border-neutral-400 group-hover:text-white group-hover:opacity-100">
+                        <Plus className="size-2.5" strokeWidth={3} />
+                      </span>
+                    </div>
+                  ),
                   <ContextMenu key={stop.id}>
                     <ContextMenuTrigger asChild>
                       <div
                         onContextMenu={(e) => setActiveStopId(stop.id)}
                         onPointerDown={(e) => {
-                          // 长按行任意空白区域 400ms 后进入拖拽调位模式。
-                          // 仅当点中真正的可交互内容（数字/单位/正在编辑的文本、圆点/色块按钮）时才不拖；
-                          // 点空白（行 padding、按钮间 gap、hex 列、百分比列的 padding 等）一律可拖。
+                          // 行内抓手区域：按下即选中本行；若随后拖动超容差则进入拖拽调位。
+                          // 仅当点中真正的可交互内容（数字/单位/正在编辑的文本、圆点/色块按钮）时才不处理；
+                          // 点空白（行 padding、按钮间 gap、hex 列、百分比列的 padding 等）一律走选中/拖拽。
                           if (e.button !== 0) return;
                           const hit = (e.target as HTMLElement).closest("[data-stop-handle], button");
                           if (hit) return;
                           setActiveStopId(stop.id);
+                          setDragOverId(null);
+                          // 冻结拖拽起始顺序，记录被拖行索引与起始槽位
+                          const snapshot = sortedStops.map((s) => s.id);
+                          dragSnapshotRef.current = snapshot;
+                          const pressedIndex = Math.max(0, snapshot.indexOf(stop.id));
+                          dragDraggedIndexRef.current = pressedIndex;
+                          rowHRef.current = 52;
+                          setDropIndex(pressedIndex);
+                          setDragCursor(pressedIndex);
                           // 捕获指针，保证移动/抬起事件持续派发到本行（即便指针离开行）
                           try {
                             e.currentTarget.setPointerCapture(e.pointerId);
                           } catch {
                             /* 忽略 */
                           }
-                          const startX = e.clientX;
-                          const startY = e.clientY;
-                          const timer = setTimeout(() => {
-                            longPressTimerRef.current = null;
-                            setDragId(stop.id);
-                          }, 400);
-                          longPressTimerRef.current = { timer, startX, startY, stopId: stop.id };
+                          dragCandidateRef.current = {
+                            stopId: stop.id,
+                            startX: e.clientX,
+                            startY: e.clientY,
+                            index: pressedIndex,
+                          };
                         }}
                         onPointerMove={(e) => {
-                          const lp = longPressTimerRef.current;
-                          // 拖拽中：把被拖色标的 pos 实时设为指针在列表中的垂直百分比。
-                          // pos 即位置，顺序由 pos 自动决定 —— 垂直拖同时调整顺序与具体位置。
-                          if (dragId === stop.id) {
+                          // 拖拽中：被拖行整行高倍数跟随鼠标（snap 到行槽 + 小数偏移），
+                          // 其他行按光标投影到的"插入索引"整体上下平移一行高让位（有 transition 平滑）。
+                          const computeDrag = (clientY: number) => {
+                            const c = dragCandidateRef.current;
+                            if (!c) return;
+                            const snapshot = dragSnapshotRef.current ?? [];
+                            const n = snapshot.length || 1;
+                            const rowH = measureRowUnit();
+                            rowHRef.current = rowH;
+                            // 被拖行目标槽位（浮点）= 按下槽 + 整行高倍数位移，夹在首尾
+                            const target = clamp(c.index + (clientY - c.startY) / rowH, 0, n - 1);
+                            const drop = Math.round(target);
+                            setDragCursor(target);
+                            setDropIndex(drop);
+                            // 自定义 pos：按光标在列表中的垂直比例映射到 0..100，再夹到"插入槽两侧色标"的 pos 之间。
+                            // 这样一旦拖动让其他行让位（drop 变化），被拖行 pos 必落在两侧让位行的 pos 之间
+                            // （上方行的下方、下方行的上方），与视觉排序一致；槽内仍随光标连续变化。
+                            const rest = snapshot.filter((id) => id !== stop.id);
                             const list = listRef.current;
-                            if (!list) return;
-                            const rect = list.getBoundingClientRect();
-                            // 列表上下各留半行高作为缓冲，使首尾能到 0%/100%
-                            const pad = rect.height / (sortedStops.length * 2);
-                            const ratio = (e.clientY - (rect.top + pad)) / (rect.height - pad * 2);
-                            const pos = clamp(Math.round(ratio * 100), 0, 100);
-                            onStopPos(stop.id, pos);
-                            // 同时根据指针 Y 计算悬停行，给重排视觉反馈
-                            const rows = Object.entries(rowRefs.current)
-                              .map(([id, el]) => (el ? { id, mid: el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2 } : null))
-                              .filter(Boolean) as { id: string; mid: number }[];
-                            let targetId: string | null = null;
-                            for (let k = 0; k < rows.length - 1; k++) {
-                              if (e.clientY >= rows[k].mid && e.clientY < rows[k + 1].mid) {
-                                targetId = rows[k + 1].id;
-                                break;
-                              }
+                            if (list) {
+                              const rect = list.getBoundingClientRect();
+                              const pad = rect.height / (n * 2);
+                              const ratio = (clientY - (rect.top + pad)) / (rect.height - pad * 2);
+                              const rawPos = clamp(Math.round(ratio * 100), 0, 100);
+                              const posOf = (id: string | undefined) =>
+                                id ? stops.find((s) => s.id === id)?.pos ?? 0 : 0;
+                              const lower = drop > 0 ? posOf(rest[drop - 1]) : -1;
+                              const upper = drop < rest.length ? posOf(rest[drop]) : 101;
+                              const pos = clamp(rawPos, lower, upper);
+                              dropPosRef.current = pos;
+                              onStopPos(stop.id, pos);
                             }
-                            if (!targetId && rows.length) {
-                              if (e.clientY < rows[0].mid) targetId = rows[0].id;
-                              else targetId = rows[rows.length - 1].id;
-                            }
-                            setDragOverId(targetId);
+                          };
+                          if (dragId === stop.id) {
+                            computeDrag(e.clientY);
                             return;
                           }
-                          // 未进入拖拽：若移动超容差则取消长按
-                          if (!lp) return;
-                          if (Math.abs(e.clientX - lp.startX) > 6 || Math.abs(e.clientY - lp.startY) > 6) {
-                            clearTimeout(lp.timer);
-                            longPressTimerRef.current = null;
+                          // 未进入拖拽：若移动超容差则立即进入拖拽（按下即拖）
+                          const c = dragCandidateRef.current;
+                          if (!c || c.stopId !== stop.id) return;
+                          if (Math.abs(e.clientX - c.startX) > 6 || Math.abs(e.clientY - c.startY) > 6) {
+                            setDragId(stop.id);
+                            computeDrag(e.clientY);
                           }
                         }}
                         onPointerUp={(e) => {
-                          if (longPressTimerRef.current) {
-                            clearTimeout(longPressTimerRef.current.timer);
-                            longPressTimerRef.current = null;
+                          // 松手：按视觉插入槽 dropIndex 把被拖行放进数组，并提交其自定义 pos
+                          // （pos 已夹在两侧让位行的 pos 之间，故排名与视觉一致；边界平手由数组顺序兜底）。
+                          const draggedId = dragId;
+                          const snapshot = dragSnapshotRef.current;
+                          const pos = dropPosRef.current;
+                          const drop = dropIndex;
+                          if (draggedId && snapshot && drop >= 0) {
+                            const rest = snapshot.filter((id) => id !== draggedId);
+                            const at = clamp(drop, 0, rest.length);
+                            onDropStop(draggedId, [...rest.slice(0, at), draggedId, ...rest.slice(at)], pos);
                           }
+                          dragCandidateRef.current = null;
+                          dragSnapshotRef.current = null;
+                          dragDraggedIndexRef.current = -1;
+                          dropPosRef.current = 0;
+                          setDropIndex(-1);
+                          setDragCursor(0);
                           try {
                             e.currentTarget.releasePointerCapture(e.pointerId);
                           } catch {
                             /* 忽略 */
                           }
-                          if (dragId) {
+                          if (draggedId) {
                             setDragId(null);
                             setDragOverId(null);
                           }
                         }}
                         onPointerCancel={(e) => {
-                          if (longPressTimerRef.current) {
-                            clearTimeout(longPressTimerRef.current.timer);
-                            longPressTimerRef.current = null;
-                          }
+                          dragCandidateRef.current = null;
+                          dragSnapshotRef.current = null;
+                          dragDraggedIndexRef.current = -1;
+                          setDropIndex(-1);
+                          setDragCursor(0);
                           try {
                             e.currentTarget.releasePointerCapture(e.pointerId);
                           } catch {
@@ -401,9 +553,34 @@ export function ColorEditor({
                         ref={(el) => {
                           rowRefs.current[stop.id] = el;
                         }}
+                        style={(() => {
+                          if (!dragId) return undefined;
+                          const snapshot = dragSnapshotRef.current ?? [];
+                          const pressedIndex =
+                            dragDraggedIndexRef.current >= 0 ? dragDraggedIndexRef.current : snapshot.indexOf(dragId);
+                          const rowH = rowHRef.current;
+                          if (dragId === stop.id) {
+                            // 被拖行：按下槽 + 整行高倍数位移（无 transition，紧贴鼠标）
+                            return {
+                              transform: `translateY(${(dragCursor - pressedIndex) * rowH}px)`,
+                              zIndex: 20,
+                              transition: "none",
+                            };
+                          }
+                          // 其他行：处于按下槽与目标槽之间者整体平移一行高让位（有 transition 平滑）
+                          const from = pressedIndex;
+                          const to = dropIndex >= 0 ? dropIndex : from;
+                          const idx = snapshot.indexOf(stop.id);
+                          const between = from !== to && ((idx >= to && idx < from) || (idx > from && idx <= to));
+                          const dir = to > from ? -1 : 1; // 被拖行下移→其他行上移(-1)，反之 +1
+                          return {
+                            transform: between ? `translateY(${dir * rowH}px)` : "translateY(0px)",
+                            transition: "transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)",
+                          };
+                        })()}
                         className={cn(
-                          "relative grid min-h-10 grid-cols-[20px_52px_26px_1fr_52px] items-center gap-1.5 px-2 py-1.5 text-xs transition-colors",
-                          dragId === stop.id ? "cursor-grabbing opacity-40" : dragId ? "cursor-grab" : "cursor-default",
+                          "relative mx-1 grid min-h-10 grid-cols-[20px_52px_26px_1fr_52px] items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors",
+                          dragId === stop.id ? "cursor-grabbing shadow-xl ring-1 ring-neutral-700" : "cursor-grab",
                           isActive ? "bg-neutral-900/80" : "hover:bg-neutral-900/50",
                           dragOverId === stop.id && dragId !== stop.id && "ring-1 ring-inset ring-neutral-400",
                         )}
@@ -423,17 +600,21 @@ export function ColorEditor({
                           />
                         </div>
 
-                        {/* 位置 %：原地全选编辑，% 始终显示 */}
-                        {renderEditablePercent(
-                          stop.pos,
-                          editingPos,
-                          () => {
-                            setActiveStopId(stop.id);
-                            setEditingPosId(stop.id);
-                          },
-                          (v) => onStopPos(stop.id, v),
-                          () => setEditingPosId(null),
-                          "right",
+                        {/* 位置 %：拖拽中用滚轮动画显示随位移变化的数值；否则原地全选编辑，% 始终显示 */}
+                        {dragId === stop.id ? (
+                          <RollingValue value={stop.pos} />
+                        ) : (
+                          renderEditablePercent(
+                            stop.pos,
+                            editingPos,
+                            () => {
+                              setActiveStopId(stop.id);
+                              setEditingPosId(stop.id);
+                            },
+                            (v) => onStopPos(stop.id, v),
+                            () => setEditingPosId(null),
+                            "right",
+                          )
                         )}
 
                         {/* 颜色方块（选中白框）：外框 rounded-[5px] + inset 3px + 内色块 rounded-[2px]
@@ -486,18 +667,10 @@ export function ColorEditor({
                         删除
                       </ContextMenuItem>
                     </ContextMenuContent>
-                  </ContextMenu>
-                );
+                  </ContextMenu>,
+                ];
               })}
             </div>
-
-            <button
-              type="button"
-              onClick={onAddStop}
-              className="mt-2 flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-neutral-800 py-1.5 text-[11px] text-neutral-500 hover:border-neutral-600 hover:text-neutral-200"
-            >
-              <Plus className="size-3" /> 添加
-            </button>
           </>
         ) : (
           onSetSolid && (

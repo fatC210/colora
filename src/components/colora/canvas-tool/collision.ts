@@ -11,11 +11,21 @@ export function pointToSegmentDistance(point: Point, a: Point, b: Point) {
   const t = clamp(((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared, 0, 1);
   return distance(point, { x: a.x + t * dx, y: a.y + t * dy });
 }
+
+/**
+ * 本体命中阈值：严格贴线条本体，阈值 = 线宽半宽。
+ * +0.1 仅防极细线零宽导致永远点不中，不产生任何可见空白带。
+ * 对标 Excalidraw：点击线条本身才选中，线条附近的空白不算选中。
+ */
+const hitThreshold = (stroke: Stroke) => stroke.width / 2 + 0.1;
+
+/**
+ * 线条本体命中：只看点到线条中心线的最近距离是否 ≤ 线宽半宽，
+ * 与包围盒/外框无关。点在线条外的空白处一律不命中。
+ */
 export function hitStroke(stroke: Stroke, point: Point) {
   const points = renderPoints(stroke),
-    // 严格按线条本身命中：阈值 = 线条半宽。点必须落在线条宽度范围内才算选中，
-    // 线条外的空白一概不算命中。
-    threshold = stroke.width / 2;
+    threshold = hitThreshold(stroke);
   for (let index = 0; index < points.length - 1; index++)
     if (pointToSegmentDistance(point, points[index], points[index + 1]) <= threshold) return true;
   return false;

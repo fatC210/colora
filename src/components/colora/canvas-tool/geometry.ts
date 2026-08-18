@@ -30,7 +30,9 @@ export function selectionBounds(strokes: Stroke[]): Bounds | null {
   for (const s of strokes) {
     if (!s.points.length) continue;
     const b = renderBounds(s);
-    const pad = s.width / 2 + 8;
+    // padding 仅含线宽半宽，不加额外 8px：手柄与选中框都紧贴线条本体，
+    // 与命中范围一致（所见即所点）。
+    const pad = s.width / 2;
     if (b.minX - pad < minX) minX = b.minX - pad;
     if (b.minY - pad < minY) minY = b.minY - pad;
     if (b.maxX + pad > maxX) maxX = b.maxX + pad;

@@ -1,4 +1,8 @@
-import { drawGradientStroke, shapePoints as makeShapePoints, svgGradientStroke } from "@/lib/path-gradient";
+import {
+  drawGradientStroke,
+  shapePoints as makeShapePoints,
+  svgGradientStroke,
+} from "@/lib/path-gradient";
 import { GRID_STEP } from "./constants";
 import { escapeAttr } from "./io";
 import { drawPath, isClosedShape, paintSource, renderPoints, toPathData } from "./path";
@@ -139,7 +143,9 @@ export function renderScene({
       .filter((stroke) => selectedIds.includes(stroke.id))
       .forEach((stroke) => {
         const bounds = renderBounds(stroke),
-          padding = stroke.width / 2 + 8;
+          // 选中框紧贴线条本体（仅含线宽半宽 padding，不加额外 8px），
+          // 使外框范围 == 命中范围：所见即所点，框外空白一律不选中。
+          padding = stroke.width / 2;
         ctx.strokeRect(
           bounds.minX - padding,
           bounds.minY - padding,

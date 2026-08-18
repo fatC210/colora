@@ -50,7 +50,16 @@ import { downloadText, getNextStopPosition } from "./io";
 import { renderPoints } from "./path";
 import { createSvg, renderScene } from "./render";
 import { inspectorTone } from "./tone";
-import { clamp, cloneGroups, clonePaint, cloneStops, cloneStrokes, createId, defaultPaint, distance } from "./utils";
+import {
+  clamp,
+  cloneGroups,
+  clonePaint,
+  cloneStops,
+  cloneStrokes,
+  createId,
+  defaultPaint,
+  distance,
+} from "./utils";
 import type {
   CanvasLayout,
   Draft,
@@ -91,6 +100,8 @@ export function CanvasTool() {
   const [selectedIds, setSelectedIds] = useState<string[]>(["demo-1"]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
+  // select 模式下悬停在可选中线条上时光标改为四向移动箭头（对标 Excalidraw）
+  const [hoveringStroke, setHoveringStroke] = useState(false);
   const [brushWidth, setBrushWidth] = useState(18);
   const [overlapMode, setOverlapMode] = useState<OverlapMode>("mix");
   const [bgLayout, setBgLayout] = useState<CanvasLayout>("grid");
@@ -262,6 +273,9 @@ export function CanvasTool() {
     },
     [commitStrokes, strokes],
   );
+  // 对标 Excalidraw hitElement：从顶层往下找第一个命中。
+  // 统一本体命中：无论是否已选中，只有点中线条本体（线宽半宽内）才算命中。
+  // 与 hover 光标判定一致——光标是四向箭头才可能选中，普通箭头点空白不选中。
   const hitTopStroke = useCallback(
     (point: Point) => {
       for (let index = strokes.length - 1; index >= 0; index--)
@@ -326,6 +340,9 @@ export function CanvasTool() {
     if (dragRef.current?.type === "marquee")
       setSelectionBox({ start: dragRef.current.start, end: point });
     if (dragRef.current?.type === "resize") applyResizeMove(point);
+    // 纯悬停（无拖动、无草稿、select 模式）：命中线条则显示四向移动光标
+    if (mode === "select" && !draft && !dragRef.current)
+      setHoveringStroke(Boolean(hitTopStroke(point)));
   };
   const onPointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const point = canvasPoint(event);
@@ -359,11 +376,18 @@ export function CanvasTool() {
       return;
     }
     if (dragRef.current?.type === "marquee" && selectionBox) {
-      setSelectedIds(
-        strokes
-          .filter((stroke) => boxIntersectsStroke(selectionBox, stroke))
-          .map((stroke) => stroke.id),
-      );
+      const w = Math.abs(selectionBox.end.x - selectionBox.start.x),
+        h = Math.abs(selectionBox.end.y - selectionBox.start.y);
+      // 拖出面积才算框选；零/微移动视为点击空白 → 清空选中（不命中任何线条）
+      if (w > 2 && h > 2) {
+        setSelectedIds(
+          strokes
+            .filter((stroke) => boxIntersectsStroke(selectionBox, stroke))
+            .map((stroke) => stroke.id),
+        );
+      } else {
+        setSelectedIds([]);
+      }
       setSelectionBox(null);
     }
     if (dragRef.current?.type === "move") {
@@ -480,21 +504,6 @@ export function CanvasTool() {
         stops: stroke.paint.stops.map((stop) => (stop.id === stopId ? { ...stop, hex } : stop)),
       },
     }));
-  const addStopToSelected = () => {
-    if (!selectedStroke || selectedGroup) return;
-    const source = selectedStroke.paint;
-    const pos = getNextStopPosition(source.stops);
-    updateSelectedStroke((stroke) => ({
-      ...stroke,
-      paint: {
-        ...stroke.paint,
-        stops: [
-          ...stroke.paint.stops,
-          { id: createStopId("stop"), hex: stopAtPercent(source.stops, pos, source.space).hex, alpha: 100, pos },
-        ],
-      },
-    }));
-  };
   const removeStopFromSelected = (stopId: string) =>
     updateSelectedStroke((stroke) =>
       stroke.paint.stops.length <= 2
@@ -680,7 +689,10 @@ export function CanvasTool() {
   const selectedExportBounds = () => {
     const bounds = unionRenderBounds(selectedStrokes);
     if (!bounds) return undefined;
-    const padding = Math.max(16, Math.max(...selectedStrokes.map((stroke) => stroke.width)) / 2 + 12);
+    const padding = Math.max(
+      16,
+      Math.max(...selectedStrokes.map((stroke) => stroke.width)) / 2 + 12,
+    );
     const minX = clamp(Math.floor(bounds.minX - padding), 0, viewSize.w);
     const minY = clamp(Math.floor(bounds.minY - padding), 0, viewSize.h);
     const maxX = clamp(Math.ceil(bounds.maxX + padding), 0, viewSize.w);
@@ -742,7 +754,10 @@ export function CanvasTool() {
     const { selected, selectedGroups } = selectedScene();
     const shifted = selected.map((stroke) => ({
       ...stroke,
-      points: stroke.points.map((point) => ({ x: point.x - bounds.minX, y: point.y - bounds.minY })),
+      points: stroke.points.map((point) => ({
+        x: point.x - bounds.minX,
+        y: point.y - bounds.minY,
+      })),
     }));
     return createSvg(
       { w: bounds.width, h: bounds.height },
@@ -957,16 +972,18 @@ export function CanvasTool() {
     };
     updateSelectionPaint((paint) => ({ ...paint, stops: [...paint.stops, newStop] }));
   };
-  const addSelectionStop = () => {
-    if (!selectionPaint) return;
-    const pos = getNextStopPosition(selectionPaint.stops);
+  const addSelectionStopAt = (pos: number) => {
+    if (!selectionPaint) return "";
+    const p = clamp(Math.round(pos), 0, 100);
+    const id = createStopId("stop");
     const newStop = {
-      id: createStopId("stop"),
-      hex: stopAtPercent(selectionPaint.stops, pos, selectionPaint.space).hex,
+      id,
+      hex: stopAtPercent(selectionPaint.stops, p, selectionPaint.space).hex,
       alpha: 100,
-      pos,
+      pos: p,
     };
     updateSelectionPaint((paint) => ({ ...paint, stops: [...paint.stops, newStop] }));
+    return id;
   };
   // 删除色标：保留至少 2 个色标
   const removeSelectionStop = (stopId: string) => {
@@ -977,25 +994,25 @@ export function CanvasTool() {
       stops: paint.stops.filter((stop) => stop.id !== stopId),
     }));
   };
-  // 拖拽排序：把 from 色标挪到 to 色标的排序位置，按新顺序在 [0,100] 上均匀重排位置
-  const reorderSelectionStops = (fromId: string, toId: string) => {
-    if (!selectionPaint || fromId === toId) return;
-    const stops = selectionPaint.stops;
-    const sorted = [...stops].sort((a, b) => a.pos - b.pos);
-    const fromIdx = sorted.findIndex((s) => s.id === fromId);
-    const toIdx = sorted.findIndex((s) => s.id === toId);
-    if (fromIdx < 0 || toIdx < 0) return;
-    // 取出 from 后插入到 to 的位置（拖到下方=插到其下方，故 toIdx+1）
-    const [moved] = sorted.splice(fromIdx, 1);
-    const insertAt = fromIdx < toIdx ? toIdx : toIdx + 1;
-    sorted.splice(insertAt, 0, moved);
-    // 等差重排位置
-    const n = sorted.length;
-    const newPos = new Map<string, number>();
-    sorted.forEach((s, i) => newPos.set(s.id, clamp(Math.round((i / (n + 1)) * 100), 0, 100)));
+  // 拖拽落点：把被拖色标按给定顺序插入 stops 数组，并将其 pos 设为自定义值（其余色标 pos 不变）。
+  // 用完整顺序而非均匀重排，既支持任意自定义位置，又能在 pos=0/100 与相邻色标平手时通过数组顺序把被拖色标排到首位/末位。
+  const dropSelectionStop = (draggedId: string, orderedIds: string[], pos: number) => {
+    if (!selectionPaint) return;
+    const byId = new Map(selectionPaint.stops.map((s) => [s.id, s]));
+    const order = orderedIds.filter((id) => byId.has(id));
+    selectionPaint.stops.forEach((s) => {
+      if (!order.includes(s.id)) order.push(s.id);
+    });
+    const p = clamp(Math.round(pos), 0, 100);
     updateSelectionPaint((paint) => ({
       ...paint,
-      stops: paint.stops.map((s) => (newPos.has(s.id) ? { ...s, pos: newPos.get(s.id)! } : s)),
+      stops: order
+        .map((id) => {
+          const s = byId.get(id);
+          if (!s) return null;
+          return id === draggedId ? { ...s, pos: p } : s;
+        })
+        .filter(Boolean) as typeof paint.stops,
     }));
   };
   // 翻转色标顺序：把每个色标的位置镜像翻转（pos → 100 - pos），从而把颜色排列反过来
@@ -1020,10 +1037,15 @@ export function CanvasTool() {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onPointerLeave={() => setHoveringStroke(false)}
         onDoubleClick={onDoubleClick}
         className={cn(
           "absolute inset-0 h-full w-full touch-none",
-          mode === "select" ? "cursor-default" : "cursor-crosshair",
+          mode === "select"
+            ? hoveringStroke
+              ? "cursor-move"
+              : "cursor-default"
+            : "cursor-crosshair",
         )}
       />
 
@@ -1036,7 +1058,11 @@ export function CanvasTool() {
               type="button"
               aria-label={`色标 ${Math.round(stop.pos)}%`}
               className="pointer-events-auto absolute size-5 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-white shadow-[0_0_0_1px_var(--color-border),0_6px_18px_rgb(0_0_0/0.30)] outline-none transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring"
-              style={{ left: `${left}%`, top: `${top}%`, backgroundColor: hexAlphaToCss(stop.hex, stop.alpha) }}
+              style={{
+                left: `${left}%`,
+                top: `${top}%`,
+                backgroundColor: hexAlphaToCss(stop.hex, stop.alpha),
+              }}
               onPointerDown={(event) => {
                 event.stopPropagation();
                 event.currentTarget.setPointerCapture(event.pointerId);
@@ -1234,7 +1260,9 @@ export function CanvasTool() {
                   <div className="space-y-3">
                     <div>
                       <div className="text-sm font-semibold text-foreground">
-                        {selectedStrokes.length === 1 ? "线条" : `已选中 ${selectedStrokes.length} 条线条`}
+                        {selectedStrokes.length === 1
+                          ? "线条"
+                          : `已选中 ${selectedStrokes.length} 条线条`}
                       </div>
                       <p className="mt-1 text-[11px] text-muted-foreground">
                         调整颜色、粗细、重叠方式，并导出当前选中线条。
@@ -1247,7 +1275,9 @@ export function CanvasTool() {
                       unit="px"
                       min={1}
                       max={100}
-                      onChange={(value) => updateSelectedStrokes((stroke) => ({ ...stroke, width: value }))}
+                      onChange={(value) =>
+                        updateSelectedStrokes((stroke) => ({ ...stroke, width: value }))
+                      }
                     />
 
                     {selectionPaint && (
@@ -1260,15 +1290,21 @@ export function CanvasTool() {
                         onStopAlpha={setSelectionStopAlpha}
                         onDuplicateStop={duplicateSelectionStop}
                         onDeleteStop={removeSelectionStop}
-                        onReorderStops={reorderSelectionStops}
+                        onDropStop={dropSelectionStop}
                         onCopyHex={(stopId) => {
                           const stop = selectionPaint.stops.find((s) => s.id === stopId);
                           if (stop) copyText(stop.hex.toUpperCase(), "已复制 hex 值");
                         }}
-                        onAddStop={addSelectionStop}
-                        onSetSpace={(space) => updateSelectionPaint((paint) => ({ ...paint, space }))}
-                        onSetMode={(paintMode) => updateSelectionPaint((paint) => ({ ...paint, mode: paintMode }))}
-                        onSetSolid={(hex) => updateSelectionPaint((paint) => ({ ...paint, solid: hex }))}
+                        onAddStopAt={addSelectionStopAt}
+                        onSetSpace={(space) =>
+                          updateSelectionPaint((paint) => ({ ...paint, space }))
+                        }
+                        onSetMode={(paintMode) =>
+                          updateSelectionPaint((paint) => ({ ...paint, mode: paintMode }))
+                        }
+                        onSetSolid={(hex) =>
+                          updateSelectionPaint((paint) => ({ ...paint, solid: hex }))
+                        }
                         onReverse={reverseSelectionStops}
                       />
                     )}
@@ -1276,26 +1312,118 @@ export function CanvasTool() {
                     <div className="space-y-2 border-t border-border/60 pt-3">
                       <div className="text-[11px] font-medium text-muted-foreground">重叠处理</div>
                       <div className="grid grid-cols-2 gap-1.5">
-                        <Button type="button" size="sm" variant={overlapMode === "mix" ? "default" : "outline"} className="h-8 text-xs" onClick={() => setOverlapMode("mix")}>自动混色</Button>
-                        <Button type="button" size="sm" variant={overlapMode === "cover" ? "default" : "outline"} className="h-8 text-xs" onClick={() => setOverlapMode("cover")}>前层覆盖</Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={overlapMode === "mix" ? "default" : "outline"}
+                          className="h-8 text-xs"
+                          onClick={() => setOverlapMode("mix")}
+                        >
+                          自动混色
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={overlapMode === "cover" ? "default" : "outline"}
+                          className="h-8 text-xs"
+                          onClick={() => setOverlapMode("cover")}
+                        >
+                          前层覆盖
+                        </Button>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-1.5 border-t border-border/60 pt-3">
-                      <Button type="button" size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={createGroup} disabled={selectedIds.length < 2}><Group className="size-3.5" /> 组合</Button>
-                      <Button type="button" size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={ungroup} disabled={!selectedGroup}><Ungroup className="size-3.5" /> 取消</Button>
-                      <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => moveLayer("front")}>上移顶层</Button>
-                      <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => moveLayer("back")}>下移底层</Button>
-                      <Button type="button" size="sm" variant="destructive" className="col-span-2 h-8 gap-1 text-xs" onClick={deleteSelected}><Trash2 className="size-3.5" /> 删除选中</Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 gap-1 text-xs"
+                        onClick={createGroup}
+                        disabled={selectedIds.length < 2}
+                      >
+                        <Group className="size-3.5" /> 组合
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 gap-1 text-xs"
+                        onClick={ungroup}
+                        disabled={!selectedGroup}
+                      >
+                        <Ungroup className="size-3.5" /> 取消
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs"
+                        onClick={() => moveLayer("front")}
+                      >
+                        上移顶层
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs"
+                        onClick={() => moveLayer("back")}
+                      >
+                        下移底层
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="destructive"
+                        className="col-span-2 h-8 gap-1 text-xs"
+                        onClick={deleteSelected}
+                      >
+                        <Trash2 className="size-3.5" /> 删除选中
+                      </Button>
                     </div>
 
                     <div className="space-y-2 border-t border-border/60 pt-3">
-                      <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"><Download className="size-3.5" /> 导出选中</div>
+                      <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                        <Download className="size-3.5" /> 导出选中
+                      </div>
                       <div className="grid grid-cols-2 gap-1.5">
-                        <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => exportSelectedPng(false)}>透明 PNG</Button>
-                        <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => exportSelectedPng(true)}>背景 PNG</Button>
-                        <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => exportSelectedSvg(false)}>透明 SVG</Button>
-                        <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => exportSelectedSvg(true)}>背景 SVG</Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          onClick={() => exportSelectedPng(false)}
+                        >
+                          透明 PNG
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          onClick={() => exportSelectedPng(true)}
+                        >
+                          背景 PNG
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          onClick={() => exportSelectedSvg(false)}
+                        >
+                          透明 SVG
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          onClick={() => exportSelectedSvg(true)}
+                        >
+                          背景 SVG
+                        </Button>
                       </div>
                     </div>
                   </div>
@@ -1308,14 +1436,25 @@ export function CanvasTool() {
                 <div className="space-y-3">
                   <div>
                     <div className="text-sm font-semibold text-foreground">画布</div>
-                    <p className="mt-1 text-[11px] text-muted-foreground">编辑背景，并导出整张画布。</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      编辑背景，并导出整张画布。
+                    </p>
                   </div>
 
                   <div className="space-y-2 border-t border-border/60 pt-3">
                     <div className="text-[11px] font-medium text-muted-foreground">画布背景</div>
                     <div className="grid grid-cols-3 gap-1.5">
                       {CANVAS_LAYOUTS.map((item) => (
-                        <Button key={item.value} type="button" size="sm" variant={bgLayout === item.value ? "default" : "outline"} className="h-8 text-xs" onClick={() => setBgLayout(item.value)}>{item.label}</Button>
+                        <Button
+                          key={item.value}
+                          type="button"
+                          size="sm"
+                          variant={bgLayout === item.value ? "default" : "outline"}
+                          className="h-8 text-xs"
+                          onClick={() => setBgLayout(item.value)}
+                        >
+                          {item.label}
+                        </Button>
                       ))}
                     </div>
                   </div>
@@ -1347,7 +1486,9 @@ export function CanvasTool() {
                           }}
                           className={cn(
                             "flex h-9 items-center justify-center rounded-md border text-[10px]",
-                            bgColor.toUpperCase() === item.hex ? "border-foreground ring-2 ring-ring" : "border-border/60",
+                            bgColor.toUpperCase() === item.hex
+                              ? "border-foreground ring-2 ring-ring"
+                              : "border-border/60",
                           )}
                           style={{ backgroundColor: item.hex, color: bestTextOn(item.hex) }}
                         >
@@ -1358,22 +1499,77 @@ export function CanvasTool() {
                   </div>
 
                   <div className="space-y-2 border-t border-border/60 pt-3">
-                    <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"><Download className="size-3.5" /> 导出整张画布</div>
+                    <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                      <Download className="size-3.5" /> 导出整张画布
+                    </div>
                     <div className="grid grid-cols-3 gap-1.5">
                       {[1, 2, 3].map((scale) => (
-                        <Button key={scale} type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => exportPng(scale)}>PNG {scale}×</Button>
+                        <Button
+                          key={scale}
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          onClick={() => exportPng(scale)}
+                        >
+                          PNG {scale}×
+                        </Button>
                       ))}
                     </div>
                     <div className="grid grid-cols-2 gap-1.5">
-                      <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => downloadText("colora-canvas.svg", svgCode, "image/svg+xml")}>SVG</Button>
-                      <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => downloadText("colora-canvas.json", jsonCode, "application/json")}>JSON</Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs"
+                        onClick={() => downloadText("colora-canvas.svg", svgCode, "image/svg+xml")}
+                      >
+                        SVG
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs"
+                        onClick={() =>
+                          downloadText("colora-canvas.json", jsonCode, "application/json")
+                        }
+                      >
+                        JSON
+                      </Button>
                     </div>
                     <div className="grid grid-cols-2 gap-1.5">
-                      <Button type="button" size="sm" variant="secondary" className="h-8 gap-1 text-xs" onClick={() => copyText(svgCode, "SVG 代码已复制")}><Code2 className="size-3.5" /> SVG</Button>
-                      <Button type="button" size="sm" variant="secondary" className="h-8 gap-1 text-xs" onClick={() => copyText(jsonCode, "JSON 已复制")}><Copy className="size-3.5" /> JSON</Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="h-8 gap-1 text-xs"
+                        onClick={() => copyText(svgCode, "SVG 代码已复制")}
+                      >
+                        <Code2 className="size-3.5" /> SVG
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="h-8 gap-1 text-xs"
+                        onClick={() => copyText(jsonCode, "JSON 已复制")}
+                      >
+                        <Copy className="size-3.5" /> JSON
+                      </Button>
                     </div>
-                    <Button type="button" size="sm" variant="outline" onClick={saveLocal} className="h-8 w-full gap-1 text-xs"><Save className="size-3.5" /> 保存到我的方案</Button>
-                    <p className="text-[10px] leading-relaxed text-muted-foreground">颜色随路径弯曲分布，CSS 无法表达任意路径渐变，故不提供 CSS 导出。</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={saveLocal}
+                      className="h-8 w-full gap-1 text-xs"
+                    >
+                      <Save className="size-3.5" /> 保存到我的方案
+                    </Button>
+                    <p className="text-[10px] leading-relaxed text-muted-foreground">
+                      颜色随路径弯曲分布，CSS 无法表达任意路径渐变，故不提供 CSS 导出。
+                    </p>
                   </div>
                 </div>
               )}
@@ -1381,7 +1577,6 @@ export function CanvasTool() {
           </div>
         )}
       </div>
-
     </section>
   );
 }
