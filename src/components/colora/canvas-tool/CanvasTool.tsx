@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Code2,
-  Copy,
   Download,
   Group,
   MousePointer2,
@@ -1485,7 +1483,7 @@ export function CanvasTool() {
                             setBgColor(item.hex);
                           }}
                           className={cn(
-                            "flex h-9 items-center justify-center rounded-md border text-[10px]",
+                            "flex h-9 items-center justify-center rounded-md border text-xs",
                             bgColor.toUpperCase() === item.hex
                               ? "border-foreground ring-2 ring-ring"
                               : "border-border/60",
@@ -1502,17 +1500,20 @@ export function CanvasTool() {
                     <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
                       <Download className="size-3.5" /> 导出整张画布
                     </div>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {[1, 2, 3].map((scale) => (
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {[
+                        { label: "标准", scale: 2 },
+                        { label: "高清", scale: 3 },
+                      ].map((item) => (
                         <Button
-                          key={scale}
+                          key={item.scale}
                           type="button"
                           size="sm"
                           variant="outline"
                           className="h-8 text-xs"
-                          onClick={() => exportPng(scale)}
+                          onClick={() => exportPng(item.scale)}
                         >
-                          PNG {scale}×
+                          PNG {item.label}
                         </Button>
                       ))}
                     </div>
@@ -1536,26 +1537,6 @@ export function CanvasTool() {
                         }
                       >
                         JSON
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        className="h-8 gap-1 text-xs"
-                        onClick={() => copyText(svgCode, "SVG 代码已复制")}
-                      >
-                        <Code2 className="size-3.5" /> SVG
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        className="h-8 gap-1 text-xs"
-                        onClick={() => copyText(jsonCode, "JSON 已复制")}
-                      >
-                        <Copy className="size-3.5" /> JSON
                       </Button>
                     </div>
                     <Button

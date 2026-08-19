@@ -13,70 +13,6 @@ import { clamp } from "./utils";
 import { ColorSlider } from "./ColorSlider";
 import type { InterpSpace, PaintMode, StrokePaint } from "./types";
 
-/** 滚轮式数值：整个数字作为一条整体在垂直方向从旧值滚到新值（像翻牌器/滚筒）。
- *  条带 [from, to]：translateY 0→-100%，露出 to；上下渐变遮罩让进出滚轮的旧/新值渐隐。
- *  快速连续变化（两次变化间隔 < 80ms）时直接 snap 到当前值（当前数值正常显示），不滚动；
- *  变化节奏放慢时才播放滚动动画。 */
-function RollingValue({ value, className }: { value: number; className?: string }) {
-  const [from, setFrom] = useState(value);
-  const [to, setTo] = useState(value);
-  const [offset, setOffset] = useState(1); // 0..1，1 = 露出 to（当前值）
-  const rafRef = useRef(0);
-  const lastChangeRef = useRef(0);
-  useEffect(() => {
-    if (value === to) return;
-    const now = performance.now();
-    const since = now - lastChangeRef.current;
-    lastChangeRef.current = now;
-    setFrom(to); // 旧值 = 上一个当前值
-    setTo(value); // 新值 = 当前值
-    cancelAnimationFrame(rafRef.current);
-    if (since < 80) {
-      // 快速：直接显示当前值，不滚动（避免拖拽时数值滞后/看不到）
-      setOffset(1);
-      return;
-    }
-    // 慢速：从旧值滚到新值
-    setOffset(0);
-    const t0 = now;
-    const dur = 150;
-    const tick = (n: number) => {
-      const t = Math.min(1, (n - t0) / dur);
-      setOffset(1 - Math.pow(1 - t, 3)); // easeOutCubic
-      if (t < 1) rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-  }, [value, to]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
-  return (
-    <span
-      className={cn(
-        "relative flex h-6 items-center justify-end gap-0.5 overflow-hidden px-1 font-mono text-xs font-semibold text-neutral-200",
-        className,
-      )}
-      style={{ height: "1.5rem" }}
-    >
-      <span className="block tabular-nums" style={{ transform: `translateY(${-offset * 100}%)` }}>
-        <span className="block text-right leading-none" style={{ height: "1.5rem" }}>
-          {from}
-        </span>
-        <span className="block text-right leading-none" style={{ height: "1.5rem" }}>
-          {to}
-        </span>
-      </span>
-      <span className="ml-0.5 text-[9px] text-neutral-500">%</span>
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "linear-gradient(to bottom, rgba(21,21,23,0.92) 0%, rgba(21,21,23,0) 38%, rgba(21,21,23,0) 62%, rgba(21,21,23,0.92) 100%)",
-        }}
-      />
-    </span>
-  );
-}
-
 /** 极简单色风颜色编辑器：HSL 拾色 + 色标行（圆点连线 / 位置% / 颜色方块 / 透明度%）+ 插值空间分段 */
 export function ColorEditor({
   title,
@@ -600,9 +536,16 @@ export function ColorEditor({
                           />
                         </div>
 
-                        {/* 位置 %：拖拽中用滚轮动画显示随位移变化的数值；否则原地全选编辑，% 始终显示 */}
+                        {/* 位置 %：拖拽中直接显示随鼠标移动实时变化的当前值（只读），与平时数值样式一致；
+                            否则原地全选编辑，% 始终显示。无任何动画，数值随鼠标移动即时更新。 */}
                         {dragId === stop.id ? (
-                          <RollingValue value={stop.pos} />
+                          <span
+                            className="flex h-6 items-center justify-end gap-0.5 rounded px-1 font-mono text-xs font-semibold text-neutral-200"
+                            aria-label="位置百分比"
+                          >
+                            <span className="tabular-nums">{Math.round(stop.pos)}</span>
+                            <span className="text-[9px] text-neutral-500">%</span>
+                          </span>
                         ) : (
                           renderEditablePercent(
                             stop.pos,

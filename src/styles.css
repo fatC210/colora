@@ -1090,9 +1090,9 @@
 }
 
 .colora-inspector-panel {
-  color: var(--inspector-icon);
-  background: var(--inspector-surface);
-  border-color: var(--inspector-border);
+  color: var(--foreground);
+  background: var(--card);
+  border-color: var(--border);
   box-shadow: 0 18px 50px var(--inspector-shade);
 }
 
