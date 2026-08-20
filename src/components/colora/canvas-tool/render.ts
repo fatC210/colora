@@ -6,9 +6,21 @@ import {
 import { GRID_STEP } from "./constants";
 import { escapeAttr } from "./io";
 import { drawPath, isClosedShape, paintSource, renderPoints, toPathData } from "./path";
-import { renderBounds } from "./geometry";
+import { renderBounds, selectionBounds } from "./geometry";
 import { gridColors } from "./tone";
 import type { CanvasLayout, Draft, OverlapMode, Size, Stroke, StrokeGroup } from "./types";
+
+// mix 模式下供笔画间 multiply 合成用的临时离屏画布（模块级复用，避免每帧重建）。
+let mixTmpCanvas: HTMLCanvasElement | null = null;
+function getMixTmp(w: number, h: number): HTMLCanvasElement | null {
+  if (typeof document === "undefined") return null;
+  if (!mixTmpCanvas) mixTmpCanvas = document.createElement("canvas");
+  if (mixTmpCanvas.width !== w || mixTmpCanvas.height !== h) {
+    mixTmpCanvas.width = w;
+    mixTmpCanvas.height = h;
+  }
+  return mixTmpCanvas;
+}
 
 export function drawBackground(
   ctx: CanvasRenderingContext2D,
@@ -62,6 +74,7 @@ export function renderScene({
   bgColor,
   showBackground = true,
   showSelection = true,
+  selectionAsGroup = false,
 }: {
   ctx: CanvasRenderingContext2D;
   size: Size;
@@ -75,6 +88,8 @@ export function renderScene({
   bgColor: string;
   showBackground?: boolean;
   showSelection?: boolean;
+  /** 选中态是否画成一个包围所有选中笔画的联合大框（用于组合选中）。 */
+  selectionAsGroup?: boolean;
 }) {
   const { w, h } = size;
   if (w === 0 || h === 0) return;
@@ -84,7 +99,7 @@ export function renderScene({
   const drawStroke = (target: CanvasRenderingContext2D, stroke: Stroke) => {
     const points = renderPoints(stroke);
     if (points.length < 2) return;
-    const source = paintSource(stroke, groups);
+    const source = paintSource(stroke, groups, overlapMode);
     const closed = isClosedShape(stroke);
     if (source.mode === "solid") {
       drawPath(target, points, closed);
@@ -101,14 +116,26 @@ export function renderScene({
   ctx.save();
   if (overlapMode === "mix" && offscreen) {
     const octx = offscreen.getContext("2d");
-    if (octx) {
+    const tmp = getMixTmp(offscreen.width, offscreen.height);
+    const tctx = tmp?.getContext("2d");
+    if (octx && tmp && tctx) {
       // 笔画层在透明离屏画布上相互 multiply 混色，最后以 source-over 盖到背景上，
       // 这样背景色不会参与混色计算——线条颜色不受背景色影响。
+      // 每条笔画先在临时层 source-over 完整画好（无 multiply，避免同条笔画
+      // 段间 round cap 重叠处自乘变暗），再把整条笔画以 multiply 合成到主离屏，
+      // 使 multiply 只在笔画之间生效——仅重叠处混色，非重叠处保持各自原色。
       octx.clearRect(0, 0, w, h);
       octx.globalCompositeOperation = "source-over";
-      if (strokes.length) drawStroke(octx, strokes[0]);
-      octx.globalCompositeOperation = "multiply";
-      for (let i = 1; i < strokes.length; i++) drawStroke(octx, strokes[i]);
+      strokes.forEach((stroke, i) => {
+        tctx.setTransform(octx.getTransform());
+        tctx.clearRect(0, 0, w, h);
+        tctx.globalCompositeOperation = "source-over";
+        drawStroke(tctx, stroke);
+        // 第 0 条 source-over 落到空离屏即其原色；后续条以 multiply 与已有笔画叠加，
+        // 仅在重叠像素处相乘变暗，非重叠处因 destination 透明而保持各自原色。
+        octx.globalCompositeOperation = i === 0 ? "source-over" : "multiply";
+        octx.drawImage(tmp, 0, 0, w, h);
+      });
       ctx.globalCompositeOperation = "source-over";
       ctx.drawImage(offscreen, 0, 0, w, h);
     }
@@ -139,9 +166,13 @@ export function renderScene({
     ctx.strokeStyle = "rgba(37, 99, 235, 0.92)";
     ctx.lineWidth = 2;
     ctx.setLineDash([8, 6]);
-    strokes
-      .filter((stroke) => selectedIds.includes(stroke.id))
-      .forEach((stroke) => {
+    const selected = strokes.filter((stroke) => selectedIds.includes(stroke.id));
+    if (selectionAsGroup && selected.length > 1) {
+      // 组合选中：画一个包围所有选中笔画的联合大框，而非每条线一个小框。
+      const bounds = selectionBounds(selected);
+      if (bounds) ctx.strokeRect(bounds.minX, bounds.minY, bounds.width, bounds.height);
+    } else {
+      selected.forEach((stroke) => {
         const bounds = renderBounds(stroke),
           // 选中框紧贴线条本体（仅含线宽半宽 padding，不加额外 8px），
           // 使外框范围 == 命中范围：所见即所点，框外空白一律不选中。
@@ -153,6 +184,7 @@ export function renderScene({
           bounds.height + padding * 2,
         );
       });
+    }
     ctx.restore();
   }
 }
@@ -193,7 +225,7 @@ export function createSvg(
   strokes.forEach((stroke) => {
     const points = renderPoints(stroke);
     if (points.length < 2) return;
-    const source = paintSource(stroke, groups);
+    const source = paintSource(stroke, groups, overlapMode);
     const closed = isClosedShape(stroke);
     if (source.mode === "solid") {
       const d = toPathData(points) + (closed ? " Z" : "");

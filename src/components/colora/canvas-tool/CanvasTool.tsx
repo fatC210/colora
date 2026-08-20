@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Download,
+  FileOutput,
+  FolderOpen,
   Group,
   MousePointer2,
   Paintbrush,
@@ -40,10 +42,25 @@ import {
   defaultCanvasBg,
 } from "./constants";
 import { ColorEditor } from "./ColorEditor";
+import { ExportCanvasDialog, type ExportOptions } from "./ExportCanvasDialog";
 import { SliderRow } from "./controls";
 import { initialStrokes } from "./initial-strokes";
 import { boxIntersectsStroke, hitStroke } from "./collision";
-import { handlePoint, resizeTransform, selectionBounds, unionRenderBounds } from "./geometry";
+import { openColoraFile, restoreCanvas, saveColoraFile } from "./file-format";
+import {
+  clearFileHandle,
+  loadFileHandle,
+  saveFileHandle,
+  verifyReadPermission,
+} from "./file-handle-store";
+import {
+  handlePoint,
+  pointInBounds,
+  renderBounds,
+  resizeTransform,
+  selectionBounds,
+  unionRenderBounds,
+} from "./geometry";
 import { downloadText, getNextStopPosition } from "./io";
 import { renderPoints } from "./path";
 import { createSvg, renderScene } from "./render";
@@ -109,6 +126,16 @@ export function CanvasTool() {
   const [redoStack, setRedoStack] = useState<SceneSnapshot[]>([]);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("canvas");
+  // 当前已保存/已打开的 .colora 文件句柄：有值时"保存"直接覆写该文件，无值时弹"另存为"。
+  const [coloraFileHandle, setColoraFileHandle] = useState<FileSystemFileHandle | null>(null);
+  // 已打开文件的文件名（用于默认保存名 + UI 展示）。
+  const [coloraFileName, setColoraFileName] = useState<string>("画布");
+  // 导出弹窗：打开状态 + 导出选项（含背景、缩放倍率）。
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportOptions, setExportOptions] = useState<ExportOptions>({
+    withBackground: true,
+    scale: 2,
+  });
 
   const openCanvasInspector = useCallback(() => {
     setInspectorTab("canvas");
@@ -143,6 +170,28 @@ export function CanvasTool() {
   // 选中笔画的联合包围盒（用于显示变换手柄）。框选/拖动中不显示。
   const selBounds = useMemo(() => selectionBounds(selectedStrokes), [selectedStrokes]);
 
+  // 选中组合内的笔画是否彼此重叠（包围盒相交）。无重叠时"重叠处理"置灰。
+  const groupHasOverlap = useMemo(() => {
+    if (!selectedGroup || selectedStrokes.length < 2) return false;
+    for (let i = 0; i < selectedStrokes.length; i++) {
+      for (let j = i + 1; j < selectedStrokes.length; j++) {
+        const a = selectedStrokes[i];
+        const b = selectedStrokes[j];
+        if (
+          boxIntersectsStroke(
+            {
+              start: { x: renderBounds(a).minX, y: renderBounds(a).minY },
+              end: { x: renderBounds(a).maxX, y: renderBounds(a).maxY },
+            },
+            b,
+          )
+        )
+          return true;
+      }
+    }
+    return false;
+  }, [selectedGroup, selectedStrokes]);
+
   // Shared colors for the inspector trigger and panel
   const cornerStyle = useMemo<React.CSSProperties>(() => {
     const c = inspectorTone(bgColor);
@@ -159,6 +208,34 @@ export function CanvasTool() {
     if (bgColorAutoRef.current) setBgColor(defaultCanvasBg(theme === "dark"));
   }, [theme]);
 
+  // 启动时：若 IDB 存有最近一次的文件句柄且有读权限，则自动恢复该画布。
+  // 等 viewSize 测得后再恢复，使 restoreCanvas 能按真实画布尺寸映射坐标。
+  // 首次进入页面通常无权限句柄（需用户主动打开过），此时不弹窗、静默跳过。
+  const bootRestoreTriedRef = useRef(false);
+  useEffect(() => {
+    if (bootRestoreTriedRef.current) return;
+    if (viewSize.w === 0 || viewSize.h === 0) return;
+    bootRestoreTriedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      const stored = await loadFileHandle();
+      if (!stored || cancelled) return;
+      try {
+        if (!(await verifyReadPermission(stored.handle))) return;
+        const file = await stored.handle.getFile();
+        const text = await file.text();
+        if (cancelled) return;
+        await loadColora(text, stored.handle, stored.name);
+      } catch {
+        void clearFileHandle().catch(() => {});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewSize.w, viewSize.h]);
+
   // 测量容器尺寸 → 动态坐标系
   useEffect(() => {
     const el = containerRef.current;
@@ -170,7 +247,8 @@ export function CanvasTool() {
     return () => ro.disconnect();
   }, []);
 
-  // 首次测得画布尺寸后，把演示笔画从 1120×720 一次性缩放入场
+  // 首次测得画布尺寸后，把演示笔画从 1120×720 一次性缩放入场。
+  // 若启动恢复成功，loadColora 会用 commitGroups 覆盖 demo（可撤销回退）。
   useEffect(() => {
     if (scaledRef.current) return;
     if (viewSize.w === 0 || viewSize.h === 0) return;
@@ -248,6 +326,7 @@ export function CanvasTool() {
       offscreen: off,
       bgLayout,
       bgColor,
+      selectionAsGroup: !!selectedGroup,
     });
     if (selectionBox) {
       const left = Math.min(selectionBox.start.x, selectionBox.end.x),
@@ -262,7 +341,18 @@ export function CanvasTool() {
       ctx.strokeRect(left, top, w, h);
       ctx.restore();
     }
-  }, [bgColor, bgLayout, draft, groups, overlapMode, selectedIds, selectionBox, strokes, viewSize]);
+  }, [
+    bgColor,
+    bgLayout,
+    draft,
+    groups,
+    overlapMode,
+    selectedGroup,
+    selectedIds,
+    selectionBox,
+    strokes,
+    viewSize,
+  ]);
 
   const addStroke = useCallback(
     (stroke: Stroke) => {
@@ -305,6 +395,17 @@ export function CanvasTool() {
       };
       return;
     }
+    // 未命中线条本体：若点落在已选中组合的联合大框内（含空白），则拖动整组，
+    // 不清空选中、不启 marquee——所见即所点，大框内任意处都可拖动。
+    if (selBounds && pointInBounds(point, selBounds)) {
+      dragRef.current = {
+        type: "move",
+        last: point,
+        startStrokes: cloneStrokes(strokes),
+        startGroups: cloneGroups(groups),
+      };
+      return;
+    }
     setSelectedIds([]);
     closeInspector();
     setSelectionBox({ start: point, end: point });
@@ -338,9 +439,12 @@ export function CanvasTool() {
     if (dragRef.current?.type === "marquee")
       setSelectionBox({ start: dragRef.current.start, end: point });
     if (dragRef.current?.type === "resize") applyResizeMove(point);
-    // 纯悬停（无拖动、无草稿、select 模式）：命中线条则显示四向移动光标
+    // 纯悬停（无拖动、无草稿、select 模式）：命中线条本体或在已选中组合大框内，
+    // 均显示四向移动光标——大框内任意处可拖动整组。
     if (mode === "select" && !draft && !dragRef.current)
-      setHoveringStroke(Boolean(hitTopStroke(point)));
+      setHoveringStroke(
+        Boolean(hitTopStroke(point)) || Boolean(selBounds && pointInBounds(point, selBounds)),
+      );
   };
   const onPointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const point = canvasPoint(event);
@@ -636,6 +740,17 @@ export function CanvasTool() {
     commitGroups([], []);
     setSelectedIds([]);
   };
+  // 重置画布（对照 Excalidraw actionClearCanvas）：清空笔画与组合，
+  // 背景与重叠模式恢复默认，保留当前 .colora 文件关联（fileHandle 不动）。可撤销。
+  const resetCanvas = () => {
+    if (!window.confirm("确定重置画布？将清空所有线条并恢复默认背景，可用撤销恢复。")) return;
+    commitGroups([], []);
+    setOverlapMode("mix");
+    setBgLayout("grid");
+    setBgColor(defaultCanvasBg(isDark));
+    bgColorAutoRef.current = true;
+    setSelectedIds([]);
+  };
   const addPresetStroke = () => {
     if (viewSize.w === 0) return;
     const cx = viewSize.w / 2,
@@ -657,7 +772,7 @@ export function CanvasTool() {
     });
     setMode("select");
   };
-  const exportPng = (scale: number) => {
+  const exportPng = (scale: number, withBackground = true) => {
     if (viewSize.w === 0) return;
     const canvas = document.createElement("canvas");
     canvas.width = viewSize.w * scale;
@@ -678,6 +793,7 @@ export function CanvasTool() {
       offscreen: off,
       bgLayout,
       bgColor,
+      showBackground: withBackground,
     });
     const link = document.createElement("a");
     link.download = `colora-canvas-${scale}x.png`;
@@ -776,10 +892,6 @@ export function CanvasTool() {
       "image/svg+xml",
     );
   };
-  const svgCode = useMemo(
-    () => createSvg(viewSize, strokes, groups, overlapMode, bgLayout, bgColor),
-    [bgColor, bgLayout, groups, overlapMode, strokes, viewSize],
-  );
   const jsonCode = useMemo(
     () =>
       JSON.stringify(
@@ -797,9 +909,112 @@ export function CanvasTool() {
       ),
     [bgColor, bgLayout, groups, overlapMode, strokes, viewSize],
   );
-  const saveLocal = () => {
-    localStorage.setItem("colora.canvas.latest", jsonCode);
-    toast.success("已保存到本地画布方案");
+  // 保存到当前已打开的文件（覆写）。仅当已有 fileHandle 时可用。
+  const saveToActiveFile = async () => {
+    if (viewSize.w === 0 || viewSize.h === 0) return;
+    if (!coloraFileHandle) return;
+    try {
+      const data = {
+        size: viewSize,
+        overlapMode,
+        background: { layout: bgLayout, color: bgColor },
+        strokes,
+        groups,
+      };
+      const { fileHandle } = await saveColoraFile(data, coloraFileName, coloraFileHandle);
+      if (fileHandle) {
+        setColoraFileHandle(fileHandle);
+        const nextName = fileHandle.name.replace(/\.[^.]+$/, "");
+        setColoraFileName(nextName);
+        void saveFileHandle(fileHandle, nextName).catch(() => {});
+      }
+      toast.success(`已保存到 ${coloraFileName}.colora`);
+    } catch (err) {
+      if ((err as DOMException)?.name === "AbortError") return;
+      console.error(err);
+      toast.error("保存失败");
+    }
+  };
+  // 另存为新文件：总是弹出"保存到..."对话框选位置，存完后当前文件切换为该新文件。
+  const saveFileToDisk = async () => {
+    if (viewSize.w === 0 || viewSize.h === 0) return;
+    try {
+      const data = {
+        size: viewSize,
+        overlapMode,
+        background: { layout: bgLayout, color: bgColor },
+        strokes,
+        groups,
+      };
+      const { fileHandle } = await saveColoraFile(data, coloraFileName, null);
+      if (fileHandle) {
+        setColoraFileHandle(fileHandle);
+        const nextName = fileHandle.name.replace(/\.[^.]+$/, "");
+        setColoraFileName(nextName);
+        void saveFileHandle(fileHandle, nextName).catch(() => {});
+        toast.success(`已另存为 ${nextName}.colora`);
+      }
+    } catch (err) {
+      if ((err as DOMException)?.name === "AbortError") return;
+      console.error(err);
+      toast.error("保存失败");
+    }
+  };
+  // 从 .colora 文件载入画布。closeExisting=false 用于初次启动恢复（不先清场）。
+  const loadColora = useCallback(
+    async (text: string, handle: FileSystemFileHandle | null, name: string) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        toast.error("文件损坏或不是有效的 .colora 文件");
+        return;
+      }
+      const fallback = {
+        size: viewSize.w ? viewSize : { w: INITIAL_W, h: INITIAL_H },
+        overlapMode,
+        background: { layout: bgLayout, color: bgColor },
+        strokes,
+        groups,
+      };
+      let restored;
+      try {
+        restored = restoreCanvas(
+          parsed,
+          viewSize.w ? viewSize : { w: INITIAL_W, h: INITIAL_H },
+          fallback,
+        );
+      } catch {
+        toast.error("文件格式无效");
+        return;
+      }
+      commitGroups(restored.strokes, restored.groups);
+      setOverlapMode(restored.overlapMode);
+      setBgLayout(restored.background.layout);
+      setBgColor(restored.background.color);
+      bgColorAutoRef.current = false;
+      setSelectedIds([]);
+      if (handle) {
+        setColoraFileHandle(handle);
+        const nextName = name || handle.name.replace(/\.[^.]+$/, "");
+        setColoraFileName(nextName);
+        void saveFileHandle(handle, nextName).catch(() => {});
+      } else if (name) {
+        setColoraFileName(name);
+      }
+    },
+    [bgColor, bgLayout, commitGroups, groups, overlapMode, strokes, viewSize],
+  );
+  const openLocal = async () => {
+    try {
+      const { text, handle, name } = await openColoraFile();
+      await loadColora(text, handle, name);
+      toast.success("已打开画布");
+    } catch (err) {
+      if ((err as DOMException)?.name === "AbortError") return;
+      console.error(err);
+      toast.error("打开失败");
+    }
   };
   const copyText = async (value: string, message: string) => {
     await navigator.clipboard.writeText(value);
@@ -1026,6 +1241,29 @@ export function CanvasTool() {
     <section
       ref={containerRef}
       className="relative h-full w-full overflow-hidden bg-white dark:bg-neutral-950"
+      onDragOver={(event) => {
+        if (event.dataTransfer?.types.includes("Files")) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+        }
+      }}
+      onDrop={async (event) => {
+        const file = event.dataTransfer?.files?.[0];
+        if (!file) return;
+        const isColora =
+          file.name.toLowerCase().endsWith(".colora") ||
+          file.type === "application/vnd.colora+json";
+        if (!isColora) return;
+        event.preventDefault();
+        try {
+          const text = await file.text();
+          await loadColora(text, null, file.name.replace(/\.[^.]+$/, ""));
+          toast.success("已打开画布");
+        } catch (err) {
+          console.error(err);
+          toast.error("打开失败");
+        }
+      }}
     >
       <canvas
         ref={canvasRef}
@@ -1307,29 +1545,37 @@ export function CanvasTool() {
                       />
                     )}
 
-                    <div className="space-y-2 border-t border-border/60 pt-3">
-                      <div className="text-[11px] font-medium text-muted-foreground">重叠处理</div>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={overlapMode === "mix" ? "default" : "outline"}
-                          className="h-8 text-xs"
-                          onClick={() => setOverlapMode("mix")}
-                        >
-                          自动混色
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={overlapMode === "cover" ? "default" : "outline"}
-                          className="h-8 text-xs"
-                          onClick={() => setOverlapMode("cover")}
-                        >
-                          前层覆盖
-                        </Button>
+                    {selectedGroup && (
+                      <div className="space-y-2 border-t border-border/60 pt-3">
+                        <div className="text-[11px] font-medium text-muted-foreground">
+                          重叠处理
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={overlapMode === "mix" ? "default" : "outline"}
+                            className="h-8 text-xs"
+                            disabled={!groupHasOverlap}
+                            title={groupHasOverlap ? "在重叠处混合颜色" : "组合内线条无重叠"}
+                            onClick={() => setOverlapMode("mix")}
+                          >
+                            自动混色
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={overlapMode === "cover" ? "default" : "outline"}
+                            className="h-8 text-xs"
+                            disabled={!groupHasOverlap}
+                            title={groupHasOverlap ? "上层线条覆盖下层" : "组合内线条无重叠"}
+                            onClick={() => setOverlapMode("cover")}
+                          >
+                            前层覆盖
+                          </Button>
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-1.5 border-t border-border/60 pt-3">
                       <Button
@@ -1432,15 +1678,55 @@ export function CanvasTool() {
                 )
               ) : (
                 <div className="space-y-3">
-                  <div>
-                    <div className="text-sm font-semibold text-foreground">画布</div>
-                    <p className="mt-1 text-[11px] text-muted-foreground">
-                      编辑背景，并导出整张画布。
-                    </p>
+                  <div className="space-y-1.5">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 w-full gap-1 text-xs"
+                      onClick={openLocal}
+                    >
+                      <FolderOpen className="size-3.5" /> 打开
+                    </Button>
+                    {coloraFileHandle && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 w-full gap-1 text-xs"
+                        onClick={saveToActiveFile}
+                        title={`保存到当前文件 ${coloraFileName}.colora`}
+                      >
+                        <Save className="size-3.5" /> 保存至当前文件
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 w-full gap-1 text-xs"
+                      onClick={saveFileToDisk}
+                      title="另存为新文件"
+                    >
+                      <FileOutput className="size-3.5" /> 保存到...
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 w-full gap-1 text-xs"
+                      onClick={resetCanvas}
+                      title="重置画布：清空线条并恢复默认背景"
+                      aria-label="重置画布"
+                    >
+                      <Trash2 className="size-3.5" /> 重置画布
+                    </Button>
                   </div>
 
                   <div className="space-y-2 border-t border-border/60 pt-3">
-                    <div className="text-[11px] font-medium text-muted-foreground">画布背景</div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-[11px] font-medium text-muted-foreground">画布背景</div>
+                    </div>
                     <div className="grid grid-cols-3 gap-1.5">
                       {CANVAS_LAYOUTS.map((item) => (
                         <Button
@@ -1460,16 +1746,6 @@ export function CanvasTool() {
                   <div className="space-y-2 border-t border-border/60 pt-3">
                     <div className="flex items-center justify-between">
                       <div className="text-[11px] font-medium text-muted-foreground">画布颜色</div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          bgColorAutoRef.current = true;
-                          setBgColor(defaultCanvasBg(isDark));
-                        }}
-                        className="text-[10px] text-muted-foreground underline-offset-2 hover:underline"
-                      >
-                        跟随主题
-                      </button>
                     </div>
                     <div className="grid grid-cols-3 gap-1.5">
                       {CANVAS_BG_PRESETS.map((item) => (
@@ -1497,59 +1773,22 @@ export function CanvasTool() {
                   </div>
 
                   <div className="space-y-2 border-t border-border/60 pt-3">
-                    <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-                      <Download className="size-3.5" /> 导出整张画布
-                    </div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {[
-                        { label: "标准", scale: 2 },
-                        { label: "高清", scale: 3 },
-                      ].map((item) => (
-                        <Button
-                          key={item.scale}
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-8 text-xs"
-                          onClick={() => exportPng(item.scale)}
-                        >
-                          PNG {item.label}
-                        </Button>
-                      ))}
-                    </div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-8 text-xs"
-                        onClick={() => downloadText("colora-canvas.svg", svgCode, "image/svg+xml")}
-                      >
-                        SVG
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-8 text-xs"
-                        onClick={() =>
-                          downloadText("colora-canvas.json", jsonCode, "application/json")
-                        }
-                      >
-                        JSON
-                      </Button>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                        <Download className="size-3.5" /> 导出
+                      </div>
                     </div>
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      onClick={saveLocal}
                       className="h-8 w-full gap-1 text-xs"
+                      onClick={() => setExportDialogOpen(true)}
                     >
-                      <Save className="size-3.5" /> 保存到我的方案
+                      <Download className="size-3.5" /> 导出画布...
                     </Button>
                     <p className="text-[10px] leading-relaxed text-muted-foreground">
-                      颜色随路径弯曲分布，CSS 无法表达任意路径渐变，故不提供 CSS 导出。
+                      可把 .colora 文件直接拖入画布导入，跨设备打开继续编辑。
                     </p>
                   </div>
                 </div>
@@ -1558,6 +1797,34 @@ export function CanvasTool() {
           </div>
         )}
       </div>
+      <ExportCanvasDialog
+        open={exportDialogOpen}
+        onOpenChange={setExportDialogOpen}
+        options={exportOptions}
+        onOptionsChange={(next) => setExportOptions((prev) => ({ ...prev, ...next }))}
+        onExportPng={() => {
+          exportPng(exportOptions.scale, exportOptions.withBackground);
+          setExportDialogOpen(false);
+        }}
+        onExportSvg={() => {
+          if (viewSize.w === 0) return;
+          const code = createSvg(
+            viewSize,
+            strokes,
+            groups,
+            overlapMode,
+            bgLayout,
+            bgColor,
+            exportOptions.withBackground,
+          );
+          downloadText("colora-canvas.svg", code, "image/svg+xml");
+          setExportDialogOpen(false);
+        }}
+        onExportJson={() => {
+          downloadText("colora-canvas.json", jsonCode, "application/json");
+          setExportDialogOpen(false);
+        }}
+      />
     </section>
   );
 }

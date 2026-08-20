@@ -12,6 +12,16 @@ export function getBounds(points: Point[]): Bounds {
   return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 }
 
+/** 点是否落在包围盒内（含边界）。用于"点击组合大框内任意处即可拖动整组"。 */
+export function pointInBounds(point: Point, bounds: Bounds): boolean {
+  return (
+    point.x >= bounds.minX &&
+    point.x <= bounds.maxX &&
+    point.y >= bounds.minY &&
+    point.y <= bounds.maxY
+  );
+}
+
 /**
  * 单笔实际渲染几何的包围盒。渲染为原始折线（直线段），故直接取 points 的 min/max。
  */

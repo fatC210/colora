@@ -1,5 +1,5 @@
 import type { Point } from "@/lib/path-gradient";
-import type { PaintMode, Stroke, StrokeGroup } from "./types";
+import type { PaintMode, OverlapMode, Stroke, StrokeGroup } from "./types";
 
 export function renderPoints(stroke: Stroke): Point[] {
   return stroke.points;
@@ -7,14 +7,19 @@ export function renderPoints(stroke: Stroke): Point[] {
 export function isClosedShape(stroke: Stroke) {
   return Boolean(
     stroke.shape &&
-      stroke.shape !== "wave" &&
-      stroke.shape !== "curve" &&
-      stroke.shape !== "spiral",
+    stroke.shape !== "wave" &&
+    stroke.shape !== "curve" &&
+    stroke.shape !== "spiral",
   );
 }
-export function paintSource(stroke: Stroke, groups: StrokeGroup[]) {
+/**
+ * 取笔画绘制用色。
+ * 组合内线条：仅 mix 模式用组合渐变（统一色阶沿组内分布）；cover 模式用各自原色，
+ * 使重叠处呈现"组合时的默认样式"（上层覆盖下层、不混色）。
+ */
+export function paintSource(stroke: Stroke, groups: StrokeGroup[], overlapMode: OverlapMode) {
   const group = stroke.groupId ? groups.find((item) => item.id === stroke.groupId) : undefined;
-  if (group)
+  if (group && overlapMode === "mix")
     return {
       mode: "gradient" as PaintMode,
       solid: stroke.paint.solid,
