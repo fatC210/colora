@@ -1,19 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
+  ArrowRight,
+  Circle,
+  Diamond,
   Download,
+  Eraser,
   FileOutput,
   FolderOpen,
   Group,
+  Hand,
+  Lock,
   MousePointer2,
-  Paintbrush,
-  Plus,
+  Pencil,
   Redo2,
   Save,
-  Shapes,
   Slash,
   SlidersHorizontal,
-  Sparkles,
+  Square,
   Trash2,
+  Type,
   Undo2,
   Ungroup,
 } from "lucide-react";
@@ -33,12 +39,11 @@ import {
 import { bestTextOn, hexAlphaToCss } from "@/lib/color";
 import {
   CANVAS_BG_PRESETS,
+  CANVAS_FONTS,
   CANVAS_LAYOUTS,
   DEFAULT_STOPS,
   INITIAL_H,
   INITIAL_W,
-  PRESETS,
-  SHAPES,
   defaultCanvasBg,
 } from "./constants";
 import { ColorEditor } from "./ColorEditor";
@@ -105,10 +110,19 @@ export function CanvasTool() {
   const scaledRef = useRef(false);
   const stopDragRafRef = useRef(0);
   const stopDragInfoRef = useRef<{ stopId: string; x: number; y: number } | null>(null);
+  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [mode, setMode] = useState<Mode>("select");
-  const [shape, setShape] = useState<ShapeType>("circle");
-  const [presetShape, setPresetShape] = useState<ShapeType>("curve");
+  // 工具锁定：开启时落笔后不自动切回选择（对标 Excalidraw Lock）。
+  const [lockedTool, setLockedTool] = useState(false);
+  // 文本输入浮层：{ 屏幕坐标 sx,sy（fixed 定位）; 画布坐标 cx,cy; value }，text 模式点击画布时打开。
+  const [textInput, setTextInput] = useState<{
+    sx: number;
+    sy: number;
+    cx: number;
+    cy: number;
+    value: string;
+  } | null>(null);
   const [viewSize, setViewSize] = useState<Size>({ w: 0, h: 0 });
   const [strokes, setStrokes] = useState<Stroke[]>(() => cloneStrokes(initialStrokes));
   const [groups, setGroups] = useState<StrokeGroup[]>([]);
@@ -122,6 +136,13 @@ export function CanvasTool() {
   const [bgLayout, setBgLayout] = useState<CanvasLayout>("grid");
   const [bgColor, setBgColor] = useState<string>(() => defaultCanvasBg(theme === "dark"));
   const bgColorAutoRef = useRef(true); // 是否仍为自动跟随主题的默认色（用户未手动改色）
+  // 画布视口：pan=画布原点在屏幕坐标系的偏移（像素），zoom=缩放倍数。
+  // 屏幕↔画布：screen = canvas * zoom + pan；canvas = (screen - pan) / zoom。
+  const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const spaceDownRef = useRef(false); // 空格键按住：进入抓手平移模式（事件读取）
+  const [spaceDown, setSpaceDown] = useState(false); // 空格按下（驱动光标 UI）
+  const [panning, setPanning] = useState(false); // 是否正在平移拖动（用于光标 grabbing）
   const [undoStack, setUndoStack] = useState<SceneSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<SceneSnapshot[]>([]);
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -208,6 +229,67 @@ export function CanvasTool() {
     if (bgColorAutoRef.current) setBgColor(defaultCanvasBg(theme === "dark"));
   }, [theme]);
 
+  // 文本输入浮层打开时强制聚焦 textarea（portal + autoFocus 不够可靠）。
+  useEffect(() => {
+    if (textInput && textAreaRef.current) {
+      textAreaRef.current.focus();
+      textAreaRef.current.select?.();
+    }
+  }, [textInput]);
+
+  // 空格键：按住进入抓手平移模式；Esc/0 重置视口。
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        // 避免在输入框/编辑态吞掉空格
+        const t = e.target as HTMLElement;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+        spaceDownRef.current = true;
+        setSpaceDown(true);
+      } else if (e.key === "Escape" || e.key === "0") {
+        setPan({ x: 0, y: 0 });
+        setZoom(1);
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        spaceDownRef.current = false;
+        setSpaceDown(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, []);
+
+  // 滚轮缩放：Ctrl+滚轮 或 触控板 pinch（ctrlKey+deltaY），以鼠标位置为锚点。
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return; // 普通滚轮不缩放（无垂直滚动需求）
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const sx = ((e.clientX - rect.left) / rect.width) * viewSize.w;
+      const sy = ((e.clientY - rect.top) / rect.height) * viewSize.h;
+      setZoom((z) => {
+        const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+        const next = clamp(z * factor, 0.1, 4);
+        // 保持鼠标下的画布点不动：newPan = sx - (sx - pan) * (next / z)
+        setPan((p) => ({
+          x: sx - (sx - p.x) * (next / z),
+          y: sy - (sy - p.y) * (next / z),
+        }));
+        return next;
+      });
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, [viewSize.w, viewSize.h]);
+
   // 启动时：若 IDB 存有最近一次的文件句柄且有读权限，则自动恢复该画布。
   // 等 viewSize 测得后再恢复，使 restoreCanvas 能按真实画布尺寸映射坐标。
   // 首次进入页面通常无权限句柄（需用户主动打开过），此时不弹窗、静默跳过。
@@ -292,12 +374,15 @@ export function CanvasTool() {
       const canvas = canvasRef.current;
       if (!canvas) return { x: 0, y: 0 };
       const rect = canvas.getBoundingClientRect();
+      // 屏幕坐标（容器像素）→ 画布坐标：canvas = (screen - pan) / zoom
+      const sx = ((event.clientX - rect.left) / rect.width) * viewSize.w;
+      const sy = ((event.clientY - rect.top) / rect.height) * viewSize.h;
       return {
-        x: ((event.clientX - rect.left) / rect.width) * viewSize.w,
-        y: ((event.clientY - rect.top) / rect.height) * viewSize.h,
+        x: (sx - pan.x) / zoom,
+        y: (sy - pan.y) / zoom,
       };
     },
-    [viewSize],
+    [pan.x, pan.y, viewSize, zoom],
   );
 
   // 渲染
@@ -309,12 +394,18 @@ export function CanvasTool() {
     const ratio = window.devicePixelRatio || 1;
     canvas.width = viewSize.w * ratio;
     canvas.height = viewSize.h * ratio;
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    // 先以单位 transform 清全屏物理像素，再设视口 transform，避免 pan/zoom 后画布外围残留上一帧。
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // 视口 transform：画布坐标 → 屏幕（物理像素）：screen = canvas * zoom * ratio + pan * ratio
+    ctx.setTransform(ratio * zoom, 0, 0, ratio * zoom, ratio * pan.x, ratio * pan.y);
     if (!offscreenRef.current) offscreenRef.current = document.createElement("canvas");
     const off = offscreenRef.current;
     off.width = viewSize.w * ratio;
     off.height = viewSize.h * ratio;
-    off.getContext("2d")?.setTransform(ratio, 0, 0, ratio, 0, 0);
+    off
+      .getContext("2d")
+      ?.setTransform(ratio * zoom, 0, 0, ratio * zoom, ratio * pan.x, ratio * pan.y);
     renderScene({
       ctx,
       size: viewSize,
@@ -347,11 +438,14 @@ export function CanvasTool() {
     draft,
     groups,
     overlapMode,
+    pan.x,
+    pan.y,
     selectedGroup,
     selectedIds,
     selectionBox,
     strokes,
     viewSize,
+    zoom,
   ]);
 
   const addStroke = useCallback(
@@ -373,15 +467,61 @@ export function CanvasTool() {
     [strokes],
   );
 
+  // 形状 Mode → ShapeType（落笔时用）。椭圆复用 circle，矩形用 rect。
+  const shapeOfMode = (m: Mode): ShapeType | undefined => {
+    if (m === "rectangle") return "rect";
+    if (m === "diamond") return "diamond";
+    if (m === "ellipse") return "circle";
+    if (m === "arrow") return "arrow";
+    return undefined;
+  };
+  const isShapeMode = (m: Mode) => shapeOfMode(m) !== undefined;
+
   const onPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    event.currentTarget.setPointerCapture(event.pointerId);
+    // text 模式只开输入浮层，不捕获指针（否则 textarea 无法获焦）。
+    if (mode !== "text") event.currentTarget.setPointerCapture(event.pointerId);
     const point = canvasPoint(event);
+    // 临时诊断：确认 text 分支进入
+    if (mode === "text") toast.info("文本模式：点击已触发");
+    // 抓手工具或空格/中键 → 平移画布视口。
+    if (mode === "hand" || spaceDownRef.current || event.button === 1) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const last = {
+        x: ((event.clientX - rect.left) / rect.width) * viewSize.w,
+        y: ((event.clientY - rect.top) / rect.height) * viewSize.h,
+      };
+      dragRef.current = { type: "pan", last };
+      setPanning(true);
+      return;
+    }
+    if (mode === "eraser") {
+      // 橡皮：按下即删除命中的笔画（划过在 move 中继续）。
+      const hit = hitTopStroke(point);
+      if (hit) commitStrokes(strokes.filter((s) => s.id !== hit.id));
+      dragRef.current = { type: "marquee", start: point }; // 占位，move 中按 eraser 处理
+      return;
+    }
     if (mode === "brush") {
       setDraft({ type: "brush", points: [point] });
       return;
     }
-    if (mode === "line" || mode === "shape") {
-      setDraft({ type: mode, start: point, end: point });
+    if (mode === "text") {
+      // 文本工具：在点击位置打开输入浮层。sx/sy 为屏幕坐标（fixed 定位），cx/cy 为画布坐标（存入笔画）。
+      setTextInput({
+        sx: event.clientX,
+        sy: event.clientY,
+        cx: point.x,
+        cy: point.y,
+        value: "",
+      });
+      return;
+    }
+    if (mode === "line") {
+      setDraft({ type: "line", start: point, end: point });
+      return;
+    }
+    if (isShapeMode(mode)) {
+      setDraft({ type: "shape", shape: shapeOfMode(mode)!, start: point, end: point });
       return;
     }
     const hit = hitTopStroke(point);
@@ -413,12 +553,29 @@ export function CanvasTool() {
   };
   const onPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const point = canvasPoint(event);
+    // 平移视口：用屏幕坐标增量直接加到 pan（不经过 zoom）。
+    if (dragRef.current?.type === "pan") {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const sx = ((event.clientX - rect.left) / rect.width) * viewSize.w;
+      const sy = ((event.clientY - rect.top) / rect.height) * viewSize.h;
+      const dx = sx - dragRef.current.last.x,
+        dy = sy - dragRef.current.last.y;
+      dragRef.current.last = { x: sx, y: sy };
+      setPan((p) => ({ x: p.x + dx, y: p.y + dy }));
+      return;
+    }
     if (draft?.type === "brush") {
       setDraft({ type: "brush", points: [...draft.points, point] });
       return;
     }
     if (draft?.type === "line" || draft?.type === "shape") {
       setDraft({ ...draft, end: point });
+      return;
+    }
+    // 橡皮划过：持续删除命中的笔画。
+    if (mode === "eraser" && dragRef.current?.type === "marquee") {
+      const hit = hitTopStroke(point);
+      if (hit) commitStrokes(strokes.filter((s) => s.id !== hit.id));
       return;
     }
     if (dragRef.current?.type === "move") {
@@ -448,6 +605,11 @@ export function CanvasTool() {
   };
   const onPointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const point = canvasPoint(event);
+    if (dragRef.current?.type === "pan") {
+      dragRef.current = null;
+      setPanning(false);
+      return;
+    }
     if (draft?.type === "brush") {
       if (draft.points.length > 2)
         addStroke({
@@ -459,22 +621,36 @@ export function CanvasTool() {
           paint: defaultPaint("#7C3AED"),
         });
       setDraft(null);
+      if (!lockedTool) setMode("select");
       return;
     }
     if (draft?.type === "line" || draft?.type === "shape") {
       if (distance(draft.start, point) > 8) {
         const isLine = draft.type === "line";
+        const sh = isLine ? undefined : draft.shape;
+        const label = isLine
+          ? "直线"
+          : sh === "rect"
+            ? "矩形"
+            : sh === "diamond"
+              ? "菱形"
+              : sh === "circle"
+                ? "椭圆"
+                : sh === "arrow"
+                  ? "箭头"
+                  : "形状";
         addStroke({
           id: createId("stroke"),
-          name: `${isLine ? "直线" : SHAPES.find((item) => item.value === shape)?.label} ${strokes.length + 1}`,
+          name: `${label} ${strokes.length + 1}`,
           kind: isLine ? "line" : "shape",
-          shape: isLine ? undefined : shape,
-          points: isLine ? [draft.start, point] : makeShapePoints(shape, draft.start, point),
+          shape: sh,
+          points: isLine ? [draft.start, point] : makeShapePoints(sh!, draft.start, point),
           width: brushWidth,
           paint: defaultPaint(isLine ? "#0EA5E9" : "#F97316"),
         });
       }
       setDraft(null);
+      if (!lockedTool) setMode("select");
       return;
     }
     if (dragRef.current?.type === "marquee" && selectionBox) {
@@ -751,27 +927,6 @@ export function CanvasTool() {
     bgColorAutoRef.current = true;
     setSelectedIds([]);
   };
-  const addPresetStroke = () => {
-    if (viewSize.w === 0) return;
-    const cx = viewSize.w / 2,
-      cy = viewSize.h / 2,
-      halfW = 220,
-      halfH = 150;
-    addStroke({
-      id: createId("stroke"),
-      name: `${PRESETS.find((item) => item.value === presetShape)?.label} ${strokes.length + 1}`,
-      kind: "shape",
-      shape: presetShape,
-      points: makeShapePoints(
-        presetShape,
-        { x: cx - halfW, y: cy - halfH },
-        { x: cx + halfW, y: cy + halfH },
-      ),
-      width: brushWidth,
-      paint: defaultPaint("#8B5CF6"),
-    });
-    setMode("select");
-  };
   const exportPng = (scale: number, withBackground = true) => {
     if (viewSize.w === 0) return;
     const canvas = document.createElement("canvas");
@@ -1021,10 +1176,16 @@ export function CanvasTool() {
     toast.success(message);
   };
   const toolButtons: { id: Mode; label: string; icon: typeof MousePointer2 }[] = [
+    { id: "hand", label: "抓手", icon: Hand },
     { id: "select", label: "选择", icon: MousePointer2 },
-    { id: "brush", label: "画笔", icon: Paintbrush },
+    { id: "rectangle", label: "矩形", icon: Square },
+    { id: "diamond", label: "菱形", icon: Diamond },
+    { id: "ellipse", label: "椭圆", icon: Circle },
+    { id: "arrow", label: "箭头", icon: ArrowRight },
     { id: "line", label: "直线", icon: Slash },
-    { id: "shape", label: "形状", icon: Shapes },
+    { id: "brush", label: "画笔", icon: Pencil },
+    { id: "text", label: "文本", icon: Type },
+    { id: "eraser", label: "橡皮", icon: Eraser },
   ];
 
   // 画布上的路径色标手柄（仅选中单笔画、渐变模式、非组）
@@ -1037,9 +1198,14 @@ export function CanvasTool() {
     if (total <= 0) return [];
     return selectedStroke.paint.stops.map((stop) => {
       const p = pointAtLength(points, percentToLength(stop.pos, total));
-      return { stop, left: (p.x / viewSize.w) * 100, top: (p.y / viewSize.h) * 100 };
+      // 画布坐标 → 容器百分比：先转屏幕坐标 screen = canvas * zoom + pan
+      return {
+        stop,
+        left: ((p.x * zoom + pan.x) / viewSize.w) * 100,
+        top: ((p.y * zoom + pan.y) / viewSize.h) * 100,
+      };
     });
-  }, [selectedStroke, selectedGroup, viewSize]);
+  }, [pan.x, pan.y, selectedStroke, selectedGroup, viewSize, zoom]);
 
   // 选中笔画的变换手柄（八向缩放）。框选/拖动草稿中不显示。
   const resizeHandles = useMemo(() => {
@@ -1060,11 +1226,11 @@ export function CanvasTool() {
       return {
         handle,
         cursor: cursors[handle],
-        left: (p.x / viewSize.w) * 100,
-        top: (p.y / viewSize.h) * 100,
+        left: ((p.x * zoom + pan.x) / viewSize.w) * 100,
+        top: ((p.y * zoom + pan.y) / viewSize.h) * 100,
       };
     });
-  }, [draft, selBounds, selectionBox, viewSize]);
+  }, [draft, pan.x, pan.y, selBounds, selectionBox, viewSize, zoom]);
 
   const onResizeHandlePointerDown = (event: React.PointerEvent, handle: ResizeHandle) => {
     if (!selBounds) return;
@@ -1277,11 +1443,19 @@ export function CanvasTool() {
         onDoubleClick={onDoubleClick}
         className={cn(
           "absolute inset-0 h-full w-full touch-none",
-          mode === "select"
-            ? hoveringStroke
-              ? "cursor-move"
-              : "cursor-default"
-            : "cursor-crosshair",
+          panning
+            ? "cursor-grabbing"
+            : mode === "hand" || spaceDown
+              ? "cursor-grab"
+              : mode === "eraser"
+                ? "cursor-cell"
+                : mode === "text"
+                  ? "cursor-text"
+                  : mode === "select"
+                    ? hoveringStroke
+                      ? "cursor-move"
+                      : "cursor-default"
+                    : "cursor-crosshair",
         )}
       />
 
@@ -1350,8 +1524,21 @@ export function CanvasTool() {
         </div>
       )}
 
-      {/* 悬浮工具栏 */}
+      {/* 悬浮工具栏（对标 Excalidraw）：icon 按钮组 + 锁定 + 撤销/重做 */}
       <div className="absolute left-1/2 top-3 z-30 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-2xl border border-border/60 bg-background/80 p-1.5 shadow-lg backdrop-blur-md">
+        <Button
+          type="button"
+          variant={lockedTool ? "default" : "ghost"}
+          size="icon"
+          className="size-8"
+          onClick={() => setLockedTool((v) => !v)}
+          aria-label="锁定工具"
+          aria-pressed={lockedTool}
+          title={lockedTool ? "解锁工具" : "锁定工具（画完不切回选择）"}
+        >
+          <Lock className="size-4" />
+        </Button>
+        <div className="mx-0.5 h-5 w-px bg-border" />
         {toolButtons.map((item) => {
           const Icon = item.icon;
           return (
@@ -1359,50 +1546,16 @@ export function CanvasTool() {
               key={item.id}
               type="button"
               variant={mode === item.id ? "default" : "ghost"}
-              size="sm"
-              className="h-8 px-2.5"
+              size="icon"
+              className="size-8"
               onClick={() => setMode(item.id)}
+              aria-label={item.label}
+              title={item.label}
             >
               <Icon className="size-4" />
-              <span className="hidden text-xs sm:inline">{item.label}</span>
             </Button>
           );
         })}
-        <select
-          value={shape}
-          onChange={(event) => setShape(event.target.value as ShapeType)}
-          disabled={mode !== "shape"}
-          className="h-8 rounded-md border border-input bg-background px-1.5 text-xs outline-none disabled:opacity-50"
-          aria-label="预设形状"
-        >
-          {SHAPES.map((item) => (
-            <option key={item.value} value={item.value}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-        <div className="mx-0.5 h-5 w-px bg-border" />
-        <select
-          value={presetShape}
-          onChange={(event) => setPresetShape(event.target.value as ShapeType)}
-          className="h-8 rounded-md border border-input bg-background px-1.5 text-xs outline-none"
-          aria-label="预设路径"
-        >
-          {PRESETS.map((item) => (
-            <option key={item.value} value={item.value}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          className="h-8 gap-1 px-2.5"
-          onClick={addPresetStroke}
-        >
-          <Plus className="size-3.5" /> <span className="text-xs">添加</span>
-        </Button>
         <div className="mx-0.5 h-5 w-px bg-border" />
         <Button
           type="button"
@@ -1412,6 +1565,7 @@ export function CanvasTool() {
           onClick={undo}
           disabled={!undoStack.length}
           aria-label="撤销"
+          title="撤销"
         >
           <Undo2 className="size-4" />
         </Button>
@@ -1423,23 +1577,10 @@ export function CanvasTool() {
           onClick={redo}
           disabled={!redoStack.length}
           aria-label="重做"
+          title="重做"
         >
           <Redo2 className="size-4" />
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-8"
-          onClick={clearCanvas}
-          aria-label="清空画布"
-        >
-          <Trash2 className="size-4" />
-        </Button>
-        <div className="ml-1 hidden items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground sm:flex">
-          <Sparkles className="size-3" />
-          {strokes.length} 线 · {groups.length} 组
-        </div>
       </div>
 
       <div
@@ -1521,6 +1662,7 @@ export function CanvasTool() {
                         title={selectedGroup ? "组合渐变" : "颜色"}
                         subtitle={selectedGroup ? "统一色阶沿组内每条线条分布" : undefined}
                         paint={selectionPaint}
+                        hideModeToggle={selectedStroke?.kind === "text"}
                         onStopPos={setSelectionStopPos}
                         onStopHex={setSelectionStopHex}
                         onStopAlpha={setSelectionStopAlpha}
@@ -1542,6 +1684,28 @@ export function CanvasTool() {
                           updateSelectionPaint((paint) => ({ ...paint, solid: hex }))
                         }
                         onReverse={reverseSelectionStops}
+                        text={selectedStroke?.kind === "text" ? selectedStroke.text : undefined}
+                        fontSize={
+                          selectedStroke?.kind === "text" ? selectedStroke.fontSize : undefined
+                        }
+                        fontFamily={
+                          selectedStroke?.kind === "text" ? selectedStroke.fontFamily : undefined
+                        }
+                        onSetFont={
+                          selectedStroke?.kind === "text"
+                            ? (family) =>
+                                updateSelectedStrokes((stroke) => ({
+                                  ...stroke,
+                                  fontFamily: family,
+                                }))
+                            : undefined
+                        }
+                        onSetFontSize={
+                          selectedStroke?.kind === "text"
+                            ? (size) =>
+                                updateSelectedStrokes((stroke) => ({ ...stroke, fontSize: size }))
+                            : undefined
+                        }
                       />
                     )}
 
@@ -1797,6 +1961,58 @@ export function CanvasTool() {
           </div>
         )}
       </div>
+      {textInput &&
+        createPortal(
+          <textarea
+            ref={textAreaRef}
+            rows={1}
+            value={textInput.value}
+            placeholder="输入文本，回车确认，Esc 取消…"
+            onChange={(e) => setTextInput({ ...textInput, value: e.target.value })}
+            onBlur={() => {
+              const v = textInput.value.trim();
+              if (v) {
+                addStroke({
+                  id: createId("stroke"),
+                  name: `文本 ${strokes.length + 1}`,
+                  kind: "text",
+                  points: [{ x: textInput.cx, y: textInput.cy }],
+                  width: 1,
+                  paint: {
+                    mode: "solid",
+                    solid: isDark ? "#fafafa" : "#0f172a",
+                    stops: [],
+                    space: "rgb",
+                  },
+                  text: v,
+                  fontSize: 28,
+                  fontFamily: CANVAS_FONTS[0].value,
+                });
+                if (!lockedTool) setMode("select");
+              }
+              setTextInput(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setTextInput(null);
+              } else if (e.key === "Enter" && !e.shiftKey) {
+                // 单行：Enter 提交（多行用 Shift+Enter）。
+                e.preventDefault();
+                (e.target as HTMLTextAreaElement).blur();
+              }
+            }}
+            className="colora-text-input fixed z-[9999] min-w-48 resize-none rounded-md border-2 border-blue-500 bg-white p-1.5 text-slate-900 shadow-2xl outline-none dark:bg-neutral-900 dark:text-slate-100"
+            style={{
+              left: `${textInput.sx}px`,
+              top: `${textInput.sy}px`,
+              fontFamily: CANVAS_FONTS[0].value,
+              fontSize: 28,
+              lineHeight: 1.2,
+            }}
+          />,
+          document.body,
+        )}
       <ExportCanvasDialog
         open={exportDialogOpen}
         onOpenChange={setExportDialogOpen}

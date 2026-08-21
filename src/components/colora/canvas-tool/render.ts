@@ -98,6 +98,23 @@ export function renderScene({
 
   const drawStroke = (target: CanvasRenderingContext2D, stroke: Stroke) => {
     const points = renderPoints(stroke);
+    // 文本笔画：单点定位 + fillText，不参与路径描边/沿路径渐变。
+    if (stroke.kind === "text") {
+      const p = points[0];
+      if (!p || !stroke.text) return;
+      const source = paintSource(stroke, groups, overlapMode);
+      const color = source.mode === "solid" ? source.solid : (source.stops[0]?.hex ?? "#000000");
+      target.save();
+      target.fillStyle = color;
+      target.textBaseline = "top";
+      target.font = `${stroke.fontSize ?? 28}px ${stroke.fontFamily ?? "sans-serif"}`;
+      // 多行文本按换行逐行绘制。
+      const lines = stroke.text.split("\n");
+      const fs = stroke.fontSize ?? 28;
+      lines.forEach((line, i) => target.fillText(line, p.x, p.y + i * fs * 1.2));
+      target.restore();
+      return;
+    }
     if (points.length < 2) return;
     const source = paintSource(stroke, groups, overlapMode);
     const closed = isClosedShape(stroke);
@@ -114,34 +131,51 @@ export function renderScene({
   };
 
   ctx.save();
-  if (overlapMode === "mix" && offscreen) {
+  ctx.globalCompositeOperation = "source-over";
+  // 重叠处理只对"组合内"笔画生效：mix 时同一组合的笔画互相 multiply 混色（仅重叠处），
+  // cover 时组合内笔画用各自原色 source-over 叠加（上层覆盖下层）；非组合笔画始终
+  // 各自原色 source-over，普通重叠线条不会混色。按 strokes 顺序绘制以保持 z-order，
+  // 每个组合用一个独立离屏层做内部混色，层内画完即合到主层。
+  const drawGroupMix = (groupStrokes: Stroke[]) => {
+    if (!offscreen) {
+      for (const s of groupStrokes) drawStroke(ctx, s);
+      return;
+    }
     const octx = offscreen.getContext("2d");
     const tmp = getMixTmp(offscreen.width, offscreen.height);
     const tctx = tmp?.getContext("2d");
-    if (octx && tmp && tctx) {
-      // 笔画层在透明离屏画布上相互 multiply 混色，最后以 source-over 盖到背景上，
-      // 这样背景色不会参与混色计算——线条颜色不受背景色影响。
-      // 每条笔画先在临时层 source-over 完整画好（无 multiply，避免同条笔画
-      // 段间 round cap 重叠处自乘变暗），再把整条笔画以 multiply 合成到主离屏，
-      // 使 multiply 只在笔画之间生效——仅重叠处混色，非重叠处保持各自原色。
-      octx.clearRect(0, 0, w, h);
-      octx.globalCompositeOperation = "source-over";
-      strokes.forEach((stroke, i) => {
-        tctx.setTransform(octx.getTransform());
-        tctx.clearRect(0, 0, w, h);
-        tctx.globalCompositeOperation = "source-over";
-        drawStroke(tctx, stroke);
-        // 第 0 条 source-over 落到空离屏即其原色；后续条以 multiply 与已有笔画叠加，
-        // 仅在重叠像素处相乘变暗，非重叠处因 destination 透明而保持各自原色。
-        octx.globalCompositeOperation = i === 0 ? "source-over" : "multiply";
-        octx.drawImage(tmp, 0, 0, w, h);
-      });
-      ctx.globalCompositeOperation = "source-over";
-      ctx.drawImage(offscreen, 0, 0, w, h);
+    if (!octx || !tmp || !tctx) {
+      for (const s of groupStrokes) drawStroke(ctx, s);
+      return;
     }
-  } else {
-    ctx.globalCompositeOperation = "source-over";
-    for (const stroke of strokes) drawStroke(ctx, stroke);
+    octx.setTransform(ctx.getTransform());
+    octx.clearRect(0, 0, w, h);
+    octx.globalCompositeOperation = "source-over";
+    groupStrokes.forEach((s, i) => {
+      // 每条先在临时层 source-over 完整画好（避免同条笔画段间自乘），再 multiply 合到组层。
+      tctx.setTransform(octx.getTransform());
+      tctx.clearRect(0, 0, w, h);
+      tctx.globalCompositeOperation = "source-over";
+      drawStroke(tctx, s);
+      octx.globalCompositeOperation = i === 0 ? "source-over" : "multiply";
+      octx.drawImage(tmp, 0, 0, w, h);
+    });
+    ctx.drawImage(offscreen, 0, 0, w, h);
+  };
+
+  // 按 strokes 顺序遍历，把同组笔画聚到一起一次性按组渲染（保持组在序列中的相对位置）。
+  const rendered = new Set<string>();
+  for (const stroke of strokes) {
+    if (rendered.has(stroke.id)) continue;
+    const gid = stroke.groupId;
+    if (overlapMode === "mix" && gid) {
+      const groupStrokes = strokes.filter((s) => s.groupId === gid);
+      groupStrokes.forEach((s) => rendered.add(s.id));
+      drawGroupMix(groupStrokes);
+    } else {
+      rendered.add(stroke.id);
+      drawStroke(ctx, stroke);
+    }
   }
   ctx.restore();
 
@@ -151,7 +185,7 @@ export function renderScene({
         ? draft.points
         : draft.type === "line"
           ? [draft.start, draft.end]
-          : makeShapePoints("circle", draft.start, draft.end);
+          : makeShapePoints(draft.shape, draft.start, draft.end);
     ctx.save();
     ctx.setLineDash([10, 8]);
     ctx.strokeStyle = "rgba(2, 132, 199, 0.9)";
@@ -224,6 +258,26 @@ export function createSvg(
   const mix = overlapMode === "mix";
   strokes.forEach((stroke) => {
     const points = renderPoints(stroke);
+    // 文本笔画：生成 <text> 元素。
+    if (stroke.kind === "text") {
+      const p = points[0];
+      if (!p || !stroke.text) return;
+      const source = paintSource(stroke, groups, overlapMode);
+      const color = source.mode === "solid" ? source.solid : (source.stops[0]?.hex ?? "#000000");
+      const fs = stroke.fontSize ?? 28;
+      const ff = stroke.fontFamily ?? "sans-serif";
+      const lines = stroke.text.split("\n");
+      const tspans = lines
+        .map(
+          (line, i) =>
+            `<tspan x="${p.x}" dy="${i === 0 ? 0 : fs * 1.2}">${escapeAttr(line)}</tspan>`,
+        )
+        .join("");
+      groupsXml.push(
+        `<text x="${p.x}" y="${p.y}" font-size="${fs}" font-family="${escapeAttr(ff)}" fill="${escapeAttr(color)}" style="dominant-baseline:hanging">${tspans}</text>`,
+      );
+      return;
+    }
     if (points.length < 2) return;
     const source = paintSource(stroke, groups, overlapMode);
     const closed = isClosedShape(stroke);

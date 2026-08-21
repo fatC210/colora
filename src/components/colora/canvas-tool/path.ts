@@ -9,7 +9,8 @@ export function isClosedShape(stroke: Stroke) {
     stroke.shape &&
     stroke.shape !== "wave" &&
     stroke.shape !== "curve" &&
-    stroke.shape !== "spiral",
+    stroke.shape !== "spiral" &&
+    stroke.shape !== "arrow",
   );
 }
 /**

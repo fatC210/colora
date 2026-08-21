@@ -23,6 +23,9 @@ export type { InterpSpace };
 export type ShapeType =
   | "circle"
   | "roundedRect"
+  | "rect"
+  | "diamond"
+  | "arrow"
   | "triangle"
   | "pentagon"
   | "star"
@@ -113,7 +116,12 @@ export function colorAtPercent(stops: PathStop[], percent: number, space: Interp
     if (p >= a.pos && p <= b.pos) {
       const span = b.pos - a.pos;
       const t = span > 0 ? (p - a.pos) / span : 0;
-      return interpolateAlpha({ hex: a.hex, alpha: a.alpha }, { hex: b.hex, alpha: b.alpha }, t, space);
+      return interpolateAlpha(
+        { hex: a.hex, alpha: a.alpha },
+        { hex: b.hex, alpha: b.alpha },
+        t,
+        space,
+      );
     }
   }
   return hexAlpha(sorted[sorted.length - 1]);
@@ -121,24 +129,39 @@ export function colorAtPercent(stops: PathStop[], percent: number, space: Interp
 
 /** 把单个 PathStop 的 hex+alpha 转成 rgba() 字符串 */
 function hexAlpha(stop: PathStop): string {
-  return interpolateAlpha({ hex: stop.hex, alpha: stop.alpha }, { hex: stop.hex, alpha: stop.alpha }, 0, "rgb");
+  return interpolateAlpha(
+    { hex: stop.hex, alpha: stop.alpha },
+    { hex: stop.hex, alpha: stop.alpha },
+    0,
+    "rgb",
+  );
 }
 
 /** 在指定百分比处取插值后的 {hex, alpha}，用于在该位置新增一个色标 */
-export function stopAtPercent(stops: PathStop[], percent: number, space: InterpSpace): { hex: string; alpha: number } {
+export function stopAtPercent(
+  stops: PathStop[],
+  percent: number,
+  space: InterpSpace,
+): { hex: string; alpha: number } {
   const sorted = [...stops].sort((a, b) => a.pos - b.pos);
   if (sorted.length === 0) return { hex: "#000000", alpha: 100 };
   if (sorted.length === 1) return { hex: sorted[0].hex, alpha: sorted[0].alpha };
   const p = clamp(percent, 0, 100);
   if (p <= sorted[0].pos) return { hex: sorted[0].hex, alpha: sorted[0].alpha };
-  if (p >= sorted[sorted.length - 1].pos) return { hex: sorted[sorted.length - 1].hex, alpha: sorted[sorted.length - 1].alpha };
+  if (p >= sorted[sorted.length - 1].pos)
+    return { hex: sorted[sorted.length - 1].hex, alpha: sorted[sorted.length - 1].alpha };
   for (let i = 0; i < sorted.length - 1; i++) {
     const a = sorted[i],
       b = sorted[i + 1];
     if (p >= a.pos && p <= b.pos) {
       const span = b.pos - a.pos;
       const t = span > 0 ? (p - a.pos) / span : 0;
-      return interpolateStop({ hex: a.hex, alpha: a.alpha }, { hex: b.hex, alpha: b.alpha }, t, space);
+      return interpolateStop(
+        { hex: a.hex, alpha: a.alpha },
+        { hex: b.hex, alpha: b.alpha },
+        t,
+        space,
+      );
     }
   }
   const last = sorted[sorted.length - 1];
@@ -266,6 +289,51 @@ export function shapePoints(shape: ShapeType, start: Point, end: Point): Point[]
         return { x: corner.x + Math.cos(angle) * radius, y: corner.y + Math.sin(angle) * radius };
       }),
     );
+  }
+  if (shape === "rect")
+    // 直角矩形四点（顺时针）。
+    return [
+      { x: minX, y: minY },
+      { x: maxX, y: minY },
+      { x: maxX, y: maxY },
+      { x: minX, y: maxY },
+    ];
+  if (shape === "diamond")
+    // 四点菱形：上下左右四个顶点。
+    return [
+      { x: cx, y: minY },
+      { x: maxX, y: cy },
+      { x: cx, y: maxY },
+      { x: minX, y: cy },
+    ];
+  if (shape === "arrow") {
+    // 箭头：从 start 中心方向画杆到 end，末端加两条翼。
+    const sx = minX + width / 2,
+      sy = minY + height / 2;
+    const dx = end.x - sx,
+      dy = end.y - sy,
+      len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len,
+      uy = dy / len;
+    const headLen = Math.min(len * 0.3, Math.max(12, len * 0.18));
+    const wing = headLen * Math.tan((25 * Math.PI) / 180);
+    // 杆起点略后退，使箭头视觉从 start 出发
+    const base = { x: sx - ux * 0, y: sy - uy * 0 };
+    const tip = { x: end.x, y: end.y };
+    const wingAngle = Math.PI - (25 * Math.PI) / 180;
+    const cos = Math.cos(wingAngle),
+      sin = Math.sin(wingAngle);
+    const w1 = {
+      x: tip.x + (ux * cos - uy * sin) * headLen,
+      y: tip.y + (ux * sin + uy * cos) * headLen,
+    };
+    const cos2 = Math.cos(-wingAngle),
+      sin2 = Math.sin(-wingAngle);
+    const w2 = {
+      x: tip.x + (ux * cos2 - uy * sin2) * headLen,
+      y: tip.y + (ux * sin2 + uy * cos2) * headLen,
+    };
+    return [base, tip, w1, tip, w2];
   }
   if (shape === "triangle" || shape === "pentagon" || shape === "star") {
     const sides = shape === "triangle" ? 3 : shape === "pentagon" ? 5 : 12;

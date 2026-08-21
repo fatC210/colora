@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import { hexAlphaToCss, hexToRgb, hslToRgb, normalizeHex, rgbToHex, rgbToHsl } from "@/lib/color";
-import { INTERP_SPACES } from "./constants";
+import { CANVAS_FONTS, INTERP_SPACES } from "./constants";
 import { clamp } from "./utils";
 import { ColorSlider } from "./ColorSlider";
 import type { InterpSpace, PaintMode, StrokePaint } from "./types";
@@ -32,6 +32,11 @@ export function ColorEditor({
   onReverse,
   hideModeToggle,
   extra,
+  text,
+  fontSize,
+  fontFamily,
+  onSetFont,
+  onSetFontSize,
 }: {
   title: string;
   subtitle?: string;
@@ -50,6 +55,12 @@ export function ColorEditor({
   onReverse?: () => void;
   hideModeToggle?: boolean;
   extra?: React.ReactNode;
+  // 文本笔画专属：传入 text（非 undefined）时显示字体/字号控件。
+  text?: string;
+  fontSize?: number;
+  fontFamily?: string;
+  onSetFont?: (family: string) => void;
+  onSetFontSize?: (size: number) => void;
 }) {
   const [activeStopId, setActiveStopId] = useState<string | null>(null);
   const [editingPosId, setEditingPosId] = useState<string | null>(null);
@@ -60,7 +71,12 @@ export function ColorEditor({
   const [dragCursor, setDragCursor] = useState(0); // 被拖行目标槽位（浮点，按下槽 + 整行高倍数位移）
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const listRef = useRef<HTMLDivElement | null>(null);
-  const dragCandidateRef = useRef<{ stopId: string; startX: number; startY: number; index: number } | null>(null);
+  const dragCandidateRef = useRef<{
+    stopId: string;
+    startX: number;
+    startY: number;
+    index: number;
+  } | null>(null);
   // 拖拽期间冻结排序：记录按下时的顺序与被拖行索引，拖拽中行保持原位、用 transform 让位/跟随，松手再按 pos 重排。
   const dragSnapshotRef = useRef<string[] | null>(null);
   const dragDraggedIndexRef = useRef(-1); // 按下时被拖行在冻结顺序中的索引
@@ -68,7 +84,7 @@ export function ColorEditor({
   const dropPosRef = useRef(0); // 被拖行当前自定义 pos（按下到松手期间随光标更新）
 
   // 可原地全选编辑的百分比数字：数字与 % 始终是同一 flex 行内两个独立 span，
-// 编辑只是把数字 span 标为 contentEditable 并全选其文本，布局/位置完全不变；% 不可编辑。
+  // 编辑只是把数字 span 标为 contentEditable 并全选其文本，布局/位置完全不变；% 不可编辑。
   const renderEditablePercent = (
     value: number,
     editing: boolean,
@@ -171,7 +187,7 @@ export function ColorEditor({
     return 52;
   };
   const activeStop = sortedStops.find((stop) => stop.id === activeStopId) ?? sortedStops[0];
-  const activeHex = paint.mode === "solid" ? paint.solid : activeStop?.hex ?? paint.solid;
+  const activeHex = paint.mode === "solid" ? paint.solid : (activeStop?.hex ?? paint.solid);
   const activeHsl = rgbToHsl(hexToRgb(activeHex));
   const hueColor = rgbToHex(hslToRgb({ h: activeHsl.h, s: 100, l: 50 }));
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -228,6 +244,40 @@ export function ColorEditor({
           )}
         </div>
 
+        {text !== undefined && onSetFont && onSetFontSize && (
+          <div className="mb-3 space-y-2 rounded-lg border border-neutral-800 bg-neutral-900/60 p-2">
+            <div>
+              <div className="mb-1 text-[10px] font-medium text-neutral-500">字体</div>
+              <select
+                value={fontFamily ?? CANVAS_FONTS[0].value}
+                onChange={(e) => onSetFont(e.target.value)}
+                className="h-8 w-full rounded-md border border-neutral-700 bg-neutral-950 px-2 text-xs text-neutral-200 outline-none focus:border-neutral-500"
+              >
+                {CANVAS_FONTS.map((f) => (
+                  <option key={f.value} value={f.value}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <div className="mb-1 flex items-center justify-between text-[10px] font-medium text-neutral-500">
+                <span>字号</span>
+                <span className="font-mono text-neutral-300">{Math.round(fontSize ?? 28)}px</span>
+              </div>
+              <input
+                type="range"
+                min={8}
+                max={120}
+                step={1}
+                value={fontSize ?? 28}
+                onChange={(e) => onSetFontSize(Number(e.target.value))}
+                className="w-full accent-neutral-300"
+              />
+            </div>
+          </div>
+        )}
+
         {!hideModeToggle && onSetMode && (
           <div className="mb-3 grid grid-cols-2 rounded-lg bg-neutral-900 p-1">
             {(["solid", "gradient"] as PaintMode[]).map((modeOption) => (
@@ -265,7 +315,11 @@ export function ColorEditor({
         >
           <span
             className="pointer-events-none absolute size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.75)]"
-            style={{ left: `${clamp(activeHsl.s, 0, 100)}%`, top: `${100 - clamp(activeHsl.l, 0, 100)}%`, backgroundColor: activeHex }}
+            style={{
+              left: `${clamp(activeHsl.s, 0, 100)}%`,
+              top: `${100 - clamp(activeHsl.l, 0, 100)}%`,
+              backgroundColor: activeHex,
+            }}
           />
         </div>
 
@@ -320,7 +374,10 @@ export function ColorEditor({
               </div>
             </div>
 
-            <div ref={listRef} className="relative mt-3 rounded-lg border border-neutral-800 bg-neutral-950/70 py-2 touch-none">
+            <div
+              ref={listRef}
+              className="relative mt-3 rounded-lg border border-neutral-800 bg-neutral-950/70 py-2 touch-none"
+            >
               <span
                 aria-hidden="true"
                 className={cn(
@@ -371,7 +428,9 @@ export function ColorEditor({
                           // 仅当点中真正的可交互内容（数字/单位/正在编辑的文本、圆点/色块按钮）时才不处理；
                           // 点空白（行 padding、按钮间 gap、hex 列、百分比列的 padding 等）一律走选中/拖拽。
                           if (e.button !== 0) return;
-                          const hit = (e.target as HTMLElement).closest("[data-stop-handle], button");
+                          const hit = (e.target as HTMLElement).closest(
+                            "[data-stop-handle], button",
+                          );
                           if (hit) return;
                           setActiveStopId(stop.id);
                           setDragOverId(null);
@@ -422,7 +481,7 @@ export function ColorEditor({
                               const ratio = (clientY - (rect.top + pad)) / (rect.height - pad * 2);
                               const rawPos = clamp(Math.round(ratio * 100), 0, 100);
                               const posOf = (id: string | undefined) =>
-                                id ? stops.find((s) => s.id === id)?.pos ?? 0 : 0;
+                                id ? (stops.find((s) => s.id === id)?.pos ?? 0) : 0;
                               const lower = drop > 0 ? posOf(rest[drop - 1]) : -1;
                               const upper = drop < rest.length ? posOf(rest[drop]) : 101;
                               const pos = clamp(rawPos, lower, upper);
@@ -437,7 +496,10 @@ export function ColorEditor({
                           // 未进入拖拽：若移动超容差则立即进入拖拽（按下即拖）
                           const c = dragCandidateRef.current;
                           if (!c || c.stopId !== stop.id) return;
-                          if (Math.abs(e.clientX - c.startX) > 6 || Math.abs(e.clientY - c.startY) > 6) {
+                          if (
+                            Math.abs(e.clientX - c.startX) > 6 ||
+                            Math.abs(e.clientY - c.startY) > 6
+                          ) {
                             setDragId(stop.id);
                             computeDrag(e.clientY);
                           }
@@ -452,7 +514,11 @@ export function ColorEditor({
                           if (draggedId && snapshot && drop >= 0) {
                             const rest = snapshot.filter((id) => id !== draggedId);
                             const at = clamp(drop, 0, rest.length);
-                            onDropStop(draggedId, [...rest.slice(0, at), draggedId, ...rest.slice(at)], pos);
+                            onDropStop(
+                              draggedId,
+                              [...rest.slice(0, at), draggedId, ...rest.slice(at)],
+                              pos,
+                            );
                           }
                           dragCandidateRef.current = null;
                           dragSnapshotRef.current = null;
@@ -493,7 +559,9 @@ export function ColorEditor({
                           if (!dragId) return undefined;
                           const snapshot = dragSnapshotRef.current ?? [];
                           const pressedIndex =
-                            dragDraggedIndexRef.current >= 0 ? dragDraggedIndexRef.current : snapshot.indexOf(dragId);
+                            dragDraggedIndexRef.current >= 0
+                              ? dragDraggedIndexRef.current
+                              : snapshot.indexOf(dragId);
                           const rowH = rowHRef.current;
                           if (dragId === stop.id) {
                             // 被拖行：按下槽 + 整行高倍数位移（无 transition，紧贴鼠标）
@@ -507,7 +575,8 @@ export function ColorEditor({
                           const from = pressedIndex;
                           const to = dropIndex >= 0 ? dropIndex : from;
                           const idx = snapshot.indexOf(stop.id);
-                          const between = from !== to && ((idx >= to && idx < from) || (idx > from && idx <= to));
+                          const between =
+                            from !== to && ((idx >= to && idx < from) || (idx > from && idx <= to));
                           const dir = to > from ? -1 : 1; // 被拖行下移→其他行上移(-1)，反之 +1
                           return {
                             transform: between ? `translateY(${dir * rowH}px)` : "translateY(0px)",
@@ -516,9 +585,13 @@ export function ColorEditor({
                         })()}
                         className={cn(
                           "relative mx-1 grid min-h-10 grid-cols-[20px_52px_26px_1fr_52px] items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors",
-                          dragId === stop.id ? "cursor-grabbing shadow-xl ring-1 ring-neutral-700" : "cursor-grab",
+                          dragId === stop.id
+                            ? "cursor-grabbing shadow-xl ring-1 ring-neutral-700"
+                            : "cursor-grab",
                           isActive ? "bg-neutral-900/80" : "hover:bg-neutral-900/50",
-                          dragOverId === stop.id && dragId !== stop.id && "ring-1 ring-inset ring-neutral-400",
+                          dragOverId === stop.id &&
+                            dragId !== stop.id &&
+                            "ring-1 ring-inset ring-neutral-400",
                         )}
                       >
                         {/* 选择圆点 + 连接相邻圆点的竖线 */}
@@ -618,7 +691,10 @@ export function ColorEditor({
         ) : (
           onSetSolid && (
             <div className="mt-4 flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950/70 p-2">
-              <span className="size-8 rounded-md border border-neutral-700" style={{ backgroundColor: paint.solid }} />
+              <span
+                className="size-8 rounded-md border border-neutral-700"
+                style={{ backgroundColor: paint.solid }}
+              />
               <input
                 value={paint.solid.toUpperCase()}
                 onChange={(event) => {

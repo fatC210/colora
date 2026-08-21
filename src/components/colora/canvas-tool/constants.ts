@@ -29,6 +29,16 @@ export const PRESETS: { value: ShapeType; label: string }[] = [
 ];
 export const INTERP_SPACES: InterpSpace[] = ["rgb", "lab", "lch"];
 
+// 文本笔画可选字体（CSS font-family 值）。
+export const CANVAS_FONTS: { label: string; value: string }[] = [
+  { label: "无衬线", value: "ui-sans-serif, system-ui, sans-serif" },
+  { label: "衬线", value: "ui-serif, Georgia, serif" },
+  { label: "等宽", value: "ui-monospace, monospace" },
+  { label: "黑体", value: "'PingFang SC', 'Microsoft YaHei', sans-serif" },
+  { label: "楷体", value: "'Kaiti SC', 'KaiTi', serif" },
+  { label: "宋体", value: "'SimSun', 'Songti SC', serif" },
+];
+
 export const CANVAS_LAYOUTS: { value: CanvasLayout; label: string }[] = [
   { value: "grid", label: "方格" },
   { value: "blank", label: "空白" },

@@ -1,7 +1,17 @@
 import type { InterpSpace, PathStop, Point, ShapeType } from "@/lib/path-gradient";
 
-export type Mode = "select" | "brush" | "line" | "shape";
-export type StrokeKind = "brush" | "line" | "shape";
+export type Mode =
+  | "select"
+  | "hand"
+  | "rectangle"
+  | "diamond"
+  | "ellipse"
+  | "arrow"
+  | "line"
+  | "brush"
+  | "text"
+  | "eraser";
+export type StrokeKind = "brush" | "line" | "shape" | "text";
 export type PaintMode = "solid" | "gradient";
 export type OverlapMode = "mix" | "cover";
 export type CanvasLayout = "grid" | "blank" | "dots";
@@ -16,6 +26,10 @@ export type Stroke = {
   width: number;
   paint: StrokePaint;
   groupId?: string;
+  // 文本笔画专属（kind === "text"）：points 为单点定位，text 为内容。
+  text?: string;
+  fontSize?: number;
+  fontFamily?: string;
 };
 export type StrokeGroup = {
   id: string;
@@ -28,10 +42,12 @@ export type SelectionBox = { start: Point; end: Point };
 export type SceneSnapshot = { strokes: Stroke[]; groups: StrokeGroup[] };
 export type Draft =
   | { type: "brush"; points: Point[] }
-  | { type: "line" | "shape"; start: Point; end: Point };
+  | { type: "line"; start: Point; end: Point }
+  | { type: "shape"; shape: ShapeType; start: Point; end: Point };
 export type DragState =
   | { type: "move"; last: Point; startStrokes: Stroke[]; startGroups: StrokeGroup[] }
   | { type: "marquee"; start: Point }
+  | { type: "pan"; last: Point } // 空格/中键拖动平移画布视口（屏幕坐标增量直接加到 pan）
   | {
       type: "resize";
       handle: ResizeHandle;

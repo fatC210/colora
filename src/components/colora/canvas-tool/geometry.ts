@@ -27,6 +27,23 @@ export function pointInBounds(point: Point, bounds: Bounds): boolean {
  */
 export function renderBounds(stroke: Stroke): Bounds {
   const points = renderPoints(stroke);
+  // 文本笔画：单点定位 + 估算宽高，使选中框/手柄贴合文本。
+  if (stroke.kind === "text") {
+    const p = points[0];
+    if (!p || !stroke.text) return getBounds(points);
+    const fs = stroke.fontSize ?? 28;
+    const lines = stroke.text.split("\n");
+    const widest = Math.max(...lines.map((l) => l.length)) * fs * 0.6;
+    const h = lines.length * fs * 1.2;
+    return {
+      minX: p.x,
+      minY: p.y,
+      maxX: p.x + widest,
+      maxY: p.y + h,
+      width: widest,
+      height: h,
+    };
+  }
   return getBounds(points);
 }
 

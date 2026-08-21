@@ -24,8 +24,18 @@ const hitThreshold = (stroke: Stroke) => stroke.width / 2 + 0.1;
  * 与包围盒/外框无关。点在线条外的空白处一律不命中。
  */
 export function hitStroke(stroke: Stroke, point: Point) {
-  const points = renderPoints(stroke),
-    threshold = hitThreshold(stroke);
+  const points = renderPoints(stroke);
+  // 文本笔画：包围盒命中（点落在文本框内即命中）。
+  if (stroke.kind === "text") {
+    const p = points[0];
+    if (!p || !stroke.text) return false;
+    const fs = stroke.fontSize ?? 28;
+    const lines = stroke.text.split("\n");
+    const widest = Math.max(...lines.map((l) => l.length)) * fs * 0.6;
+    const h = lines.length * fs * 1.2;
+    return point.x >= p.x && point.x <= p.x + widest && point.y >= p.y && point.y <= p.y + h;
+  }
+  const threshold = hitThreshold(stroke);
   for (let index = 0; index < points.length - 1; index++)
     if (pointToSegmentDistance(point, points[index], points[index + 1]) <= threshold) return true;
   return false;
