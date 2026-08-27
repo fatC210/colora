@@ -11,6 +11,7 @@ import { hexAlphaToCss, hexToRgb, hslToRgb, normalizeHex, rgbToHex, rgbToHsl } f
 import { CANVAS_FONTS, INTERP_SPACES } from "./constants";
 import { clamp } from "./utils";
 import { ColorSlider } from "./ColorSlider";
+import { Tip } from "../primitives";
 import type { InterpSpace, PaintMode, StrokePaint } from "./types";
 
 /** 极简单色风颜色编辑器：HSL 拾色 + 色标行（圆点连线 / 位置% / 颜色方块 / 透明度%）+ 插值空间分段 */
@@ -232,15 +233,16 @@ export function ColorEditor({
             {subtitle && <div className="mt-1 text-[11px] text-neutral-500">{subtitle}</div>}
           </div>
           {onReverse && (
-            <button
-              type="button"
-              onClick={onReverse}
-              title="翻转颜色顺序"
-              aria-label="翻转颜色顺序"
-              className="inline-flex size-7 items-center justify-center rounded-md border border-neutral-700/70 bg-neutral-900 text-neutral-400 transition-colors hover:border-neutral-600 hover:text-neutral-100"
-            >
-              <ArrowUpDown className="size-3.5" />
-            </button>
+            <Tip label="翻转颜色顺序">
+              <button
+                type="button"
+                onClick={onReverse}
+                aria-label="翻转颜色顺序"
+                className="inline-flex size-7 items-center justify-center rounded-md border border-neutral-700/70 bg-neutral-900 text-neutral-400 transition-colors hover:border-neutral-600 hover:text-neutral-100"
+              >
+                <ArrowUpDown className="size-3.5" />
+              </button>
+            </Tip>
           )}
         </div>
 

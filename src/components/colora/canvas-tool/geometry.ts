@@ -1,5 +1,44 @@
 import type { Bounds, Point, ResizeHandle, SelectionBox, Stroke } from "./types";
-import { renderPoints } from "./path";
+import { isClosedShape, renderPoints } from "./path";
+
+/** 线性笔画：开放线条（画笔/直线/箭头/波浪/曲线/螺旋），即非闭合且非文本。 */
+export function isLinearStroke(stroke: Stroke): boolean {
+  return !isClosedShape(stroke) && stroke.kind !== "text";
+}
+
+/** 线性元素每段的中点列表（用于编辑态插入折点手柄）。长度 = points.length - 1。 */
+export function getMidPoints(points: Point[]): Point[] {
+  const mids: Point[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    mids.push({ x: (points[i].x + points[i + 1].x) / 2, y: (points[i].y + points[i + 1].y) / 2 });
+  }
+  return mids;
+}
+
+// 文本度量用的共享 canvas（measureText 需 canvas 上下文）。
+let measureCanvas: HTMLCanvasElement | null = null;
+function getMeasureCtx(): CanvasRenderingContext2D | null {
+  if (typeof document === "undefined") return null;
+  if (!measureCanvas) measureCanvas = document.createElement("canvas");
+  return measureCanvas.getContext("2d");
+}
+/** 精确测量文本笔画的宽高（用 measureText，与 canvas fillText 渲染一致）。 */
+export function textMetrics(stroke: Stroke): { width: number; height: number } {
+  const fs = stroke.fontSize ?? 28;
+  const ff = stroke.fontFamily ?? "sans-serif";
+  const lines = (stroke.text ?? "").split("\n");
+  const ctx = getMeasureCtx();
+  let widest = 0;
+  if (ctx) {
+    ctx.font = `${fs}px ${ff}`;
+    widest = Math.max(...lines.map((l) => ctx.measureText(l || " ").width));
+  } else {
+    widest = Math.max(...lines.map((l) => (l || " ").length)) * fs * 0.6;
+  }
+  // 高度：单行 = fs；多行 = 行间距 1.2*fs × (行数-1) + 末行高 fs（末行不额外加行间距）。
+  const height = lines.length <= 1 ? fs : (lines.length - 1) * fs * 1.2 + fs;
+  return { width: Math.max(widest, fs * 0.5), height };
+}
 
 export function getBounds(points: Point[]): Bounds {
   if (!points.length) return { minX: 0, minY: 0, maxX: 0, maxY: 0, width: 0, height: 0 };
@@ -27,27 +66,73 @@ export function pointInBounds(point: Point, bounds: Bounds): boolean {
  */
 export function renderBounds(stroke: Stroke): Bounds {
   const points = renderPoints(stroke);
-  // 文本笔画：单点定位 + 估算宽高，使选中框/手柄贴合文本。
+  // 文本笔画：用 measureText 精确测量宽高，使选中框/手柄贴合文本。
   if (stroke.kind === "text") {
     const p = points[0];
     if (!p || !stroke.text) return getBounds(points);
-    const fs = stroke.fontSize ?? 28;
-    const lines = stroke.text.split("\n");
-    const widest = Math.max(...lines.map((l) => l.length)) * fs * 0.6;
-    const h = lines.length * fs * 1.2;
+    const { width, height } = textMetrics(stroke);
     return {
       minX: p.x,
       minY: p.y,
-      maxX: p.x + widest,
-      maxY: p.y + h,
-      width: widest,
-      height: h,
+      maxX: p.x + width,
+      maxY: p.y + height,
+      width,
+      height,
     };
   }
   return getBounds(points);
 }
 
-/** 选中笔画的联合包围盒（含线宽 padding）。returns null 表示无选中或无几何。 */
+/** 绕 center 旋转 rad 弧度（顺时针，canvas 坐标系 y 向下）。 */
+export function rotatePoint(p: Point, center: Point, rad: number): Point {
+  const c = Math.cos(rad),
+    s = Math.sin(rad);
+  const dx = p.x - center.x,
+    dy = p.y - center.y;
+  return { x: center.x + dx * c - dy * s, y: center.y + dx * s + dy * c };
+}
+export function rotatePoints(ps: Point[], center: Point, rad: number): Point[] {
+  return ps.map((p) => rotatePoint(p, center, rad));
+}
+/** 旋转中心 = renderBounds(stroke) 中心（angle=0 局部框中心，线性/闭合/文本统一）。 */
+export function strokeCenter(stroke: Stroke): Point {
+  const b = renderBounds(stroke);
+  return { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 };
+}
+/** 指针（世界）→ angle=0 局部坐标系：绕中心逆旋转 -angle。统一逆旋转入口。 */
+export function toLocalPoint(stroke: Stroke, point: Point): Point {
+  const a = stroke.angle ?? 0;
+  if (a === 0) return point;
+  return rotatePoint(point, strokeCenter(stroke), -a);
+}
+/** angle=0 局部点 → 世界：绕中心正向旋转 angle。手柄显示用。 */
+export function toWorldPoint(stroke: Stroke, point: Point): Point {
+  const a = stroke.angle ?? 0;
+  if (a === 0) return point;
+  return rotatePoint(point, strokeCenter(stroke), a);
+}
+/** 旋转后形状的世界轴对齐包围盒（renderBounds 四角绕中心旋转 angle 后取 min/max）。 */
+export function worldBounds(stroke: Stroke): Bounds {
+  const b = renderBounds(stroke);
+  const a = stroke.angle ?? 0;
+  if (a === 0) return b;
+  const c = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 };
+  const corners = [
+    { x: b.minX, y: b.minY },
+    { x: b.maxX, y: b.minY },
+    { x: b.maxX, y: b.maxY },
+    { x: b.minX, y: b.maxY },
+  ].map((p) => rotatePoint(p, c, a));
+  const xs = corners.map((p) => p.x),
+    ys = corners.map((p) => p.y);
+  const minX = Math.min(...xs),
+    maxX = Math.max(...xs),
+    minY = Math.min(...ys),
+    maxY = Math.max(...ys);
+  return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+/** 选中笔画的联合包围盒（含线宽 padding，基于旋转后世界 AABB）。returns null 表示无选中或无几何。 */
 export function selectionBounds(strokes: Stroke[]): Bounds | null {
   if (!strokes.length) return null;
   let minX = Infinity,
@@ -56,14 +141,35 @@ export function selectionBounds(strokes: Stroke[]): Bounds | null {
     maxY = -Infinity;
   for (const s of strokes) {
     if (!s.points.length) continue;
-    const b = renderBounds(s);
-    // padding 仅含线宽半宽，不加额外 8px：手柄与选中框都紧贴线条本体，
-    // 与命中范围一致（所见即所点）。
-    const pad = s.width / 2;
+    const b = worldBounds(s);
+    // padding：线条用线宽半宽（紧贴本体）；文本给固定间距，使选中框不贴死文字。
+    const pad = s.kind === "text" ? Math.max((s.fontSize ?? 28) * 0.12, 6) : s.width / 2;
     if (b.minX - pad < minX) minX = b.minX - pad;
     if (b.minY - pad < minY) minY = b.minY - pad;
     if (b.maxX + pad > maxX) maxX = b.maxX + pad;
     if (b.maxY + pad > maxY) maxY = b.maxY + pad;
+  }
+  if (!Number.isFinite(minX)) return null;
+  return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+/**
+ * 选中笔画点的联合真实包围盒（不含 padding，基于旋转后世界 AABB）。
+ * 供 zoomToFit/导出用：以旋转后形状的实际可见范围为基准。
+ */
+export function unionWorldBounds(strokes: Stroke[]): Bounds | null {
+  if (!strokes.length) return null;
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  for (const s of strokes) {
+    if (!s.points.length) continue;
+    const b = worldBounds(s);
+    if (b.minX < minX) minX = b.minX;
+    if (b.minY < minY) minY = b.minY;
+    if (b.maxX > maxX) maxX = b.maxX;
+    if (b.maxY > maxY) maxY = b.maxY;
   }
   if (!Number.isFinite(minX)) return null;
   return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };

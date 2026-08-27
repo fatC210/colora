@@ -333,11 +333,12 @@ export function Swatch({
   const label = title ?? hex;
   if (!onClick) {
     return (
-      <div
-        title={label}
-        style={{ backgroundColor: hex }}
-        className={cn("rounded-md border border-border/60", className)}
-      />
+      <Tip label={label}>
+        <div
+          style={{ backgroundColor: hex }}
+          className={cn("rounded-md border border-border/60", className)}
+        />
+      </Tip>
     );
   }
   return (

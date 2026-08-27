@@ -37,6 +37,20 @@ export type ShapeType =
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 
+/** 边框样式（对标 Excalidraw StrokeStyle）。 */
+export type StrokeStyle = "solid" | "dashed" | "dotted";
+
+/**
+ * 由 strokeStyle + 线宽算 canvas setLineDash 数组（对标 Excalidraw：
+ * dashed=[8, 8+w], dotted=[1.5, 6+w]；round lineCap 让 dotted 的短实段成圆点）。
+ * solid 返回 undefined（清 dash）。
+ */
+export function strokeDashArray(style: StrokeStyle, width: number): number[] | undefined {
+  if (style === "dashed") return [8, 8 + width];
+  if (style === "dotted") return [1.5, 6 + width];
+  return undefined;
+}
+
 /** 累计弧长数组，length = points.length，首项为 0 */
 export function arcLengths(points: Point[]): number[] {
   const cum: number[] = [0];
@@ -201,7 +215,50 @@ export function tessellate(points: Point[], maxSeg = 3, closed = false): Point[]
   return out;
 }
 
-/** 沿密折线逐小段以插值色描边。调用方负责设置 globalCompositeOperation（mix 模式应先画到离屏） */
+/**
+ * Catmull-Rom 转贝塞尔后采样为密折线（对标 Excalidraw/roughjs 的 gen.curve：
+ * roundness 元素用过控制点的平滑曲线，而非直线段）。
+ * 对每段 (p[i-1], p[i], p[i+1], p[i+2]) 求三次贝塞尔控制点：
+ *   cp1 = p[i] + (p[i+1]-p[i-1])/6, cp2 = p[i+1] - (p[i+2]-p[i])/6
+ * 端点用镜像虚拟点（曲线首尾经过端点，切向沿首/末段方向）。
+ * 返回密分点（≤ maxSeg 像素一段），可直接喂给现有 drawPath/drawGradientStroke/toPathData/命中。
+ */
+export function curvePoints(points: Point[], maxSeg = 2): Point[] {
+  const n = points.length;
+  if (n < 3) return points.map((p) => ({ ...p })); // 两点直线，无需平滑
+  // 镜像虚拟首末点，使曲线经过 p0/pN 且切向沿首/末段。
+  const p = [
+    { x: 2 * points[0].x - points[1].x, y: 2 * points[0].y - points[1].y },
+    ...points,
+    { x: 2 * points[n - 1].x - points[n - 2].x, y: 2 * points[n - 1].y - points[n - 2].y },
+  ];
+  const out: Point[] = [{ ...points[0] }];
+  for (let i = 1; i <= n - 1; i++) {
+    const p0 = p[i - 1],
+      p1 = p[i],
+      p2 = p[i + 1],
+      p3 = p[i + 2];
+    const cp1 = { x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6 };
+    const cp2 = { x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6 };
+    const d = distance(p1, p2);
+    const steps = Math.max(1, Math.ceil(d / maxSeg));
+    for (let s = 1; s <= steps; s++) {
+      const t = s / steps;
+      const mt = 1 - t;
+      // 三次贝塞尔 B(t) = (1-t)^3 p1 + 3(1-t)^2 t cp1 + 3(1-t) t^2 cp2 + t^3 p2
+      const x =
+        mt * mt * mt * p1.x + 3 * mt * mt * t * cp1.x + 3 * mt * t * t * cp2.x + t * t * t * p2.x;
+      const y =
+        mt * mt * mt * p1.y + 3 * mt * mt * t * cp1.y + 3 * mt * t * t * cp2.y + t * t * t * p2.y;
+      out.push({ x, y });
+    }
+  }
+  return out;
+}
+
+/** 沿密折线逐小段以插值色描边。调用方负责设置 globalCompositeOperation（mix 模式应先画到离屏）。
+ * dash 非空时应用虚线/点线：逐段独立 stroke，但 setLineDash + lineDashOffset 按段在整条
+ * 中的累计弧长设置，使 dash 相位跨段连续（点间距正确）；round-cap 让 dotted 的短实段成圆点。 */
 export function drawGradientStroke(
   ctx: CanvasRenderingContext2D,
   points: Point[],
@@ -209,6 +266,7 @@ export function drawGradientStroke(
   space: InterpSpace,
   width: number,
   closed = false,
+  dash?: number[],
 ) {
   if (points.length < 2) return;
   const dense = tessellate(points, 1.5, closed);
@@ -217,15 +275,21 @@ export function drawGradientStroke(
   ctx.lineWidth = width;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
+  if (dash) ctx.setLineDash(dash);
   for (let i = 0; i < dense.length - 1; i++) {
     const a = dense[i],
       b = dense[i + 1];
     const midLen = cum[i] + distance(a, b) / 2;
     ctx.strokeStyle = colorAtPercent(stops, lengthToPercent(midLen, total), space);
+    if (dash) ctx.lineDashOffset = -cum[i];
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
     ctx.lineTo(b.x, b.y);
     ctx.stroke();
+  }
+  if (dash) {
+    ctx.setLineDash([]);
+    ctx.lineDashOffset = 0;
   }
 }
 
@@ -260,6 +324,30 @@ export function svgGradientStroke(
 }
 
 // ---- 形状点生成（供 CanvasTool 的形状工具与预设路径复用）----
+
+/**
+ * 箭头头部三角形的三个顶点 [w1, tip, w2]（按杆方向从 end 指向两侧）。
+ * 对标 Excalidraw：头部独立于杆几何，尺寸与线宽挂钩（2.5×线宽，最小 12，最大 40）。
+ * 渲染时叠加在杆末端，杆缩放/平移时头部自动跟随重算。
+ */
+export function arrowHeadPoints(start: Point, end: Point, strokeWidth: number): Point[] {
+  const dx = end.x - start.x,
+    dy = end.y - start.y,
+    len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len,
+    uy = dy / len;
+  const headLen = Math.min(40, Math.max(12, strokeWidth * 2.5));
+  const halfAngle = (25 * Math.PI) / 180; // 头部半张角 25°
+  const wing = headLen * Math.tan(halfAngle);
+  // 头部从 tip 沿反方向（-u）回退 headLen 到根部，再左右各偏 wing。
+  const back = { x: end.x - ux * headLen, y: end.y - uy * headLen };
+  // 垂直于杆方向的单位法向量
+  const nx = -uy,
+    ny = ux;
+  const w1 = { x: back.x + nx * wing, y: back.y + ny * wing };
+  const w2 = { x: back.x - nx * wing, y: back.y - ny * wing };
+  return [w1, end, w2];
+}
 
 export function shapePoints(shape: ShapeType, start: Point, end: Point): Point[] {
   const minX = Math.min(start.x, end.x),
@@ -307,33 +395,10 @@ export function shapePoints(shape: ShapeType, start: Point, end: Point): Point[]
       { x: minX, y: cy },
     ];
   if (shape === "arrow") {
-    // 箭头：从 start 中心方向画杆到 end，末端加两条翼。
-    const sx = minX + width / 2,
-      sy = minY + height / 2;
-    const dx = end.x - sx,
-      dy = end.y - sy,
-      len = Math.hypot(dx, dy) || 1;
-    const ux = dx / len,
-      uy = dy / len;
-    const headLen = Math.min(len * 0.3, Math.max(12, len * 0.18));
-    const wing = headLen * Math.tan((25 * Math.PI) / 180);
-    // 杆起点略后退，使箭头视觉从 start 出发
-    const base = { x: sx - ux * 0, y: sy - uy * 0 };
-    const tip = { x: end.x, y: end.y };
-    const wingAngle = Math.PI - (25 * Math.PI) / 180;
-    const cos = Math.cos(wingAngle),
-      sin = Math.sin(wingAngle);
-    const w1 = {
-      x: tip.x + (ux * cos - uy * sin) * headLen,
-      y: tip.y + (ux * sin + uy * cos) * headLen,
-    };
-    const cos2 = Math.cos(-wingAngle),
-      sin2 = Math.sin(-wingAngle);
-    const w2 = {
-      x: tip.x + (ux * cos2 - uy * sin2) * headLen,
-      y: tip.y + (ux * sin2 + uy * cos2) * headLen,
-    };
-    return [base, tip, w1, tip, w2];
+    // 箭头存为两点 [start, end]（与直线同构），头部由 arrowHeadPoints 渲染时叠加。
+    // 对标 Excalidraw：杆是开放线段，箭头头部独立绘制，不混入折线几何，
+    // 避免闭合回穿线/点手柄破坏几何等问题。
+    return [start, end];
   }
   if (shape === "triangle" || shape === "pentagon" || shape === "star") {
     const sides = shape === "triangle" ? 3 : shape === "pentagon" ? 5 : 12;

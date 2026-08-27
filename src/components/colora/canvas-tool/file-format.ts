@@ -101,6 +101,7 @@ const VALID_SHAPES = [
   "wave",
   "curve",
   "spiral",
+  "arrow",
 ];
 
 /** restore 单个 stroke：补默认字段、规整点坐标、规整 paint，抵御旧版本/手改文件。 */
@@ -148,16 +149,32 @@ function restoreStroke(raw: unknown, fallback: Stroke): Stroke {
       )
     : fallback.paint.stops;
 
+  // 箭头统一存为两点 [start, end]：旧版本可能存了 5 点折线 [base, tip, w1, tip, w2]，
+  // 迁移为首点→第二点（tip）的两点；多余点丢弃。新版本 shapePoints("arrow") 已返回两点。
+  const arrowPoints =
+    shape === "arrow" && points.length !== 2 && points.length >= 2
+      ? [points[0], points[1]]
+      : points;
+
+  const roundness: Stroke["roundness"] =
+    raw.roundness === "round" ? "round" : raw.roundness === "sharp" ? "sharp" : undefined;
+  const strokeStyle: Stroke["strokeStyle"] =
+    raw.strokeStyle === "dashed" ? "dashed" : raw.strokeStyle === "dotted" ? "dotted" : undefined;
+  const angle: Stroke["angle"] = isFiniteNum(raw.angle) ? (raw.angle as number) : undefined;
+
   return {
     id: typeof raw.id === "string" && raw.id.length > 0 ? raw.id : fallback.id,
     name: typeof raw.name === "string" ? raw.name : fallback.name,
     kind: validKind,
     ...(shape ? { shape } : {}),
-    points: points.length ? points : fallback.points,
+    points: arrowPoints.length ? arrowPoints : fallback.points,
     width:
       isFiniteNum(raw.width) && (raw.width as number) > 0 ? (raw.width as number) : fallback.width,
     paint: { mode, solid, stops, space },
     ...(typeof raw.groupId === "string" ? { groupId: raw.groupId } : {}),
+    ...(roundness ? { roundness } : {}),
+    ...(strokeStyle ? { strokeStyle } : {}),
+    ...(angle ? { angle } : {}),
   };
 }
 

@@ -69,20 +69,20 @@ function NavItem({
   buttonRef?: (node: HTMLButtonElement | null) => void;
 }) {
   return (
-    <button
-      ref={buttonRef}
-      type="button"
-      onClick={onClick}
-      title={label}
-      data-label={label}
-      data-active={active ? "true" : undefined}
-      className={cn(
-        "colora-sidebar-button relative flex w-full flex-col items-center rounded-lg text-[11px]",
-        active
-          ? "bg-sidebar-accent font-medium text-sidebar-foreground"
-          : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-      )}
-    >
+    <Tip label={label}>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={onClick}
+        data-label={label}
+        data-active={active ? "true" : undefined}
+        className={cn(
+          "colora-sidebar-button relative flex w-full flex-col items-center rounded-lg text-[11px]",
+          active
+            ? "bg-sidebar-accent font-medium text-sidebar-foreground"
+            : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+        )}
+      >
       <Icon className="size-5" strokeWidth={1.6} />
       <span className="colora-sidebar-label leading-none">
         {label === "对比度检查" ? (
@@ -99,7 +99,8 @@ function NavItem({
           {badge}
         </span>
       )}
-    </button>
+      </button>
+    </Tip>
   );
 }
 
@@ -109,32 +110,33 @@ function ColorBlindAction({ variant }: { variant: ActionVariant }) {
   const active = cbMode !== "none";
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          title="色盲模拟"
-          aria-label="色盲模拟"
-          data-active={active ? "true" : undefined}
-          className={cn(
-            "colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px]",
-            variant === "topbar" && "colora-action-button-topbar",
-            active
-              ? "bg-sidebar-accent font-medium text-sidebar-foreground"
-              : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-          )}
-        >
-          <Eye
-            className="size-5"
-            strokeWidth={1.6}
-            style={{
-              color: active ? CB_ICON_COLORS[cbMode as Exclude<CBMode, "none">] : undefined,
-            }}
-          />
-          {variant === "sidebar" && (
-            <span className="colora-sidebar-label leading-none">色盲模拟</span>
-          )}
-        </button>
-      </PopoverTrigger>
+      <Tip label="色盲模拟">
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label="色盲模拟"
+            data-active={active ? "true" : undefined}
+            className={cn(
+              "colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px]",
+              variant === "topbar" && "colora-action-button-topbar",
+              active
+                ? "bg-sidebar-accent font-medium text-sidebar-foreground"
+                : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+            )}
+          >
+            <Eye
+              className="size-5"
+              strokeWidth={1.6}
+              style={{
+                color: active ? CB_ICON_COLORS[cbMode as Exclude<CBMode, "none">] : undefined,
+              }}
+            />
+            {variant === "sidebar" && (
+              <span className="colora-sidebar-label leading-none">色盲模拟</span>
+            )}
+          </button>
+        </PopoverTrigger>
+      </Tip>
       <PopoverContent
         side={variant === "topbar" ? "bottom" : "right"}
         align="end"
@@ -166,28 +168,29 @@ function ColorBlindAction({ variant }: { variant: ActionVariant }) {
 function ThemeAction({ variant }: { variant: ActionVariant }) {
   const { theme, toggleTheme } = useColora();
   return (
-    <button
-      type="button"
-      onClick={toggleTheme}
-      title="深浅色切换"
-      aria-label="深浅色切换"
-      className={cn(
-        "colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px]",
-        variant === "topbar" && "colora-action-button-topbar",
-        "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-      )}
-    >
-      {theme === "dark" ? (
-        <Sun className="size-5" strokeWidth={1.6} />
-      ) : (
-        <Moon className="size-5" strokeWidth={1.6} />
-      )}
-      {variant === "sidebar" && (
-        <span className="colora-sidebar-label leading-none">
-          {theme === "dark" ? "浅色" : "深色"}
-        </span>
-      )}
-    </button>
+    <Tip label="深浅色切换">
+      <button
+        type="button"
+        onClick={toggleTheme}
+        aria-label="深浅色切换"
+        className={cn(
+          "colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px]",
+          variant === "topbar" && "colora-action-button-topbar",
+          "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+        )}
+      >
+        {theme === "dark" ? (
+          <Sun className="size-5" strokeWidth={1.6} />
+        ) : (
+          <Moon className="size-5" strokeWidth={1.6} />
+        )}
+        {variant === "sidebar" && (
+          <span className="colora-sidebar-label leading-none">
+            {theme === "dark" ? "浅色" : "深色"}
+          </span>
+        )}
+      </button>
+    </Tip>
   );
 }
 
@@ -218,33 +221,34 @@ function AccountAction({ variant }: { variant: ActionVariant }) {
 
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          title={user ? `已登录：${user}` : "登录"}
-          aria-label={user ? `已登录：${user}` : "登录"}
-          data-signed-in={user ? "true" : undefined}
-          className={cn(
-            "colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px]",
-            variant === "topbar" && "colora-action-button-topbar",
-            user ? "text-sidebar-foreground" : "text-muted-foreground",
-            "hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-          )}
-        >
-          {avatarInitial ? (
-            <Avatar className="colora-sidebar-avatar size-6 border border-sidebar-border bg-sidebar-primary text-sidebar-primary-foreground">
-              <AvatarFallback className="bg-sidebar-primary text-[11px] font-semibold text-sidebar-primary-foreground">
-                {avatarInitial}
-              </AvatarFallback>
-            </Avatar>
-          ) : (
-            <User className="size-5" strokeWidth={1.6} />
-          )}
-          {variant === "sidebar" && (
-            <span className="colora-sidebar-label leading-none">{user ? "已登录" : "登录"}</span>
-          )}
-        </button>
-      </PopoverTrigger>
+      <Tip label={user ? `已登录：${user}` : "登录"}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label={user ? `已登录：${user}` : "登录"}
+            data-signed-in={user ? "true" : undefined}
+            className={cn(
+              "colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px]",
+              variant === "topbar" && "colora-action-button-topbar",
+              user ? "text-sidebar-foreground" : "text-muted-foreground",
+              "hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+            )}
+          >
+            {avatarInitial ? (
+              <Avatar className="colora-sidebar-avatar size-6 border border-sidebar-border bg-sidebar-primary text-sidebar-primary-foreground">
+                <AvatarFallback className="bg-sidebar-primary text-[11px] font-semibold text-sidebar-primary-foreground">
+                  {avatarInitial}
+                </AvatarFallback>
+              </Avatar>
+            ) : (
+              <User className="size-5" strokeWidth={1.6} />
+            )}
+            {variant === "sidebar" && (
+              <span className="colora-sidebar-label leading-none">{user ? "已登录" : "登录"}</span>
+            )}
+          </button>
+        </PopoverTrigger>
+      </Tip>
       <PopoverContent
         side={variant === "topbar" ? "bottom" : "right"}
         align="end"

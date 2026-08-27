@@ -1,14 +1,26 @@
 import {
+  arrowHeadPoints,
+  colorAtPercent,
+  curvePoints,
   drawGradientStroke,
   shapePoints as makeShapePoints,
+  strokeDashArray,
   svgGradientStroke,
 } from "@/lib/path-gradient";
 import { GRID_STEP } from "./constants";
 import { escapeAttr } from "./io";
+import { hexAlphaToCss } from "@/lib/color";
 import { drawPath, isClosedShape, paintSource, renderPoints, toPathData } from "./path";
-import { renderBounds, selectionBounds } from "./geometry";
+import {
+  renderBounds,
+  selectionBounds,
+  strokeCenter,
+  textMetrics,
+  isLinearStroke,
+} from "./geometry";
 import { gridColors } from "./tone";
-import type { CanvasLayout, Draft, OverlapMode, Size, Stroke, StrokeGroup } from "./types";
+import { clamp } from "./utils";
+import type { CanvasLayout, Draft, OverlapMode, Point, Size, Stroke, StrokeGroup } from "./types";
 
 // mix 模式下供笔画间 multiply 合成用的临时离屏画布（模块级复用，避免每帧重建）。
 let mixTmpCanvas: HTMLCanvasElement | null = null;
@@ -27,10 +39,17 @@ export function drawBackground(
   size: Size,
   layout: CanvasLayout,
   bg: string,
+  pan: Point,
+  zoom: number,
 ) {
-  const { w, h } = size;
+  // 可见画布坐标范围（视口屏幕 [0,size] → 画布坐标 [(-pan)/zoom, (size-pan)/zoom]），
+  // 背景与网格覆盖整个视口，使无限画布在任何 pan/zoom 下都有连续背景。
+  const minX = -pan.x / zoom;
+  const maxX = (size.w - pan.x) / zoom;
+  const minY = -pan.y / zoom;
+  const maxY = (size.h - pan.y) / zoom;
   ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, w, h);
+  ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
   if (layout === "blank") return;
   const { line, dot } = gridColors(bg);
   ctx.save();
@@ -38,21 +57,25 @@ export function drawBackground(
   ctx.fillStyle = dot;
   if (layout === "grid") {
     ctx.lineWidth = 1;
-    for (let x = GRID_STEP; x < w; x += GRID_STEP) {
+    const startX = Math.ceil(minX / GRID_STEP) * GRID_STEP;
+    const startY = Math.ceil(minY / GRID_STEP) * GRID_STEP;
+    for (let x = startX; x <= maxX; x += GRID_STEP) {
       ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
+      ctx.moveTo(x, minY);
+      ctx.lineTo(x, maxY);
       ctx.stroke();
     }
-    for (let y = GRID_STEP; y < h; y += GRID_STEP) {
+    for (let y = startY; y <= maxY; y += GRID_STEP) {
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
+      ctx.moveTo(minX, y);
+      ctx.lineTo(maxX, y);
       ctx.stroke();
     }
   } else if (layout === "dots") {
-    for (let x = GRID_STEP; x < w; x += GRID_STEP)
-      for (let y = GRID_STEP; y < h; y += GRID_STEP) {
+    const startX = Math.ceil(minX / GRID_STEP) * GRID_STEP;
+    const startY = Math.ceil(minY / GRID_STEP) * GRID_STEP;
+    for (let x = startX; x <= maxX; x += GRID_STEP)
+      for (let y = startY; y <= maxY; y += GRID_STEP) {
         ctx.beginPath();
         ctx.arc(x, y, 1.2, 0, Math.PI * 2);
         ctx.fill();
@@ -75,6 +98,11 @@ export function renderScene({
   showBackground = true,
   showSelection = true,
   selectionAsGroup = false,
+  skipTextId = null,
+  pan = { x: 0, y: 0 },
+  zoom = 1,
+  draftStyle,
+  hideSelectionBox = false,
 }: {
   ctx: CanvasRenderingContext2D;
   size: Size;
@@ -90,44 +118,127 @@ export function renderScene({
   showSelection?: boolean;
   /** 选中态是否画成一个包围所有选中笔画的联合大框（用于组合选中）。 */
   selectionAsGroup?: boolean;
+  /** 编辑中的文本笔画 id：渲染时跳过该笔画（由 textarea 覆盖显示），避免重叠。 */
+  skipTextId?: string | null;
+  /** 视口偏移与缩放，用于绘制覆盖整个视口的无限背景。默认无偏移（导出场景）。 */
+  pan?: Point;
+  zoom?: number;
+  /** 绘制预览（draft）的样式：实线 + 最终颜色/宽度，所见即所得。 */
+  draftStyle?: { color: string; width: number };
+  /** 是否隐藏矩形选中框（线性元素编辑态/拖点中，由点手柄替代外框）。 */
+  hideSelectionBox?: boolean;
 }) {
   const { w, h } = size;
   if (w === 0 || h === 0) return;
   ctx.clearRect(0, 0, w, h);
-  if (showBackground) drawBackground(ctx, size, bgLayout, bgColor);
+  if (showBackground) drawBackground(ctx, size, bgLayout, bgColor, pan, zoom);
 
   const drawStroke = (target: CanvasRenderingContext2D, stroke: Stroke) => {
+    const a = stroke.angle ?? 0;
+    const c = a ? strokeCenter(stroke) : null;
+    target.save();
+    if (c) {
+      // 旋转态：绕包围盒中心旋转 angle（points 仍是 angle=0 坐标，变换后画出即旋转效果）。
+      target.translate(c.x, c.y);
+      target.rotate(a);
+      target.translate(-c.x, -c.y);
+    }
     const points = renderPoints(stroke);
-    // 文本笔画：单点定位 + fillText，不参与路径描边/沿路径渐变。
+    // 线性圆角元素：绘制用 Catmull-Rom 平滑曲线点（对标 Excalidraw roundness）；
+    // 命中/手柄/resize 仍用原始控制点（renderPoints），不受影响。
+    const drawPts =
+      stroke.roundness === "round" && isLinearStroke(stroke) && points.length >= 3
+        ? curvePoints(points)
+        : points;
+    // 文本笔画：单点定位 + fillText。纯色用 solid；渐变沿文本水平方向用 createLinearGradient。
     if (stroke.kind === "text") {
       const p = points[0];
-      if (!p || !stroke.text) return;
+      if (!p || !stroke.text) {
+        target.restore();
+        return;
+      }
       const source = paintSource(stroke, groups, overlapMode);
-      const color = source.mode === "solid" ? source.solid : (source.stops[0]?.hex ?? "#000000");
-      target.save();
-      target.fillStyle = color;
-      target.textBaseline = "top";
-      target.font = `${stroke.fontSize ?? 28}px ${stroke.fontFamily ?? "sans-serif"}`;
-      // 多行文本按换行逐行绘制。
-      const lines = stroke.text.split("\n");
       const fs = stroke.fontSize ?? 28;
+      const ff = stroke.fontFamily ?? "sans-serif";
+      target.textBaseline = "top";
+      target.font = `${fs}px ${ff}`;
+      const lines = stroke.text.split("\n");
+      if (source.mode === "solid" || !source.stops.length) {
+        target.fillStyle =
+          source.mode === "solid" ? source.solid : (source.stops[0]?.hex ?? "#000");
+      } else {
+        // 水平线性渐变，跨文本宽度，按 stops 的 pos(0..100)/alpha 构造。
+        const { width } = textMetrics(stroke);
+        const grad = target.createLinearGradient(p.x, 0, p.x + width, 0);
+        for (const s of source.stops) {
+          const offset = clamp(s.pos / 100, 0, 1);
+          grad.addColorStop(offset, hexAlphaToCss(s.hex, s.alpha));
+        }
+        target.fillStyle = grad;
+      }
       lines.forEach((line, i) => target.fillText(line, p.x, p.y + i * fs * 1.2));
       target.restore();
       return;
     }
-    if (points.length < 2) return;
+    if (points.length < 2) {
+      target.restore();
+      return;
+    }
     const source = paintSource(stroke, groups, overlapMode);
     const closed = isClosedShape(stroke);
+    const isArrow = stroke.shape === "arrow";
+    const dash = strokeDashArray(stroke.strokeStyle ?? "solid", stroke.width);
     if (source.mode === "solid") {
-      drawPath(target, points, closed);
-      target.strokeStyle = source.solid;
-      target.lineWidth = stroke.width;
-      target.lineCap = "round";
-      target.lineJoin = "round";
-      target.stroke();
+      // 箭头：杆画整条折线（支持中点变弯后的多点杆），头部从末端方向画两条边。
+      if (isArrow) {
+        const s = points[0];
+        const e = points[points.length - 1];
+        // 头部方向取最后一段，使弯曲杆的箭头朝向末段方向。
+        const prev = points[points.length - 2] ?? s;
+        const head = arrowHeadPoints(prev, e, stroke.width);
+        target.strokeStyle = source.solid;
+        target.lineWidth = stroke.width;
+        target.lineCap = "round";
+        target.lineJoin = "round";
+        if (dash) target.setLineDash(dash);
+        drawPath(target, drawPts, false);
+        target.stroke();
+        if (dash) target.setLineDash([]);
+        drawPath(target, head, false);
+        target.stroke();
+      } else {
+        drawPath(target, drawPts, closed);
+        target.strokeStyle = source.solid;
+        target.lineWidth = stroke.width;
+        target.lineCap = "round";
+        target.lineJoin = "round";
+        if (dash) target.setLineDash(dash);
+        target.stroke();
+        if (dash) target.setLineDash([]);
+      }
     } else {
-      drawGradientStroke(target, points, source.stops, source.space, stroke.width, closed);
+      if (isArrow) {
+        const e = points[points.length - 1];
+        const prev = points[points.length - 2] ?? points[0];
+        const head = arrowHeadPoints(prev, e, stroke.width);
+        // 杆走沿路径渐变（整条折线/曲线，支持虚线/点线连续 dash）；头部用末端色单色画。
+        drawGradientStroke(target, drawPts, source.stops, source.space, stroke.width, false, dash);
+        const tipColor = source.stops.length
+          ? colorAtPercent(source.stops, 100, source.space)
+          : source.solid;
+        target.strokeStyle = tipColor;
+        target.lineWidth = stroke.width;
+        target.lineCap = "round";
+        target.lineJoin = "round";
+        if (dash) target.setLineDash(dash);
+        drawPath(target, head, false);
+        target.stroke();
+        if (dash) target.setLineDash([]);
+      } else {
+        drawGradientStroke(target, drawPts, source.stops, source.space, stroke.width, closed, dash);
+      }
     }
+    target.restore();
   };
 
   ctx.save();
@@ -167,6 +278,8 @@ export function renderScene({
   const rendered = new Set<string>();
   for (const stroke of strokes) {
     if (rendered.has(stroke.id)) continue;
+    // 编辑中的文本由 textarea 覆盖显示，跳过 canvas 渲染避免重叠。
+    if (skipTextId && stroke.id === skipTextId) continue;
     const gid = stroke.groupId;
     if (overlapMode === "mix" && gid) {
       const groupStrokes = strokes.filter((s) => s.groupId === gid);
@@ -180,43 +293,81 @@ export function renderScene({
   ctx.restore();
 
   if (draft) {
-    const points =
-      draft.type === "brush"
-        ? draft.points
-        : draft.type === "line"
-          ? [draft.start, draft.end]
-          : makeShapePoints(draft.shape, draft.start, draft.end);
     ctx.save();
-    ctx.setLineDash([10, 8]);
-    ctx.strokeStyle = "rgba(2, 132, 199, 0.9)";
-    ctx.lineWidth = 3;
-    drawPath(ctx, points, draft.type === "shape");
-    ctx.stroke();
+    // 实时预览：实线 + 最终颜色/宽度（对标 Excalidraw，绘制时即所见即所得，不用虚线）。
+    ctx.strokeStyle = draftStyle?.color ?? "rgba(2, 132, 199, 0.9)";
+    ctx.lineWidth = draftStyle?.width ?? 3;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    if (draft.type === "shape" && draft.shape === "arrow") {
+      // 箭头 draft：杆画到 tip + 头部两条边（与正式 stroke 同一几何）。
+      const head = arrowHeadPoints(draft.start, draft.end, draftStyle?.width ?? 3);
+      drawPath(ctx, [draft.start, draft.end], false);
+      ctx.stroke();
+      drawPath(ctx, head, false);
+      ctx.stroke();
+    } else {
+      const points =
+        draft.type === "brush"
+          ? draft.points
+          : draft.type === "line"
+            ? [draft.start, draft.end]
+            : makeShapePoints(draft.shape, draft.start, draft.end);
+      const draftClosed =
+        draft.type === "shape" &&
+        draft.shape !== "wave" &&
+        draft.shape !== "curve" &&
+        draft.shape !== "spiral" &&
+        draft.shape !== "arrow";
+      drawPath(ctx, points, draftClosed);
+      ctx.stroke();
+    }
     ctx.restore();
   }
-  if (showSelection && selectedIds.length) {
+  if (showSelection && selectedIds.length && !hideSelectionBox) {
     ctx.save();
     ctx.globalCompositeOperation = "source-over";
     ctx.strokeStyle = "rgba(37, 99, 235, 0.92)";
-    ctx.lineWidth = 2;
-    ctx.setLineDash([8, 6]);
-    const selected = strokes.filter((stroke) => selectedIds.includes(stroke.id));
+    ctx.lineWidth = 1;
+    const selected = strokes.filter(
+      (stroke) => selectedIds.includes(stroke.id) && !(skipTextId && stroke.id === skipTextId),
+    );
     if (selectionAsGroup && selected.length > 1) {
-      // 组合选中：画一个包围所有选中笔画的联合大框，而非每条线一个小框。
+      // 组合选中：画一个包围所有选中笔画的联合大框。
       const bounds = selectionBounds(selected);
       if (bounds) ctx.strokeRect(bounds.minX, bounds.minY, bounds.width, bounds.height);
     } else {
       selected.forEach((stroke) => {
+        // 对标 Excalidraw：两点直线/箭头无外框（仅端点手柄）；
+        // 多点线/箭头有外框 + 方形 resize（与点手柄共存）；画笔/闭合形状/文本有外框。
+        if (isLinearStroke(stroke) && renderPoints(stroke).length <= 2 && stroke.kind !== "text")
+          return;
         const bounds = renderBounds(stroke),
-          // 选中框紧贴线条本体（仅含线宽半宽 padding，不加额外 8px），
-          // 使外框范围 == 命中范围：所见即所点，框外空白一律不选中。
-          padding = stroke.width / 2;
-        ctx.strokeRect(
-          bounds.minX - padding,
-          bounds.minY - padding,
-          bounds.width + padding * 2,
-          bounds.height + padding * 2,
-        );
+          padding =
+            stroke.kind === "text" ? Math.max((stroke.fontSize ?? 28) * 0.12, 6) : stroke.width / 2;
+        // 旋转态：绕包围盒中心旋转后画矩形（与元素旋转一致）。
+        const a = stroke.angle ?? 0;
+        if (a) {
+          const c = strokeCenter(stroke);
+          ctx.save();
+          ctx.translate(c.x, c.y);
+          ctx.rotate(a);
+          ctx.translate(-c.x, -c.y);
+          ctx.strokeRect(
+            bounds.minX - padding,
+            bounds.minY - padding,
+            bounds.width + padding * 2,
+            bounds.height + padding * 2,
+          );
+          ctx.restore();
+        } else {
+          ctx.strokeRect(
+            bounds.minX - padding,
+            bounds.minY - padding,
+            bounds.width + padding * 2,
+            bounds.height + padding * 2,
+          );
+        }
       });
     }
     ctx.restore();
@@ -257,13 +408,27 @@ export function createSvg(
   const groupsXml: string[] = [];
   const mix = overlapMode === "mix";
   strokes.forEach((stroke) => {
+    const parts: string[] = [];
+    // 旋转态：输出包 <g rotate>，使整条 stroke（含箭头两 path/文本 defs+text/渐变 defs）一起旋转。
+    const a = stroke.angle ?? 0;
+    const flush = () => {
+      if (!parts.length) return;
+      if (a) {
+        const c = strokeCenter(stroke);
+        const deg = ((a * 180) / Math.PI).toFixed(2);
+        groupsXml.push(
+          `<g transform="rotate(${deg} ${c.x.toFixed(1)} ${c.y.toFixed(1)})">${parts.join("")}</g>`,
+        );
+      } else {
+        groupsXml.push(parts.join(""));
+      }
+    };
     const points = renderPoints(stroke);
     // 文本笔画：生成 <text> 元素。
     if (stroke.kind === "text") {
       const p = points[0];
       if (!p || !stroke.text) return;
       const source = paintSource(stroke, groups, overlapMode);
-      const color = source.mode === "solid" ? source.solid : (source.stops[0]?.hex ?? "#000000");
       const fs = stroke.fontSize ?? 28;
       const ff = stroke.fontFamily ?? "sans-serif";
       const lines = stroke.text.split("\n");
@@ -273,24 +438,64 @@ export function createSvg(
             `<tspan x="${p.x}" dy="${i === 0 ? 0 : fs * 1.2}">${escapeAttr(line)}</tspan>`,
         )
         .join("");
-      groupsXml.push(
-        `<text x="${p.x}" y="${p.y}" font-size="${fs}" font-family="${escapeAttr(ff)}" fill="${escapeAttr(color)}" style="dominant-baseline:hanging">${tspans}</text>`,
+      let fill = escapeAttr(
+        source.mode === "solid" ? source.solid : (source.stops[0]?.hex ?? "#000000"),
       );
+      let defs = "";
+      if (source.mode === "gradient" && source.stops.length) {
+        const { width } = textMetrics(stroke);
+        const gid = `txt-${stroke.id}`;
+        const stopsXml = source.stops
+          .map(
+            (s) =>
+              `<stop offset="${(s.pos / 100).toFixed(3)}" stop-color="${s.hex}" stop-opacity="${(s.alpha / 100).toFixed(3)}" />`,
+          )
+          .join("");
+        defs = `<defs><linearGradient id="${gid}" x1="${p.x}" y1="0" x2="${p.x + width}" y2="0" gradientUnits="userSpaceOnUse">${stopsXml}</linearGradient></defs>`;
+        fill = `url(#${gid})`;
+      }
+      parts.push(
+        `${defs}<text x="${p.x}" y="${p.y}" font-size="${fs}" font-family="${escapeAttr(ff)}" fill="${fill}" style="dominant-baseline:hanging">${tspans}</text>`,
+      );
+      flush();
       return;
     }
     if (points.length < 2) return;
     const source = paintSource(stroke, groups, overlapMode);
     const closed = isClosedShape(stroke);
+    const isArrow = stroke.shape === "arrow";
+    // 线性圆角元素：SVG 路径用 Catmull-Rom 平滑曲线点（与 canvas 渲染一致）。
+    const drawPts =
+      stroke.roundness === "round" && isLinearStroke(stroke) && points.length >= 3
+        ? curvePoints(points)
+        : points;
+    const dash = strokeDashArray(stroke.strokeStyle ?? "solid", stroke.width);
+    const dashAttr = dash ? ` stroke-dasharray="${dash.join(",")}"` : "";
+    if (isArrow) {
+      const e = points[points.length - 1];
+      const prev = points[points.length - 2] ?? points[0];
+      const head = arrowHeadPoints(prev, e, stroke.width);
+      const shaftD = toPathData(drawPts); // 整条杆（折线/曲线，支持中点变弯+圆角）
+      const headD = toPathData(head);
+      const color = source.mode === "solid" ? source.solid : (source.stops[0]?.hex ?? "#000000");
+      parts.push(
+        `<path d="${shaftD}" fill="none" stroke="${escapeAttr(color)}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round"${dashAttr}${mix ? ' style="mix-blend-mode:multiply"' : ""} />`,
+      );
+      parts.push(
+        `<path d="${headD}" fill="none" stroke="${escapeAttr(color)}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round"${dashAttr}${mix ? ' style="mix-blend-mode:multiply"' : ""} />`,
+      );
+      flush();
+      return;
+    }
     if (source.mode === "solid") {
-      const d = toPathData(points) + (closed ? " Z" : "");
-      groupsXml.push(
-        `<path d="${d}" fill="none" stroke="${escapeAttr(source.solid)}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round"${mix ? ' style="mix-blend-mode:multiply"' : ""} />`,
+      const d = toPathData(drawPts) + (closed ? " Z" : "");
+      parts.push(
+        `<path d="${d}" fill="none" stroke="${escapeAttr(source.solid)}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round"${dashAttr}${mix ? ' style="mix-blend-mode:multiply"' : ""} />`,
       );
     } else {
-      groupsXml.push(
-        svgGradientStroke(points, source.stops, source.space, stroke.width, closed, mix),
-      );
+      parts.push(svgGradientStroke(drawPts, source.stops, source.space, stroke.width, closed, mix));
     }
+    flush();
   });
   // mix 模式下笔画之间互相 multiply，但用 isolate 隔离组，使背景色不参与混色
   const body = mix

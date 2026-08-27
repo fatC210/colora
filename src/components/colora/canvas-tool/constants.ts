@@ -35,8 +35,20 @@ export const CANVAS_FONTS: { label: string; value: string }[] = [
   { label: "衬线", value: "ui-serif, Georgia, serif" },
   { label: "等宽", value: "ui-monospace, monospace" },
   { label: "黑体", value: "'PingFang SC', 'Microsoft YaHei', sans-serif" },
-  { label: "楷体", value: "'Kaiti SC', 'KaiTi', serif" },
   { label: "宋体", value: "'SimSun', 'Songti SC', serif" },
+  { label: "楷体", value: "'Kaiti SC', 'KaiTi', 'STKaiti', serif" },
+  { label: "隶书", value: "'LiSu', 'STLiti', 'SimLi', serif" },
+  { label: "幼圆", value: "'YouYuan', 'YouYuan18030', sans-serif" },
+  { label: "华文行楷", value: "'STXingkai', 'Xingkai SC', cursive" },
+  { label: "华文新魏", value: "'STXinwei', 'Xinwei SC', sans-serif" },
+  { label: "华文彩云", value: "'STCaiyun', 'Caiyun SC', sans-serif" },
+  { label: "华文琥珀", value: "'STHupo', 'Hupo SC', sans-serif" },
+  { label: "手写体", value: "'Marker Felt', 'Comic Sans MS', 'STXingkai', cursive" },
+  {
+    label: "圆体",
+    value: "'Varela Round', 'Hiragino Maru Gothic Pro', 'M PLUS Rounded 1c', sans-serif",
+  },
+  { label: "仿宋", value: "'FangSong', 'STFangsong', serif" },
 ];
 
 export const CANVAS_LAYOUTS: { value: CanvasLayout; label: string }[] = [
@@ -48,6 +60,14 @@ export const CANVAS_BG_LIGHT = "#ffffff";
 export const CANVAS_BG_DARK = "#0a0a0a";
 export const defaultCanvasBg = (isDark: boolean) => (isDark ? CANVAS_BG_DARK : CANVAS_BG_LIGHT);
 export const GRID_STEP = 40;
+
+/** 线宽三档（对标 Excalidraw STROKE_WIDTH：thin/bold/extraBold，取 2/4/8 适配本画布像素）。 */
+export const STROKE_WIDTHS: { id: "thin" | "bold" | "extraBold"; label: string; value: number }[] =
+  [
+    { id: "thin", label: "细", value: 2 },
+    { id: "bold", label: "中", value: 4 },
+    { id: "extraBold", label: "粗", value: 8 },
+  ];
 
 // 适合用作画布背景的常用色（线条颜色不受其影响）
 export const CANVAS_BG_PRESETS: { hex: string; label: string }[] = [

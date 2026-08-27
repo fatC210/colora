@@ -1,7 +1,8 @@
 import type { Point, SelectionBox, Stroke } from "./types";
 import { clamp, distance } from "./utils";
 import { renderPoints } from "./path";
-import { renderBounds } from "./geometry";
+import { textMetrics, isLinearStroke, toLocalPoint, worldBounds } from "./geometry";
+import { arrowHeadPoints, curvePoints } from "@/lib/path-gradient";
 
 export function pointToSegmentDistance(point: Point, a: Point, b: Point) {
   const dx = b.x - a.x,
@@ -24,20 +25,31 @@ const hitThreshold = (stroke: Stroke) => stroke.width / 2 + 0.1;
  * 与包围盒/外框无关。点在线条外的空白处一律不命中。
  */
 export function hitStroke(stroke: Stroke, point: Point) {
+  // 旋转态：指针逆旋转到 angle=0 局部坐标系再测（points/文本框都在局部轴对齐）。
+  const lp = toLocalPoint(stroke, point);
   const points = renderPoints(stroke);
   // 文本笔画：包围盒命中（点落在文本框内即命中）。
   if (stroke.kind === "text") {
     const p = points[0];
     if (!p || !stroke.text) return false;
-    const fs = stroke.fontSize ?? 28;
-    const lines = stroke.text.split("\n");
-    const widest = Math.max(...lines.map((l) => l.length)) * fs * 0.6;
-    const h = lines.length * fs * 1.2;
-    return point.x >= p.x && point.x <= p.x + widest && point.y >= p.y && point.y <= p.y + h;
+    const { width, height } = textMetrics(stroke);
+    return lp.x >= p.x && lp.x <= p.x + width && lp.y >= p.y && lp.y <= p.y + height;
   }
   const threshold = hitThreshold(stroke);
-  for (let index = 0; index < points.length - 1; index++)
-    if (pointToSegmentDistance(point, points[index], points[index + 1]) <= threshold) return true;
+  // 圆角线性元素：沿平滑曲线密分点逐段命中（与渲染几何一致），原控制点仅用于编辑手柄。
+  const hitPts =
+    stroke.roundness === "round" && isLinearStroke(stroke) && points.length >= 3
+      ? curvePoints(points)
+      : points;
+  for (let index = 0; index < hitPts.length - 1; index++)
+    if (pointToSegmentDistance(lp, hitPts[index], hitPts[index + 1]) <= threshold) return true;
+  // 箭头头部：杆两端点之外，头部两条边也参与命中，使点中箭头头部能选中。
+  if (stroke.shape === "arrow" && points.length >= 2) {
+    const [s, e] = points;
+    const head = arrowHeadPoints(s, e, stroke.width);
+    for (let i = 0; i < head.length - 1; i++)
+      if (pointToSegmentDistance(lp, head[i], head[i + 1]) <= threshold) return true;
+  }
   return false;
 }
 export function boxIntersectsStroke(box: SelectionBox, stroke: Stroke) {
@@ -45,6 +57,6 @@ export function boxIntersectsStroke(box: SelectionBox, stroke: Stroke) {
     right = Math.max(box.start.x, box.end.x),
     top = Math.min(box.start.y, box.end.y),
     bottom = Math.max(box.start.y, box.end.y);
-  const bounds = renderBounds(stroke);
+  const bounds = worldBounds(stroke);
   return bounds.maxX >= left && bounds.minX <= right && bounds.maxY >= top && bounds.minY <= bottom;
 }
