@@ -12,6 +12,14 @@ export type Mode =
   | "text"
   | "eraser";
 export type StrokeKind = "brush" | "line" | "shape" | "text";
+export type BrushType =
+  | "pen"
+  | "marker"
+  | "highlighter"
+  | "pencil"
+  | "neon"
+  | "spray"
+  | "brush";
 export type PaintMode = "solid" | "gradient";
 export type OverlapMode = "mix" | "cover";
 export type CanvasLayout = "grid" | "blank" | "dots";
@@ -31,6 +39,8 @@ export type Stroke = {
   roundness?: "sharp" | "round";
   /** 边框样式：solid=实线，dashed=虚线，dotted=点线（对标 Excalidraw StrokeStyle）。默认 solid。 */
   strokeStyle?: "solid" | "dashed" | "dotted";
+  /** 画笔笔刷类型（仅 kind==="brush"）。默认 pen=基础实线圆头（兼容旧文件）。 */
+  brushType?: BrushType;
   /** 旋转角度（弧度），绕 renderBounds 中心顺时针。默认 0。points 始终存 angle=0 坐标系。 */
   angle?: number;
   // 文本笔画专属（kind === "text"）：points 为单点定位，text 为内容。

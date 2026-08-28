@@ -25,6 +25,16 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useColora } from "@/lib/colora-store";
 import {
@@ -41,6 +51,7 @@ import {
   CANVAS_BG_PRESETS,
   CANVAS_FONTS,
   CANVAS_LAYOUTS,
+  BRUSH_TYPES,
   DEFAULT_STOPS,
   INITIAL_H,
   INITIAL_W,
@@ -93,6 +104,7 @@ import type {
   CanvasLayout,
   Draft,
   DragState,
+  BrushType,
   InspectorTab,
   Mode,
   OverlapMode,
@@ -170,6 +182,8 @@ export function CanvasTool() {
   const [brushRoundness, setBrushRoundness] = useState<"sharp" | "round">("sharp");
   // 新建元素的默认边框样式：solid/dashed/dotted（对标 Excalidraw StrokeStyle）。
   const [brushStrokeStyle, setBrushStrokeStyle] = useState<"solid" | "dashed" | "dotted">("solid");
+  // 新建画笔的笔刷类型：pen/marker/highlighter/pencil/neon/spray/brush（对标专业绘图工具笔刷质感）。
+  const [brushType, setBrushType] = useState<BrushType>("pen");
   const [overlapMode, setOverlapMode] = useState<OverlapMode>("mix");
   const [bgLayout, setBgLayout] = useState<CanvasLayout>("grid");
   const [bgColor, setBgColor] = useState<string>(() => defaultCanvasBg(theme === "dark"));
@@ -195,6 +209,12 @@ export function CanvasTool() {
     withBackground: true,
     scale: 2,
   });
+  // 危险操作的二次确认弹窗（替代 window.confirm）：记录待执行动作，点「确定」时触发。
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    description: string;
+    action: () => void;
+  } | null>(null);
 
   const openCanvasInspector = useCallback(() => {
     setInspectorTab("canvas");
@@ -793,6 +813,7 @@ export function CanvasTool() {
           paint: defaultPaint("#7C3AED"),
           roundness: brushRoundness,
           strokeStyle: brushStrokeStyle,
+          ...(brushType !== "pen" ? { brushType } : {}),
         });
       setDraft(null);
       if (!lockedTool) setMode("select");
@@ -1126,20 +1147,30 @@ export function CanvasTool() {
     commitStrokes(direction === "front" ? [...rest, ...selected] : [...selected, ...rest]);
   };
   const clearCanvas = () => {
-    if (!window.confirm("确定清空画布？此操作可用撤销恢复。")) return;
-    commitGroups([], []);
-    setSelectedIds([]);
+    setConfirmDialog({
+      title: "清空画布",
+      description: "将清空所有线条与组合，可用撤销恢复。",
+      action: () => {
+        commitGroups([], []);
+        setSelectedIds([]);
+      },
+    });
   };
   // 重置画布（对照 Excalidraw actionClearCanvas）：清空笔画与组合，
   // 背景与重叠模式恢复默认，保留当前 .colora 文件关联（fileHandle 不动）。可撤销。
   const resetCanvas = () => {
-    if (!window.confirm("确定重置画布？将清空所有线条并恢复默认背景，可用撤销恢复。")) return;
-    commitGroups([], []);
-    setOverlapMode("mix");
-    setBgLayout("grid");
-    setBgColor(defaultCanvasBg(isDark));
-    bgColorAutoRef.current = true;
-    setSelectedIds([]);
+    setConfirmDialog({
+      title: "重置画布",
+      description: "将清空所有线条并恢复默认背景，可用撤销恢复。",
+      action: () => {
+        commitGroups([], []);
+        setOverlapMode("mix");
+        setBgLayout("grid");
+        setBgColor(defaultCanvasBg(isDark));
+        bgColorAutoRef.current = true;
+        setSelectedIds([]);
+      },
+    });
   };
   const exportPng = (scale: number, withBackground = true) => {
     if (viewSize.w === 0) return;
@@ -1473,21 +1504,41 @@ export function CanvasTool() {
       se: { dx: margin, dy: margin },
       sw: { dx: -margin, dy: margin },
     };
-    const singleBox = single ? renderBounds(single) : selBounds;
+    // 单元素手柄基准 = 视觉选中框（renderBounds ± padding），与 render.ts 画的外框一致，
+    // 否则手柄会落在视觉框内侧。多选用 selBounds（selectionBounds，无 padding，与多选框一致）。
+    const singleBox = single
+      ? (() => {
+          const b = renderBounds(single);
+          const pad =
+            single.kind === "text" ? Math.max((single.fontSize ?? 28) * 0.12, 6) : single.width / 2;
+          return {
+            minX: b.minX - pad,
+            minY: b.minY - pad,
+            maxX: b.maxX + pad,
+            maxY: b.maxY + pad,
+            width: b.width + pad * 2,
+            height: b.height + pad * 2,
+          };
+        })()
+      : selBounds;
     const toScreen = (p: Point) => ({
       left: ((p.x * zoom + pan.x) / viewSize.w) * 100,
       top: ((p.y * zoom + pan.y) / viewSize.h) * 100,
     });
+    // 方形手柄中心相对包围框角/边的外移方向（屏幕空间）。
+    // 对标 Excalidraw：仅线性多点元素把角手柄整体推到框外；普通形状/文本/多选
+    // 手柄跨在框角上（中心=框角，一半在内一半在外），不外移。
     const handlesToList = (keys: ResizeHandle[]) =>
       keys.map((handle) => {
         const box = single ? singleBox : selBounds;
         const local = handlePoint(box, handle);
-        // 单元素旋转态：局部角→世界（旋转矩形角）；外移在局部做后转世界。
+        // 线性多点角手柄：局部外移 margin（屏幕像素，除以 zoom 转局部，旋转态经 toWorldPoint）。
         const off =
           single && isLinearMulti ? (cornerOffset[handle] ?? { dx: 0, dy: 0 }) : { dx: 0, dy: 0 };
         const localOff = { x: local.x + off.dx / zoom, y: local.y + off.dy / zoom };
         const world = single ? toWorldPoint(single, localOff) : localOff;
-        return { handle, cursor: cursors[handle], ...toScreen(world) };
+        const screen = toScreen(world);
+        return { handle, cursor: cursors[handle], ...screen };
       });
     if (isLinearMulti) {
       return handlesToList(["nw", "ne", "se", "sw"]);
@@ -2509,6 +2560,26 @@ export function CanvasTool() {
                 )
               ) : (
                 <div className="space-y-3">
+                  {/* 画笔工具：笔刷类型选择（影响新建画笔的质感，对标专业绘图工具）。 */}
+                  {mode === "brush" && (
+                    <div className="space-y-1.5">
+                      <div className="text-[11px] font-medium text-muted-foreground">笔刷</div>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {BRUSH_TYPES.map((b) => (
+                          <Button
+                            key={b.id}
+                            type="button"
+                            size="sm"
+                            variant={brushType === b.id ? "default" : "outline"}
+                            className="h-8 text-xs"
+                            onClick={() => setBrushType(b.id)}
+                          >
+                            {b.label}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="space-y-1.5">
                     <Button
                       type="button"
@@ -2707,6 +2778,30 @@ export function CanvasTool() {
           setExportDialogOpen(false);
         }}
       />
+      <AlertDialog
+        open={confirmDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmDialog(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmDialog?.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmDialog?.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                confirmDialog?.action();
+                setConfirmDialog(null);
+              }}
+            >
+              确定
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

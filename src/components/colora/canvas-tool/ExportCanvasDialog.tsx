@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 /**
@@ -61,7 +62,7 @@ export function ExportCanvasDialog({
           <SettingRow label="含背景">
             <Switch
               checked={withBackground}
-              onChange={(checked) => onOptionsChange({ withBackground: checked })}
+              onCheckedChange={(checked) => onOptionsChange({ withBackground: checked })}
             />
           </SettingRow>
           <SettingRow label="缩放">
@@ -120,28 +121,5 @@ function SettingRow({ label, children }: { label: string; children: React.ReactN
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
       {children}
     </div>
-  );
-}
-
-/** 极简开关（shadcn 未引入 Switch 组件，这里内联一个轻量实现）。 */
-function Switch({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        "relative h-5 w-9 shrink-0 rounded-full transition-colors",
-        checked ? "bg-foreground" : "bg-input",
-      )}
-    >
-      <span
-        className={cn(
-          "absolute top-0.5 size-4 rounded-full bg-background shadow transition-transform",
-          checked ? "translate-x-4" : "translate-x-0.5",
-        )}
-      />
-    </button>
   );
 }

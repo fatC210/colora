@@ -20,10 +20,140 @@ import {
 } from "./geometry";
 import { gridColors } from "./tone";
 import { clamp } from "./utils";
-import type { CanvasLayout, Draft, OverlapMode, Point, Size, Stroke, StrokeGroup } from "./types";
+import type {
+  BrushType,
+  CanvasLayout,
+  Draft,
+  OverlapMode,
+  Point,
+  Size,
+  Stroke,
+  StrokeGroup,
+} from "./types";
 
 // mix 模式下供笔画间 multiply 合成用的临时离屏画布（模块级复用，避免每帧重建）。
 let mixTmpCanvas: HTMLCanvasElement | null = null;
+
+/** 稳定伪随机：基于 stroke.id + 索引生成 [0,1) 的确定性值，避免每帧抖动闪烁。 */
+function stableRand(seed: string, i: number): number {
+  let h = 2166136261;
+  for (let k = 0; k < seed.length; k++) h = (h ^ seed.charCodeAt(k)) * 16777619;
+  h = (h ^ i) * 16777619;
+  // 转为 [0,1)
+  return ((h >>> 0) % 100000) / 100000;
+}
+
+/** 笔刷质感绘制（仅 kind==="brush" 的纯色模式）。渐变模式仍走 drawGradientStroke，笔刷质感降级。 */
+function drawBrushStroke(
+  target: CanvasRenderingContext2D,
+  stroke: Stroke,
+  color: string,
+  drawPts: Point[],
+): boolean {
+  const bt: BrushType = stroke.brushType ?? "pen";
+  if (bt === "pen") return false;
+  const w = stroke.width;
+  const id = stroke.id;
+
+  target.save();
+  target.strokeStyle = color;
+  target.lineJoin = "round";
+
+  if (bt === "marker") {
+    target.lineWidth = w * 1.5;
+    target.lineCap = "square";
+    target.globalAlpha = 0.75;
+    target.globalCompositeOperation = "multiply";
+    drawPath(target, drawPts, false);
+    target.stroke();
+  } else if (bt === "highlighter") {
+    target.lineWidth = w * 3;
+    target.lineCap = "square";
+    target.globalAlpha = 0.35;
+    target.globalCompositeOperation = "multiply";
+    drawPath(target, drawPts, false);
+    target.stroke();
+  } else if (bt === "pencil") {
+    // 沿路径多次小幅度抖动描边，模拟铅笔噪点纹理。
+    target.lineWidth = w;
+    target.lineCap = "round";
+    target.globalAlpha = 0.6;
+    const passes = 4;
+    for (let p = 0; p < passes; p++) {
+      const jitter = w * 0.35;
+      const pts = drawPts.map((pt, i) => ({
+        x: pt.x + (stableRand(id, i * passes + p) - 0.5) * jitter,
+        y: pt.y + (stableRand(id, i * passes + p + 99) - 0.5) * jitter,
+      }));
+      drawPath(target, pts, false);
+      target.stroke();
+    }
+  } else if (bt === "neon") {
+    // 外层同色发光 + 内层白色细芯。
+    target.shadowColor = color;
+    target.shadowBlur = w * 2.5;
+    target.lineWidth = w;
+    target.lineCap = "round";
+    drawPath(target, drawPts, false);
+    target.stroke();
+    target.shadowBlur = 0;
+    target.strokeStyle = "#ffffff";
+    target.lineWidth = Math.max(1, w * 0.4);
+    drawPath(target, drawPts, false);
+    target.stroke();
+  } else if (bt === "spray") {
+    // 沿路径采样，每点撒半径内的散点。
+    target.fillStyle = color;
+    target.globalAlpha = 0.8;
+    const radius = w * 1.2;
+    const density = Math.max(6, Math.round(w * 1.5));
+    const step = Math.max(2, w * 0.6);
+    let acc = 0;
+    let k = 0;
+    for (let i = 0; i < drawPts.length - 1; i++) {
+      const a = drawPts[i];
+      const b = drawPts[i + 1];
+      const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+      let t = acc;
+      while (t < segLen) {
+        const cx = a.x + ((b.x - a.x) * t) / segLen;
+        const cy = a.y + ((b.y - a.y) * t) / segLen;
+        for (let d = 0; d < density; d++) {
+          const ang = stableRand(id, k) * Math.PI * 2;
+          const r = stableRand(id, k + 1) * radius;
+          target.beginPath();
+          target.arc(cx + Math.cos(ang) * r, cy + Math.sin(ang) * r, 0.6, 0, Math.PI * 2);
+          target.fill();
+          k += 2;
+        }
+        t += step;
+      }
+      acc = t - segLen;
+    }
+  } else if (bt === "brush") {
+    // 毛笔：按相邻点间距反比粗细（快=细、慢=粗），逐段画，端点收尖。
+    target.lineCap = "round";
+    const maxW = w * 1.3;
+    const minW = Math.max(0.5, w * 0.35);
+    for (let i = 0; i < drawPts.length - 1; i++) {
+      const a = drawPts[i];
+      const b = drawPts[i + 1];
+      const dist = Math.hypot(b.x - a.x, b.y - a.y);
+      // 间距越小（画得慢）越粗；间距越大（快）越细。clamp 到 [minW, maxW]。
+      const lw = clamp(maxW - dist * 0.25, minW, maxW);
+      // 端段收尖
+      const isEnd = i === 0 || i === drawPts.length - 2;
+      target.lineWidth = isEnd ? lw * 0.5 : lw;
+      drawPath(target, [a, b], false);
+      target.stroke();
+    }
+  }
+
+  target.restore();
+  return true;
+}
+
+
 function getMixTmp(w: number, h: number): HTMLCanvasElement | null {
   if (typeof document === "undefined") return null;
   if (!mixTmpCanvas) mixTmpCanvas = document.createElement("canvas");
@@ -206,6 +336,8 @@ export function renderScene({
         if (dash) target.setLineDash([]);
         drawPath(target, head, false);
         target.stroke();
+      } else if (stroke.kind === "brush" && drawBrushStroke(target, stroke, source.solid, drawPts)) {
+        // 画笔笔刷质感（marker/highlighter/pencil/neon/spray/brush）已自行绘制，跳过通用描边。
       } else {
         drawPath(target, drawPts, closed);
         target.strokeStyle = source.solid;
@@ -488,10 +620,28 @@ export function createSvg(
       return;
     }
     if (source.mode === "solid") {
+      const bt = stroke.brushType ?? "pen";
       const d = toPathData(drawPts) + (closed ? " Z" : "");
-      parts.push(
-        `<path d="${d}" fill="none" stroke="${escapeAttr(source.solid)}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round"${dashAttr}${mix ? ' style="mix-blend-mode:multiply"' : ""} />`,
-      );
+      if (bt === "marker" || bt === "highlighter") {
+        const scale = bt === "marker" ? 1.5 : 3;
+        const op = bt === "marker" ? 0.75 : 0.35;
+        parts.push(
+          `<path d="${d}" fill="none" stroke="${escapeAttr(source.solid)}" stroke-width="${stroke.width * scale}" stroke-linecap="square" stroke-linejoin="round" stroke-opacity="${op}"${mix ? ' style="mix-blend-mode:multiply"' : ' style="mix-blend-mode:multiply"'} />`,
+        );
+      } else if (bt === "neon") {
+        const fid = `neon-${stroke.id}`;
+        parts.push(
+          `<defs><filter id="${fid}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${stroke.width * 1.2}" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs>`,
+        );
+        parts.push(
+          `<path d="${d}" fill="none" stroke="${escapeAttr(source.solid)}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round" filter="url(#${fid})" />`,
+        );
+      } else {
+        // pen / pencil / spray / brush：SVG 近似为普通描边（pencil/spray/brush 的纹理质感请以 PNG 导出为准）。
+        parts.push(
+          `<path d="${d}" fill="none" stroke="${escapeAttr(source.solid)}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round"${dashAttr}${mix ? ' style="mix-blend-mode:multiply"' : ""} />`,
+        );
+      }
     } else {
       parts.push(svgGradientStroke(drawPts, source.stops, source.space, stroke.width, closed, mix));
     }

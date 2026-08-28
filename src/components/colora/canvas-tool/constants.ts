@@ -1,5 +1,5 @@
 import type { InterpSpace, PathStop, ShapeType } from "@/lib/path-gradient";
-import type { CanvasLayout } from "./types";
+import type { BrushType, CanvasLayout } from "./types";
 
 // 演示笔画的原始坐标系（首次测量画布尺寸后按比例缩放入场）
 export const INITIAL_W = 1120;
@@ -30,25 +30,28 @@ export const PRESETS: { value: ShapeType; label: string }[] = [
 export const INTERP_SPACES: InterpSpace[] = ["rgb", "lab", "lch"];
 
 // 文本笔画可选字体（CSS font-family 值）。
+// 仅保留 Windows/macOS 都真实存在的字体，fallback 链跨平台互补，避免退化成默认无衬线导致多个字体看着一样。
 export const CANVAS_FONTS: { label: string; value: string }[] = [
   { label: "无衬线", value: "ui-sans-serif, system-ui, sans-serif" },
   { label: "衬线", value: "ui-serif, Georgia, serif" },
   { label: "等宽", value: "ui-monospace, monospace" },
-  { label: "黑体", value: "'PingFang SC', 'Microsoft YaHei', sans-serif" },
-  { label: "宋体", value: "'SimSun', 'Songti SC', serif" },
-  { label: "楷体", value: "'Kaiti SC', 'KaiTi', 'STKaiti', serif" },
-  { label: "隶书", value: "'LiSu', 'STLiti', 'SimLi', serif" },
-  { label: "幼圆", value: "'YouYuan', 'YouYuan18030', sans-serif" },
-  { label: "华文行楷", value: "'STXingkai', 'Xingkai SC', cursive" },
-  { label: "华文新魏", value: "'STXinwei', 'Xinwei SC', sans-serif" },
-  { label: "华文彩云", value: "'STCaiyun', 'Caiyun SC', sans-serif" },
-  { label: "华文琥珀", value: "'STHupo', 'Hupo SC', sans-serif" },
-  { label: "手写体", value: "'Marker Felt', 'Comic Sans MS', 'STXingkai', cursive" },
-  {
-    label: "圆体",
-    value: "'Varela Round', 'Hiragino Maru Gothic Pro', 'M PLUS Rounded 1c', sans-serif",
-  },
+  { label: "黑体", value: "'Microsoft YaHei', 'PingFang SC', sans-serif" },
+  { label: "宋体", value: "'SimSun', 'Songti SC', 'STSong', serif" },
+  { label: "楷体", value: "'KaiTi', 'Kaiti SC', 'STKaiti', serif" },
   { label: "仿宋", value: "'FangSong', 'STFangsong', serif" },
+  { label: "微软雅黑", value: "'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif" },
+  { label: "手写体", value: "'Comic Sans MS', 'Marker Felt', cursive" },
+];
+
+// 画笔笔刷类型（仅 kind==="brush"）。pen=基础实线圆头，兼容旧文件缺省值。
+export const BRUSH_TYPES: { id: BrushType; label: string }[] = [
+  { id: "pen", label: "基础" },
+  { id: "marker", label: "马克笔" },
+  { id: "highlighter", label: "荧光笔" },
+  { id: "pencil", label: "铅笔" },
+  { id: "neon", label: "霓虹" },
+  { id: "spray", label: "喷枪" },
+  { id: "brush", label: "毛笔" },
 ];
 
 export const CANVAS_LAYOUTS: { value: CanvasLayout; label: string }[] = [

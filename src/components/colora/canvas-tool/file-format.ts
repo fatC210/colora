@@ -4,7 +4,7 @@ import {
   supported as nativeFileSystemSupported,
 } from "browser-fs-access";
 
-import type { CanvasLayout, OverlapMode, Size, Stroke, StrokeGroup } from "./types";
+import type { BrushType, CanvasLayout, OverlapMode, Size, Stroke, StrokeGroup } from "./types";
 
 /**
  * .colora 画布文件格式
@@ -104,6 +104,16 @@ const VALID_SHAPES = [
   "arrow",
 ];
 
+const VALID_BRUSH_TYPES: BrushType[] = [
+  "pen",
+  "marker",
+  "highlighter",
+  "pencil",
+  "neon",
+  "spray",
+  "brush",
+];
+
 /** restore 单个 stroke：补默认字段、规整点坐标、规整 paint，抵御旧版本/手改文件。 */
 function restoreStroke(raw: unknown, fallback: Stroke): Stroke {
   if (!isObject(raw)) return { ...fallback };
@@ -161,6 +171,11 @@ function restoreStroke(raw: unknown, fallback: Stroke): Stroke {
   const strokeStyle: Stroke["strokeStyle"] =
     raw.strokeStyle === "dashed" ? "dashed" : raw.strokeStyle === "dotted" ? "dotted" : undefined;
   const angle: Stroke["angle"] = isFiniteNum(raw.angle) ? (raw.angle as number) : undefined;
+  const brushType: BrushType | undefined = VALID_BRUSH_TYPES.includes(
+    raw.brushType as BrushType,
+  )
+    ? (raw.brushType as BrushType)
+    : undefined;
 
   return {
     id: typeof raw.id === "string" && raw.id.length > 0 ? raw.id : fallback.id,
@@ -175,6 +190,7 @@ function restoreStroke(raw: unknown, fallback: Stroke): Stroke {
     ...(roundness ? { roundness } : {}),
     ...(strokeStyle ? { strokeStyle } : {}),
     ...(angle ? { angle } : {}),
+    ...(brushType ? { brushType } : {}),
   };
 }
 
