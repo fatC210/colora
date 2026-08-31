@@ -24,7 +24,10 @@ import type {
   BrushType,
   CanvasLayout,
   Draft,
+  InterpSpace,
   OverlapMode,
+  PaintMode,
+  PathStop,
   Point,
   Size,
   Stroke,
@@ -43,67 +46,91 @@ function stableRand(seed: string, i: number): number {
   return ((h >>> 0) % 100000) / 100000;
 }
 
-/** 笔刷质感绘制（仅 kind==="brush" 的纯色模式）。渐变模式仍走 drawGradientStroke，笔刷质感降级。 */
+/** 笔刷质感绘制（仅 kind==="brush"，brushType !== "pen"）。
+ * 支持 solid 与渐变 paint：渐变时 marker/highlighter/neon 用 drawGradientStroke 沿路径渐变，
+ * spray/brush 按弧长百分比逐点/逐段取色。返回 true 表示已绘制。 */
 function drawBrushStroke(
   target: CanvasRenderingContext2D,
   stroke: Stroke,
-  color: string,
+  source: { mode: PaintMode; solid: string; stops: PathStop[]; space: InterpSpace },
   drawPts: Point[],
 ): boolean {
   const bt: BrushType = stroke.brushType ?? "pen";
   if (bt === "pen") return false;
   const w = stroke.width;
   const id = stroke.id;
+  const isGrad = source.mode === "gradient" && source.stops.length >= 2;
 
   target.save();
-  target.strokeStyle = color;
   target.lineJoin = "round";
 
+  // 渐变模式：沿路径弧长取色。先算各段累计弧长与总长。
+  let cum: number[] = [];
+  let total = 0;
+  if (isGrad) {
+    for (let i = 0; i < drawPts.length - 1; i++) {
+      const d = Math.hypot(drawPts[i + 1].x - drawPts[i].x, drawPts[i + 1].y - drawPts[i].y);
+      cum.push(total);
+      total += d;
+    }
+  }
+  // 累计弧长 → 路径百分比处的渐变色。
+  const gradColorAt = (i: number): string => {
+    if (!isGrad) return source.solid;
+    const segLen = total || 1;
+    // 取段中点弧长
+    const mid = (cum[i] ?? 0) + (i < drawPts.length - 1 ? Math.hypot(drawPts[i + 1].x - drawPts[i].x, drawPts[i + 1].y - drawPts[i].y) / 2 : 0);
+    return colorAtPercent(source.stops, (mid / segLen) * 100, source.space);
+  };
+
   if (bt === "marker") {
+    // 不用 multiply：深色画布下 multiply 会把颜色压到几乎看不见。source-over 半透在深浅背景均可见。
     target.lineWidth = w * 1.5;
     target.lineCap = "square";
-    target.globalAlpha = 0.75;
-    target.globalCompositeOperation = "multiply";
-    drawPath(target, drawPts, false);
-    target.stroke();
+    target.globalAlpha = 0.85;
+    if (isGrad) {
+      drawGradientStroke(target, drawPts, source.stops, source.space, w * 1.5, false);
+    } else {
+      target.strokeStyle = source.solid;
+      drawPath(target, drawPts, false);
+      target.stroke();
+    }
   } else if (bt === "highlighter") {
     target.lineWidth = w * 3;
     target.lineCap = "square";
-    target.globalAlpha = 0.35;
-    target.globalCompositeOperation = "multiply";
-    drawPath(target, drawPts, false);
-    target.stroke();
-  } else if (bt === "pencil") {
-    // 沿路径多次小幅度抖动描边，模拟铅笔噪点纹理。
-    target.lineWidth = w;
-    target.lineCap = "round";
-    target.globalAlpha = 0.6;
-    const passes = 4;
-    for (let p = 0; p < passes; p++) {
-      const jitter = w * 0.35;
-      const pts = drawPts.map((pt, i) => ({
-        x: pt.x + (stableRand(id, i * passes + p) - 0.5) * jitter,
-        y: pt.y + (stableRand(id, i * passes + p + 99) - 0.5) * jitter,
-      }));
-      drawPath(target, pts, false);
+    target.globalAlpha = 0.5;
+    if (isGrad) {
+      drawGradientStroke(target, drawPts, source.stops, source.space, w * 3, false);
+    } else {
+      target.strokeStyle = source.solid;
+      drawPath(target, drawPts, false);
       target.stroke();
     }
   } else if (bt === "neon") {
-    // 外层同色发光 + 内层白色细芯。
-    target.shadowColor = color;
-    target.shadowBlur = w * 2.5;
-    target.lineWidth = w;
+    // 外层发光（渐变时逐段取色描边模拟发光）+ 内层白色细芯。
     target.lineCap = "round";
-    drawPath(target, drawPts, false);
-    target.stroke();
-    target.shadowBlur = 0;
+    target.lineWidth = w;
+    if (isGrad) {
+      // 先画一遍带 shadow 的渐变发光层
+      target.shadowColor = source.solid;
+      target.shadowBlur = w * 2.5;
+      drawGradientStroke(target, drawPts, source.stops, source.space, w, false);
+      target.shadowBlur = 0;
+    } else {
+      target.shadowColor = source.solid;
+      target.shadowBlur = w * 2.5;
+      target.strokeStyle = source.solid;
+      drawPath(target, drawPts, false);
+      target.stroke();
+      target.shadowBlur = 0;
+    }
+    // 内层白色细芯
     target.strokeStyle = "#ffffff";
     target.lineWidth = Math.max(1, w * 0.4);
     drawPath(target, drawPts, false);
     target.stroke();
   } else if (bt === "spray") {
-    // 沿路径采样，每点撒半径内的散点。
-    target.fillStyle = color;
+    // 沿路径采样，每点撒半径内的散点；渐变时按弧长百分比取色。
     target.globalAlpha = 0.8;
     const radius = w * 1.2;
     const density = Math.max(6, Math.round(w * 1.5));
@@ -114,6 +141,8 @@ function drawBrushStroke(
       const a = drawPts[i];
       const b = drawPts[i + 1];
       const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+      const col = gradColorAt(i);
+      target.fillStyle = col;
       let t = acc;
       while (t < segLen) {
         const cx = a.x + ((b.x - a.x) * t) / segLen;
@@ -131,7 +160,7 @@ function drawBrushStroke(
       acc = t - segLen;
     }
   } else if (bt === "brush") {
-    // 毛笔：按相邻点间距反比粗细（快=细、慢=粗），逐段画，端点收尖。
+    // 毛笔：按相邻点间距反比粗细（快=细、慢=粗），逐段画，端点收尖；渐变时逐段取色。
     target.lineCap = "round";
     const maxW = w * 1.3;
     const minW = Math.max(0.5, w * 0.35);
@@ -139,11 +168,10 @@ function drawBrushStroke(
       const a = drawPts[i];
       const b = drawPts[i + 1];
       const dist = Math.hypot(b.x - a.x, b.y - a.y);
-      // 间距越小（画得慢）越粗；间距越大（快）越细。clamp 到 [minW, maxW]。
       const lw = clamp(maxW - dist * 0.25, minW, maxW);
-      // 端段收尖
       const isEnd = i === 0 || i === drawPts.length - 2;
       target.lineWidth = isEnd ? lw * 0.5 : lw;
+      target.strokeStyle = gradColorAt(i);
       drawPath(target, [a, b], false);
       target.stroke();
     }
@@ -254,7 +282,14 @@ export function renderScene({
   pan?: Point;
   zoom?: number;
   /** 绘制预览（draft）的样式：实线 + 最终颜色/宽度，所见即所得。 */
-  draftStyle?: { color: string; width: number };
+  draftStyle?: {
+    color: string;
+    width: number;
+    brushType?: BrushType;
+    id?: string;
+    stops?: PathStop[];
+    space?: InterpSpace;
+  };
   /** 是否隐藏矩形选中框（线性元素编辑态/拖点中，由点手柄替代外框）。 */
   hideSelectionBox?: boolean;
 }) {
@@ -318,6 +353,14 @@ export function renderScene({
     const closed = isClosedShape(stroke);
     const isArrow = stroke.shape === "arrow";
     const dash = strokeDashArray(stroke.strokeStyle ?? "solid", stroke.width);
+    // 画笔笔刷质感（marker/highlighter/neon/spray/brush）：用 source（含渐变 stops）渲染质感；
+    // pen（缺省）走通用描边/渐变路径。
+    if (stroke.kind === "brush" && (stroke.brushType ?? "pen") !== "pen") {
+      if (drawBrushStroke(target, stroke, source, drawPts)) {
+        target.restore();
+        return;
+      }
+    }
     if (source.mode === "solid") {
       // 箭头：杆画整条折线（支持中点变弯后的多点杆），头部从末端方向画两条边。
       if (isArrow) {
@@ -336,8 +379,6 @@ export function renderScene({
         if (dash) target.setLineDash([]);
         drawPath(target, head, false);
         target.stroke();
-      } else if (stroke.kind === "brush" && drawBrushStroke(target, stroke, source.solid, drawPts)) {
-        // 画笔笔刷质感（marker/highlighter/pencil/neon/spray/brush）已自行绘制，跳过通用描边。
       } else {
         drawPath(target, drawPts, closed);
         target.strokeStyle = source.solid;
@@ -426,18 +467,27 @@ export function renderScene({
 
   if (draft) {
     ctx.save();
-    // 实时预览：实线 + 最终颜色/宽度（对标 Excalidraw，绘制时即所见即所得，不用虚线）。
-    ctx.strokeStyle = draftStyle?.color ?? "rgba(2, 132, 199, 0.9)";
-    ctx.lineWidth = draftStyle?.width ?? 3;
+    // 实时预览：按最终颜色/宽度（对标 Excalidraw，绘制时即所见即所得，不用虚线）。
+    // 有渐变 stops 时按沿路径渐变预览（不等到落笔才显示渐变）；否则单色。
+    const w = draftStyle?.width ?? 3;
+    const stops = draftStyle?.stops;
+    const hasGrad = !!stops && stops.length >= 2;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     if (draft.type === "shape" && draft.shape === "arrow") {
       // 箭头 draft：杆画到 tip + 头部两条边（与正式 stroke 同一几何）。
-      const head = arrowHeadPoints(draft.start, draft.end, draftStyle?.width ?? 3);
-      drawPath(ctx, [draft.start, draft.end], false);
-      ctx.stroke();
-      drawPath(ctx, head, false);
-      ctx.stroke();
+      const head = arrowHeadPoints(draft.start, draft.end, w);
+      if (hasGrad && stops) {
+        drawGradientStroke(ctx, [draft.start, draft.end], stops, draftStyle?.space ?? "rgb", w, false);
+        drawGradientStroke(ctx, head, stops, draftStyle?.space ?? "rgb", w, false);
+      } else {
+        ctx.strokeStyle = draftStyle?.color ?? "rgba(2, 132, 199, 0.9)";
+        ctx.lineWidth = w;
+        drawPath(ctx, [draft.start, draft.end], false);
+        ctx.stroke();
+        drawPath(ctx, head, false);
+        ctx.stroke();
+      }
     } else {
       const points =
         draft.type === "brush"
@@ -451,8 +501,33 @@ export function renderScene({
         draft.shape !== "curve" &&
         draft.shape !== "spiral" &&
         draft.shape !== "arrow";
-      drawPath(ctx, points, draftClosed);
-      ctx.stroke();
+      // 非基础笔刷：用对应笔刷质感实时预览（所见即所得）。
+      if (
+        draft.type === "brush" &&
+        draftStyle?.brushType &&
+        draftStyle.brushType !== "pen" &&
+        drawBrushStroke(
+          ctx,
+          { id: draftStyle.id ?? "draft", width: w, brushType: draftStyle.brushType } as Stroke,
+          {
+            mode: hasGrad ? "gradient" : "solid",
+            solid: draftStyle?.color ?? "rgba(2, 132, 199, 0.9)",
+            stops: stops ?? [],
+            space: draftStyle?.space ?? "rgb",
+          },
+          points,
+        )
+      ) {
+        // drawBrushStroke 已绘制。
+      } else if (hasGrad && stops) {
+        // 渐变 paint：沿路径渐变实时预览（line/shape/pen 画笔统一）。
+        drawGradientStroke(ctx, points, stops, draftStyle?.space ?? "rgb", w, draftClosed);
+      } else {
+        ctx.strokeStyle = draftStyle?.color ?? "rgba(2, 132, 199, 0.9)";
+        ctx.lineWidth = w;
+        drawPath(ctx, points, draftClosed);
+        ctx.stroke();
+      }
     }
     ctx.restore();
   }
@@ -619,14 +694,16 @@ export function createSvg(
       flush();
       return;
     }
-    if (source.mode === "solid") {
-      const bt = stroke.brushType ?? "pen";
+    // 画笔笔刷（非 pen）SVG 近似：优先于渐变，用单色表达质感。
+    const bt = stroke.brushType ?? "pen";
+    if (stroke.kind === "brush" && bt !== "pen") {
       const d = toPathData(drawPts) + (closed ? " Z" : "");
+      const color = escapeAttr(source.solid);
       if (bt === "marker" || bt === "highlighter") {
         const scale = bt === "marker" ? 1.5 : 3;
-        const op = bt === "marker" ? 0.75 : 0.35;
+        const op = bt === "marker" ? 0.85 : 0.5;
         parts.push(
-          `<path d="${d}" fill="none" stroke="${escapeAttr(source.solid)}" stroke-width="${stroke.width * scale}" stroke-linecap="square" stroke-linejoin="round" stroke-opacity="${op}"${mix ? ' style="mix-blend-mode:multiply"' : ' style="mix-blend-mode:multiply"'} />`,
+          `<path d="${d}" fill="none" stroke="${color}" stroke-width="${stroke.width * scale}" stroke-linecap="square" stroke-linejoin="round" stroke-opacity="${op}" />`,
         );
       } else if (bt === "neon") {
         const fid = `neon-${stroke.id}`;
@@ -634,14 +711,22 @@ export function createSvg(
           `<defs><filter id="${fid}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${stroke.width * 1.2}" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs>`,
         );
         parts.push(
-          `<path d="${d}" fill="none" stroke="${escapeAttr(source.solid)}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round" filter="url(#${fid})" />`,
+          `<path d="${d}" fill="none" stroke="${color}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round" filter="url(#${fid})" />`,
         );
       } else {
-        // pen / pencil / spray / brush：SVG 近似为普通描边（pencil/spray/brush 的纹理质感请以 PNG 导出为准）。
+        // spray / brush：SVG 近似为普通描边（纹理质感请以 PNG 导出为准）。
         parts.push(
-          `<path d="${d}" fill="none" stroke="${escapeAttr(source.solid)}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round"${dashAttr}${mix ? ' style="mix-blend-mode:multiply"' : ""} />`,
+          `<path d="${d}" fill="none" stroke="${color}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round"${dashAttr}${mix ? ' style="mix-blend-mode:multiply"' : ""} />`,
         );
       }
+      flush();
+      return;
+    }
+    if (source.mode === "solid") {
+      const d = toPathData(drawPts) + (closed ? " Z" : "");
+      parts.push(
+        `<path d="${d}" fill="none" stroke="${escapeAttr(source.solid)}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round"${dashAttr}${mix ? ' style="mix-blend-mode:multiply"' : ""} />`,
+      );
     } else {
       parts.push(svgGradientStroke(drawPts, source.stops, source.space, stroke.width, closed, mix));
     }

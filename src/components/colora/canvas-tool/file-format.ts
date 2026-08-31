@@ -108,7 +108,6 @@ const VALID_BRUSH_TYPES: BrushType[] = [
   "pen",
   "marker",
   "highlighter",
-  "pencil",
   "neon",
   "spray",
   "brush",

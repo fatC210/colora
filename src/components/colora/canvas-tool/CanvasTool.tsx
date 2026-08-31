@@ -132,6 +132,15 @@ const SOLID_MID_STOP_ID = "solid-mid";
 /** 弧度归一化到 [-π, π]。 */
 const normalizeAngle = (rad: number) => ((rad + Math.PI) % (2 * Math.PI)) - Math.PI;
 
+// HMR 标志：热更新后清空画布（不保留之前操作的内容，也不恢复 demo）。
+// 首次冷启动为 false → 显示 initialStrokes demo；热更新后 dispose 置 true → 空画布。
+let __hotReloaded = false;
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    __hotReloaded = true;
+  });
+}
+
 export function CanvasTool() {
   const { theme } = useColora();
   const isDark = theme === "dark";
@@ -169,7 +178,9 @@ export function CanvasTool() {
     if (!editingLinearId) setSolidMidPos(null);
   }, [editingLinearId]);
   const [viewSize, setViewSize] = useState<Size>({ w: 0, h: 0 });
-  const [strokes, setStrokes] = useState<Stroke[]>(() => cloneStrokes(initialStrokes));
+  const [strokes, setStrokes] = useState<Stroke[]>(() =>
+    __hotReloaded ? [] : cloneStrokes(initialStrokes),
+  );
   strokesRef.current = strokes; // 同步最新 strokes 供 window 监听回调读取
   const [groups, setGroups] = useState<StrokeGroup[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>(["demo-1"]);
@@ -546,6 +557,11 @@ export function CanvasTool() {
         ? {
             color: mode === "brush" ? "#7C3AED" : mode === "line" ? "#0EA5E9" : "#F97316",
             width: brushWidth,
+            brushType: mode === "brush" ? brushType : undefined,
+            id: "draft",
+            // 新建元素默认渐变 paint（DEFAULT_STOPS）：画的过程即按渐变实时预览，不等到落笔。
+            stops: DEFAULT_STOPS,
+            space: "rgb" as const,
           }
         : undefined,
       hideSelectionBox:
@@ -2223,6 +2239,26 @@ export function CanvasTool() {
         </Tip>
       </div>
 
+      {/* 画笔工具：笔刷类型选择条（对标 Excalidraw 选中元素时的属性栏），工具栏下方常驻。 */}
+      {mode === "brush" && (
+        <div className="absolute left-1/2 top-14 z-30 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-xl border border-border/60 bg-background/80 p-1 shadow-lg backdrop-blur-md">
+          {BRUSH_TYPES.map((b) => (
+            <Tip key={b.id} label={b.label}>
+              <Button
+                type="button"
+                size="sm"
+                variant={brushType === b.id ? "default" : "ghost"}
+                className="h-7 px-2.5 text-xs"
+                onClick={() => setBrushType(b.id)}
+                aria-pressed={brushType === b.id}
+              >
+                {b.label}
+              </Button>
+            </Tip>
+          ))}
+        </div>
+      )}
+
       {/* 适应内容浮层：视口内无任何笔画时，屏幕正下中显示（对标 Excalidraw）。 */}
       {strokes.length > 0 && !hasContentInViewport && (
         <button
@@ -2560,26 +2596,6 @@ export function CanvasTool() {
                 )
               ) : (
                 <div className="space-y-3">
-                  {/* 画笔工具：笔刷类型选择（影响新建画笔的质感，对标专业绘图工具）。 */}
-                  {mode === "brush" && (
-                    <div className="space-y-1.5">
-                      <div className="text-[11px] font-medium text-muted-foreground">笔刷</div>
-                      <div className="grid grid-cols-4 gap-1.5">
-                        {BRUSH_TYPES.map((b) => (
-                          <Button
-                            key={b.id}
-                            type="button"
-                            size="sm"
-                            variant={brushType === b.id ? "default" : "outline"}
-                            className="h-8 text-xs"
-                            onClick={() => setBrushType(b.id)}
-                          >
-                            {b.label}
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                   <div className="space-y-1.5">
                     <Button
                       type="button"

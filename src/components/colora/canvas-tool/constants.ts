@@ -48,7 +48,6 @@ export const BRUSH_TYPES: { id: BrushType; label: string }[] = [
   { id: "pen", label: "基础" },
   { id: "marker", label: "马克笔" },
   { id: "highlighter", label: "荧光笔" },
-  { id: "pencil", label: "铅笔" },
   { id: "neon", label: "霓虹" },
   { id: "spray", label: "喷枪" },
   { id: "brush", label: "毛笔" },

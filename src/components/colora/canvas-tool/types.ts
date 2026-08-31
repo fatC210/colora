@@ -16,7 +16,6 @@ export type BrushType =
   | "pen"
   | "marker"
   | "highlighter"
-  | "pencil"
   | "neon"
   | "spray"
   | "brush";

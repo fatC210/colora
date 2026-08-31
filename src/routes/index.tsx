@@ -96,9 +96,12 @@ function ColoraApp() {
             </div>
           )}
 
-          {tool === "canvas" ? (
+          {/* 画布工具常驻挂载（hidden 切换显隐），避免切走再切回时丢失笔画/重置状态。 */}
+          <div className={tool === "canvas" ? "contents" : "hidden"}>
             <CanvasTool />
-          ) : (
+          </div>
+
+          {tool !== "canvas" && (
             <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
               <h1 className="colora-page-title mb-4 text-2xl font-bold tracking-tight sm:mb-5 sm:text-3xl">
                 {title}
