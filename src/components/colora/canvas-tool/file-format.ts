@@ -4,7 +4,15 @@ import {
   supported as nativeFileSystemSupported,
 } from "browser-fs-access";
 
-import type { BrushType, CanvasLayout, OverlapMode, Size, Stroke, StrokeGroup } from "./types";
+import type {
+  BindingAnchor,
+  BrushType,
+  CanvasLayout,
+  OverlapMode,
+  Size,
+  Stroke,
+  StrokeGroup,
+} from "./types";
 
 /**
  * .colora 画布文件格式
@@ -18,7 +26,7 @@ export const COLORA_MIME = "application/vnd.colora+json";
 export const COLORA_EXTENSION = "colora";
 const COLORA_TYPE = "colora";
 /** 当前文件格式版本；未来字段变更时递增并在 restoreCanvas 做迁移。 */
-const COLORA_VERSION = 1;
+const COLORA_VERSION = 2;
 
 /** 导出文件里保存的画布数据（可序列化）。 */
 export type ColoraFileData = {
@@ -104,14 +112,7 @@ const VALID_SHAPES = [
   "arrow",
 ];
 
-const VALID_BRUSH_TYPES: BrushType[] = [
-  "pen",
-  "marker",
-  "highlighter",
-  "neon",
-  "spray",
-  "brush",
-];
+const VALID_BRUSH_TYPES: BrushType[] = ["pen", "marker", "highlighter", "neon", "spray", "brush"];
 
 /** restore 单个 stroke：补默认字段、规整点坐标、规整 paint，抵御旧版本/手改文件。 */
 function restoreStroke(raw: unknown, fallback: Stroke): Stroke {
@@ -128,7 +129,7 @@ function restoreStroke(raw: unknown, fallback: Stroke): Stroke {
 
   const kind = asString(raw.kind, "brush") as Stroke["kind"];
   const validKind: Stroke["kind"] =
-    kind === "line" || kind === "shape" || kind === "brush" ? kind : "brush";
+    kind === "line" || kind === "shape" || kind === "brush" || kind === "image" ? kind : "brush";
   const shape = VALID_SHAPES.includes(asString(raw.shape, ""))
     ? (raw.shape as Stroke["shape"])
     : undefined;
@@ -170,11 +171,49 @@ function restoreStroke(raw: unknown, fallback: Stroke): Stroke {
   const strokeStyle: Stroke["strokeStyle"] =
     raw.strokeStyle === "dashed" ? "dashed" : raw.strokeStyle === "dotted" ? "dotted" : undefined;
   const angle: Stroke["angle"] = isFiniteNum(raw.angle) ? (raw.angle as number) : undefined;
-  const brushType: BrushType | undefined = VALID_BRUSH_TYPES.includes(
-    raw.brushType as BrushType,
-  )
+  const brushType: BrushType | undefined = VALID_BRUSH_TYPES.includes(raw.brushType as BrushType)
     ? (raw.brushType as BrushType)
     : undefined;
+
+  // 图片字段：src 需为非空 data: URL（或 http(s) URL），尺寸需有限正值。
+  const srcRaw = typeof raw.src === "string" && raw.src.length > 0 ? raw.src : undefined;
+  const src =
+    srcRaw && (srcRaw.startsWith("data:") || srcRaw.startsWith("http")) ? srcRaw : undefined;
+  const posNum = (v: unknown): number | undefined =>
+    isFiniteNum(v) && (v as number) > 0 ? (v as number) : undefined;
+  const nw = posNum(raw.nw);
+  const nh = posNum(raw.nh);
+  const w = posNum(raw.w);
+  const h = posNum(raw.h);
+  // Web 链接：非空字符串。
+  const href = typeof raw.href === "string" && raw.href.length > 0 ? raw.href : undefined;
+  // 文本绑定容器 id。
+  const containerId =
+    typeof raw.containerId === "string" && raw.containerId.length > 0 ? raw.containerId : undefined;
+  const boundTextId =
+    typeof raw.boundTextId === "string" && raw.boundTextId.length > 0 ? raw.boundTextId : undefined;
+  // 箭头绑定：校验 strokeId + anchor 枚举。
+  const VALID_ANCHORS: BindingAnchor[] = ["top", "bottom", "left", "right", "center"];
+  const restoreBinding = (b: unknown): { strokeId: string; anchor: BindingAnchor } | undefined => {
+    if (!isObject(b)) return undefined;
+    const strokeId =
+      typeof b.strokeId === "string" && b.strokeId.length > 0 ? b.strokeId : undefined;
+    const anchor =
+      typeof b.anchor === "string" && (VALID_ANCHORS as string[]).includes(b.anchor)
+        ? (b.anchor as BindingAnchor)
+        : undefined;
+    return strokeId && anchor ? { strokeId, anchor } : undefined;
+  };
+  const bindingsRaw = isObject(raw.bindings) ? raw.bindings : {};
+  const bindStart = restoreBinding(bindingsRaw.start);
+  const bindEnd = restoreBinding(bindingsRaw.end);
+  const bindings =
+    bindStart || bindEnd
+      ? {
+          ...(bindStart ? { start: bindStart } : {}),
+          ...(bindEnd ? { end: bindEnd } : {}),
+        }
+      : undefined;
 
   return {
     id: typeof raw.id === "string" && raw.id.length > 0 ? raw.id : fallback.id,
@@ -190,6 +229,15 @@ function restoreStroke(raw: unknown, fallback: Stroke): Stroke {
     ...(strokeStyle ? { strokeStyle } : {}),
     ...(angle ? { angle } : {}),
     ...(brushType ? { brushType } : {}),
+    ...(src ? { src } : {}),
+    ...(nw ? { nw } : {}),
+    ...(nh ? { nh } : {}),
+    ...(w ? { w } : {}),
+    ...(h ? { h } : {}),
+    ...(href ? { href } : {}),
+    ...(bindings ? { bindings } : {}),
+    ...(containerId ? { containerId } : {}),
+    ...(boundTextId ? { boundTextId } : {}),
   };
 }
 
@@ -304,7 +352,23 @@ export function restoreCanvas(
   const scaledStrokes =
     sx === 1 && sy === 1
       ? strokes
-      : strokes.map((s) => ({ ...s, points: s.points.map((p) => ({ x: p.x * sx, y: p.y * sy })) }));
+      : strokes.map((s) => {
+          const next: Stroke = {
+            ...s,
+            points: s.points.map((p) => ({ x: p.x * sx, y: p.y * sy })),
+          };
+          // 图片渲染尺寸随画布缩放（保持比例）。
+          if (s.kind === "image") {
+            if (s.w != null) next.w = s.w * sx;
+            if (s.h != null) next.h = s.h * sy;
+          }
+          // 容器文本换行框随画布缩放。
+          if (s.kind === "text" && s.containerId) {
+            if (s.w != null) next.w = s.w * sx;
+            if (s.h != null) next.h = s.h * sy;
+          }
+          return next;
+        });
 
   return { size, overlapMode, background: { layout, color }, strokes: scaledStrokes, groups };
 }

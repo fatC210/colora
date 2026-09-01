@@ -10,20 +10,22 @@ export type Mode =
   | "line"
   | "brush"
   | "text"
+  | "image"
   | "eraser";
-export type StrokeKind = "brush" | "line" | "shape" | "text";
-export type BrushType =
-  | "pen"
-  | "marker"
-  | "highlighter"
-  | "neon"
-  | "spray"
-  | "brush";
+export type StrokeKind = "brush" | "line" | "shape" | "text" | "image";
+export type BrushType = "pen" | "marker" | "highlighter" | "neon" | "spray" | "brush";
 export type PaintMode = "solid" | "gradient";
 export type OverlapMode = "mix" | "cover";
 export type CanvasLayout = "grid" | "blank" | "dots";
 export type InspectorTab = "line" | "canvas";
 export type StrokePaint = { mode: PaintMode; solid: string; stops: PathStop[]; space: InterpSpace };
+
+/** 箭头端点绑定到目标元素上的锚点位置（目标 renderBounds 的边/中心）。 */
+export type BindingAnchor = "top" | "bottom" | "left" | "right" | "center";
+export type Binding = { strokeId: string; anchor: BindingAnchor };
+/** 箭头端点绑定：start=首端绑定、end=末端绑定。只存偏好，端点坐标每次按目标当前 bounds 重算。 */
+export type StrokeBindings = { start?: Binding; end?: Binding };
+
 export type Stroke = {
   id: string;
   name: string;
@@ -46,6 +48,21 @@ export type Stroke = {
   text?: string;
   fontSize?: number;
   fontFamily?: string;
+  // 图片笔画专属（kind === "image"）：points 为单点左上角（angle=0 局部坐标）。
+  // src=图片 data URL；nw/nh=自然像素尺寸；w/h=渲染尺寸（可缩放）。
+  src?: string;
+  nw?: number;
+  nh?: number;
+  w?: number;
+  h?: number;
+  // Web 链接：Ctrl/Cmd+点击在新标签打开；SVG 导出包 <a>。
+  href?: string;
+  // 箭头绑定（仅 line / shape==="arrow"）：端点吸附到目标元素。
+  bindings?: StrokeBindings;
+  // 文本绑定容器：containerId=本文本指向容器 shape id；boundTextId=容器反指其文本 stroke。
+  // 容器文本用 w/h 作换行框（替代 measureText），resize 容器时同步更新 w/h 并重排。
+  containerId?: string;
+  boundTextId?: string;
 };
 export type StrokeGroup = {
   id: string;
@@ -59,9 +76,10 @@ export type SceneSnapshot = { strokes: Stroke[]; groups: StrokeGroup[] };
 export type Draft =
   | { type: "brush"; points: Point[] }
   | { type: "line"; start: Point; end: Point }
-  | { type: "shape"; shape: ShapeType; start: Point; end: Point };
+  | { type: "shape"; shape: ShapeType; start: Point; end: Point }
+  | { type: "image"; start: Point; end: Point };
 export type DragState =
-  | { type: "move"; last: Point; startStrokes: Stroke[]; startGroups: StrokeGroup[] }
+  | { type: "move"; start: Point; last: Point; startStrokes: Stroke[]; startGroups: StrokeGroup[] }
   | { type: "marquee"; start: Point }
   | { type: "pan"; last: Point } // 空格/中键拖动平移画布视口（屏幕坐标增量直接加到 pan）
   | {

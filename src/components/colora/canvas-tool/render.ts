@@ -16,6 +16,7 @@ import {
   selectionBounds,
   strokeCenter,
   textMetrics,
+  wrapText,
   isLinearStroke,
 } from "./geometry";
 import { gridColors } from "./tone";
@@ -36,6 +37,21 @@ import type {
 
 // mix 模式下供笔画间 multiply 合成用的临时离屏画布（模块级复用，避免每帧重建）。
 let mixTmpCanvas: HTMLCanvasElement | null = null;
+
+// 图片缓存：src(data URL) → HTMLImageElement。已解码的图复用，避免每帧重建/重新解码。
+const imageCache = new Map<string, HTMLImageElement>();
+/** 取已解码的图片（未就绪返回 null，并触发后台解码）。 */
+function getImage(src: string): HTMLImageElement | null {
+  let img = imageCache.get(src);
+  if (!img) {
+    img = new Image();
+    img.decode().catch(() => {});
+    img.src = src;
+    imageCache.set(src, img);
+    return null; // 本帧尚未就绪
+  }
+  return img.complete && img.naturalWidth > 0 ? img : null;
+}
 
 /** 稳定伪随机：基于 stroke.id + 索引生成 [0,1) 的确定性值，避免每帧抖动闪烁。 */
 function stableRand(seed: string, i: number): number {
@@ -65,7 +81,7 @@ function drawBrushStroke(
   target.lineJoin = "round";
 
   // 渐变模式：沿路径弧长取色。先算各段累计弧长与总长。
-  let cum: number[] = [];
+  const cum: number[] = [];
   let total = 0;
   if (isGrad) {
     for (let i = 0; i < drawPts.length - 1; i++) {
@@ -79,7 +95,11 @@ function drawBrushStroke(
     if (!isGrad) return source.solid;
     const segLen = total || 1;
     // 取段中点弧长
-    const mid = (cum[i] ?? 0) + (i < drawPts.length - 1 ? Math.hypot(drawPts[i + 1].x - drawPts[i].x, drawPts[i + 1].y - drawPts[i].y) / 2 : 0);
+    const mid =
+      (cum[i] ?? 0) +
+      (i < drawPts.length - 1
+        ? Math.hypot(drawPts[i + 1].x - drawPts[i].x, drawPts[i + 1].y - drawPts[i].y) / 2
+        : 0);
     return colorAtPercent(source.stops, (mid / segLen) * 100, source.space);
   };
 
@@ -180,7 +200,6 @@ function drawBrushStroke(
   target.restore();
   return true;
 }
-
 
 function getMixTmp(w: number, h: number): HTMLCanvasElement | null {
   if (typeof document === "undefined") return null;
@@ -327,21 +346,57 @@ export function renderScene({
       const ff = stroke.fontFamily ?? "sans-serif";
       target.textBaseline = "top";
       target.font = `${fs}px ${ff}`;
-      const lines = stroke.text.split("\n");
+      // 容器文本：按 w 换行，在容器框内水平+垂直居中。points[0]=容器左上角，w/h=容器尺寸。
+      const isContainer = !!stroke.containerId && !!stroke.w && stroke.w > 0;
+      const lines = isContainer
+        ? wrapText(stroke.text, stroke.w!, fs, ff)
+        : stroke.text.split("\n");
+      const boxW = isContainer ? stroke.w! : textMetrics(stroke).width;
+      const boxH = isContainer
+        ? (stroke.h ?? lines.length * fs * 1.2)
+        : lines.length <= 1
+          ? fs
+          : (lines.length - 1) * fs * 1.2 + fs;
+      // 垂直居中起点 y = p.y + (boxH - 文本总高)/2；水平左对齐（p.x）。
+      const textH = (lines.length - 1) * fs * 1.2 + fs;
+      const startY = isContainer ? p.y + Math.max(0, (boxH - textH) / 2) : p.y;
       if (source.mode === "solid" || !source.stops.length) {
         target.fillStyle =
           source.mode === "solid" ? source.solid : (source.stops[0]?.hex ?? "#000");
       } else {
         // 水平线性渐变，跨文本宽度，按 stops 的 pos(0..100)/alpha 构造。
-        const { width } = textMetrics(stroke);
-        const grad = target.createLinearGradient(p.x, 0, p.x + width, 0);
+        const grad = target.createLinearGradient(p.x, 0, p.x + boxW, 0);
         for (const s of source.stops) {
           const offset = clamp(s.pos / 100, 0, 1);
           grad.addColorStop(offset, hexAlphaToCss(s.hex, s.alpha));
         }
         target.fillStyle = grad;
       }
-      lines.forEach((line, i) => target.fillText(line, p.x, p.y + i * fs * 1.2));
+      lines.forEach((line, i) => target.fillText(line, p.x, startY + i * fs * 1.2));
+      target.restore();
+      return;
+    }
+    // 图片笔画：单点左上角 + w/h，drawImage 绘制（旋转 transform 已在上方应用）。
+    if (stroke.kind === "image") {
+      const p = points[0];
+      const w = stroke.w ?? stroke.nw ?? 0;
+      const h = stroke.h ?? stroke.nh ?? 0;
+      if (!p || w <= 0 || h <= 0) {
+        target.restore();
+        return;
+      }
+      const img = stroke.src ? getImage(stroke.src) : null;
+      if (img) {
+        target.drawImage(img, p.x, p.y, w, h);
+      } else {
+        // 未就绪：画占位框，下一帧解码完成后会重绘（渲染依赖含 draft/选中变化会触发，
+        // 但图片首次解码完成需要外部触发重绘——由 CanvasTool 的图片加载回调 setStrokes 触发）。
+        target.strokeStyle = "rgba(124,58,237,0.6)";
+        target.lineWidth = 1;
+        target.setLineDash([6, 4]);
+        target.strokeRect(p.x, p.y, w, h);
+        target.setLineDash([]);
+      }
       target.restore();
       return;
     }
@@ -478,7 +533,14 @@ export function renderScene({
       // 箭头 draft：杆画到 tip + 头部两条边（与正式 stroke 同一几何）。
       const head = arrowHeadPoints(draft.start, draft.end, w);
       if (hasGrad && stops) {
-        drawGradientStroke(ctx, [draft.start, draft.end], stops, draftStyle?.space ?? "rgb", w, false);
+        drawGradientStroke(
+          ctx,
+          [draft.start, draft.end],
+          stops,
+          draftStyle?.space ?? "rgb",
+          w,
+          false,
+        );
         drawGradientStroke(ctx, head, stops, draftStyle?.space ?? "rgb", w, false);
       } else {
         ctx.strokeStyle = draftStyle?.color ?? "rgba(2, 132, 199, 0.9)";
@@ -489,44 +551,57 @@ export function renderScene({
         ctx.stroke();
       }
     } else {
-      const points =
-        draft.type === "brush"
-          ? draft.points
-          : draft.type === "line"
-            ? [draft.start, draft.end]
-            : makeShapePoints(draft.shape, draft.start, draft.end);
-      const draftClosed =
-        draft.type === "shape" &&
-        draft.shape !== "wave" &&
-        draft.shape !== "curve" &&
-        draft.shape !== "spiral" &&
-        draft.shape !== "arrow";
-      // 非基础笔刷：用对应笔刷质感实时预览（所见即所得）。
-      if (
-        draft.type === "brush" &&
-        draftStyle?.brushType &&
-        draftStyle.brushType !== "pen" &&
-        drawBrushStroke(
-          ctx,
-          { id: draftStyle.id ?? "draft", width: w, brushType: draftStyle.brushType } as Stroke,
-          {
-            mode: hasGrad ? "gradient" : "solid",
-            solid: draftStyle?.color ?? "rgba(2, 132, 199, 0.9)",
-            stops: stops ?? [],
-            space: draftStyle?.space ?? "rgb",
-          },
-          points,
-        )
-      ) {
-        // drawBrushStroke 已绘制。
-      } else if (hasGrad && stops) {
-        // 渐变 paint：沿路径渐变实时预览（line/shape/pen 画笔统一）。
-        drawGradientStroke(ctx, points, stops, draftStyle?.space ?? "rgb", w, draftClosed);
-      } else {
-        ctx.strokeStyle = draftStyle?.color ?? "rgba(2, 132, 199, 0.9)";
+      if (draft.type === "image") {
+        // 图片 draft：拖拽确定插入框，画虚线矩形占位预览。
+        const x = Math.min(draft.start.x, draft.end.x);
+        const y = Math.min(draft.start.y, draft.end.y);
+        const dw = Math.abs(draft.end.x - draft.start.x);
+        const dh = Math.abs(draft.end.y - draft.start.y);
+        ctx.strokeStyle = draftStyle?.color ?? "rgba(124, 58, 237, 0.9)";
         ctx.lineWidth = w;
-        drawPath(ctx, points, draftClosed);
-        ctx.stroke();
+        ctx.setLineDash([8, 6]);
+        ctx.strokeRect(x, y, dw, dh);
+        ctx.setLineDash([]);
+      } else {
+        const points =
+          draft.type === "brush"
+            ? draft.points
+            : draft.type === "line"
+              ? [draft.start, draft.end]
+              : makeShapePoints(draft.shape, draft.start, draft.end);
+        const draftClosed =
+          draft.type === "shape" &&
+          draft.shape !== "wave" &&
+          draft.shape !== "curve" &&
+          draft.shape !== "spiral" &&
+          draft.shape !== "arrow";
+        // 非基础笔刷：用对应笔刷质感实时预览（所见即所得）。
+        if (
+          draft.type === "brush" &&
+          draftStyle?.brushType &&
+          draftStyle.brushType !== "pen" &&
+          drawBrushStroke(
+            ctx,
+            { id: draftStyle.id ?? "draft", width: w, brushType: draftStyle.brushType } as Stroke,
+            {
+              mode: hasGrad ? "gradient" : "solid",
+              solid: draftStyle?.color ?? "rgba(2, 132, 199, 0.9)",
+              stops: stops ?? [],
+              space: draftStyle?.space ?? "rgb",
+            },
+            points,
+          )
+        ) {
+          // drawBrushStroke 已绘制。
+        } else if (hasGrad && stops) {
+          // 渐变 paint：沿路径渐变实时预览（line/shape/pen 画笔统一）。
+          drawGradientStroke(ctx, points, stops, draftStyle?.space ?? "rgb", w, draftClosed);
+        } else {
+          ctx.strokeStyle = draftStyle?.color ?? "rgba(2, 132, 199, 0.9)";
+          ctx.lineWidth = w;
+          drawPath(ctx, points, draftClosed);
+          ctx.stroke();
+        }
       }
     }
     ctx.restore();
@@ -551,7 +626,11 @@ export function renderScene({
           return;
         const bounds = renderBounds(stroke),
           padding =
-            stroke.kind === "text" ? Math.max((stroke.fontSize ?? 28) * 0.12, 6) : stroke.width / 2;
+            stroke.kind === "text"
+              ? Math.max((stroke.fontSize ?? 28) * 0.12, 6)
+              : stroke.kind === "image"
+                ? 6
+                : stroke.width / 2;
         // 旋转态：绕包围盒中心旋转后画矩形（与元素旋转一致）。
         const a = stroke.angle ?? 0;
         if (a) {
@@ -620,14 +699,18 @@ export function createSvg(
     const a = stroke.angle ?? 0;
     const flush = () => {
       if (!parts.length) return;
+      // Web 链接：把整条 stroke 的 parts 包进 <a>（旋转 <g> 之内，位置正确）。
+      const body = stroke.href
+        ? `<a href="${escapeAttr(stroke.href)}" target="_blank" rel="noopener noreferrer">${parts.join("")}</a>`
+        : parts.join("");
       if (a) {
         const c = strokeCenter(stroke);
         const deg = ((a * 180) / Math.PI).toFixed(2);
         groupsXml.push(
-          `<g transform="rotate(${deg} ${c.x.toFixed(1)} ${c.y.toFixed(1)})">${parts.join("")}</g>`,
+          `<g transform="rotate(${deg} ${c.x.toFixed(1)} ${c.y.toFixed(1)})">${body}</g>`,
         );
       } else {
-        groupsXml.push(parts.join(""));
+        groupsXml.push(body);
       }
     };
     const points = renderPoints(stroke);
@@ -638,11 +721,17 @@ export function createSvg(
       const source = paintSource(stroke, groups, overlapMode);
       const fs = stroke.fontSize ?? 28;
       const ff = stroke.fontFamily ?? "sans-serif";
-      const lines = stroke.text.split("\n");
+      const isContainer = !!stroke.containerId && !!stroke.w && stroke.w > 0;
+      const lines = isContainer
+        ? wrapText(stroke.text, stroke.w!, fs, ff)
+        : stroke.text.split("\n");
+      const boxH = isContainer ? (stroke.h ?? lines.length * fs * 1.2) : 0;
+      const textH = (lines.length - 1) * fs * 1.2 + fs;
+      const startY = isContainer ? p.y + Math.max(0, (boxH - textH) / 2) : p.y;
       const tspans = lines
         .map(
           (line, i) =>
-            `<tspan x="${p.x}" dy="${i === 0 ? 0 : fs * 1.2}">${escapeAttr(line)}</tspan>`,
+            `<tspan x="${p.x}" y="${startY}" dy="${i === 0 ? 0 : fs * 1.2}">${escapeAttr(line)}</tspan>`,
         )
         .join("");
       let fill = escapeAttr(
@@ -650,7 +739,7 @@ export function createSvg(
       );
       let defs = "";
       if (source.mode === "gradient" && source.stops.length) {
-        const { width } = textMetrics(stroke);
+        const width = isContainer ? stroke.w! : textMetrics(stroke).width;
         const gid = `txt-${stroke.id}`;
         const stopsXml = source.stops
           .map(
@@ -662,7 +751,19 @@ export function createSvg(
         fill = `url(#${gid})`;
       }
       parts.push(
-        `${defs}<text x="${p.x}" y="${p.y}" font-size="${fs}" font-family="${escapeAttr(ff)}" fill="${fill}" style="dominant-baseline:hanging">${tspans}</text>`,
+        `${defs}<text x="${p.x}" y="${startY}" font-size="${fs}" font-family="${escapeAttr(ff)}" fill="${fill}" style="dominant-baseline:hanging">${tspans}</text>`,
+      );
+      flush();
+      return;
+    }
+    // 图片笔画：<image href> 内嵌 data URL（旋转 <g> 已由 flush 包裹）。
+    if (stroke.kind === "image") {
+      const p = points[0];
+      const w = stroke.w ?? stroke.nw ?? 0;
+      const h = stroke.h ?? stroke.nh ?? 0;
+      if (!p || w <= 0 || h <= 0 || !stroke.src) return;
+      parts.push(
+        `<image href="${escapeAttr(stroke.src)}" x="${p.x}" y="${p.y}" width="${w}" height="${h}" preserveAspectRatio="none" />`,
       );
       flush();
       return;

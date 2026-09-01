@@ -1,15 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlignCenter,
+  AlignCenterVertical,
+  AlignEndVertical,
+  AlignHorizontalDistributeCenter,
+  AlignLeft,
+  AlignRight,
+  AlignStartVertical,
+  AlignVerticalDistributeCenter,
   ArrowRight,
+  BarChart3,
   Circle,
   Diamond,
   Download,
   Eraser,
+  EyeOff,
   FileOutput,
+  FlipHorizontal2,
+  FlipVertical2,
   FolderOpen,
   Group,
   Hand,
+  Image as ImageIcon,
+  Link as LinkIcon,
   Lock,
+  Magnet,
   Maximize,
   MousePointer2,
   Pencil,
@@ -51,6 +66,7 @@ import {
   CANVAS_BG_PRESETS,
   CANVAS_FONTS,
   CANVAS_LAYOUTS,
+  CANVAS_PRESETS,
   BRUSH_TYPES,
   DEFAULT_STOPS,
   INITIAL_H,
@@ -68,8 +84,11 @@ import {
   clearFileHandle,
   loadFileHandle,
   saveFileHandle,
+  saveSceneHistory,
+  loadSceneHistory,
   verifyReadPermission,
 } from "./file-handle-store";
+import { getChannel, broadcastScene, broadcastHello, ORIGIN } from "./broadcast";
 import {
   getMidPoints,
   handlePoint,
@@ -87,6 +106,9 @@ import {
   worldBounds,
 } from "./geometry";
 import { downloadText, getNextStopPosition } from "./io";
+import { rebindArrows, findSnapAnchor } from "./binding";
+import { snapMove, type SnapGuide } from "./snapping";
+import { alignStrokes, distributeStrokes, flipStrokes } from "./layout";
 import { renderPoints } from "./path";
 import { createSvg, renderScene } from "./render";
 import { inspectorTone } from "./tone";
@@ -142,7 +164,7 @@ if (import.meta.hot) {
 }
 
 export function CanvasTool() {
-  const { theme } = useColora();
+  const { theme, zenMode, toggleZen } = useColora();
   const isDark = theme === "dark";
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -152,6 +174,12 @@ export function CanvasTool() {
   const stopDragRafRef = useRef(0);
   const stopDragInfoRef = useRef<{ stopId: string; x: number; y: number } | null>(null);
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
+  // 图片插入：隐藏 file input + 待插入目标框（拖拽确定尺寸时记录，null=用自然尺寸在点击点插入）。
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const imageInsertTargetRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  // 多窗口同步：BroadcastChannel + 正在应用远端快照标志（避免收到自己的回声再广播）。
+  const channelRef = useRef<BroadcastChannel | null>(null);
+  const applyingRemoteRef = useRef(false);
   // strokes 的最新快照：供 window 监听回调里读最新值（回调闭包捕获旧 strokes 会导致撤销栈判断失效）。
   const strokesRef = useRef<Stroke[]>([]);
   // 纯色元素编辑态中点手柄的本地拖动位置（屏幕百分比）。拖动跟随指针、不改线条，
@@ -170,6 +198,10 @@ export function CanvasTool() {
     cy: number;
     value: string;
     editingId: string | null;
+    // 容器文本编辑：containerId = 目标容器 shape id；containerW/H = 容器尺寸（新建时设文本 w/h）。
+    containerId?: string;
+    containerW?: number;
+    containerH?: number;
   } | null>(null);
   // 双击进入编辑的线性笔画 id：显示所有点 + 中间点，拖点/插折点；Esc 退出。
   const [editingLinearId, setEditingLinearId] = useState<string | null>(null);
@@ -188,6 +220,10 @@ export function CanvasTool() {
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
   // select 模式下悬停在可选中线条上时光标改为四向移动箭头（对标 Excalidraw）
   const [hoveringStroke, setHoveringStroke] = useState(false);
+  const [hoveringLink, setHoveringLink] = useState(false); // select 模式悬停在带链接元素上
+  // 吸附辅助线（move/draft 时计算，render 循环末尾画屏幕空间虚线）。ref 不入依赖。
+  const guidesRef = useRef<SnapGuide[]>([]);
+  const [gridSnap, setGridSnap] = useState(false); // 吸附到网格（GRID_STEP）
   const [brushWidth, setBrushWidth] = useState(4);
   // 新建线性元素的默认边角：sharp=方角折线，round=圆角平滑曲线（对标 Excalidraw roundness）。
   const [brushRoundness, setBrushRoundness] = useState<"sharp" | "round">("sharp");
@@ -195,6 +231,19 @@ export function CanvasTool() {
   const [brushStrokeStyle, setBrushStrokeStyle] = useState<"solid" | "dashed" | "dotted">("solid");
   // 新建画笔的笔刷类型：pen/marker/highlighter/pencil/neon/spray/brush（对标专业绘图工具笔刷质感）。
   const [brushType, setBrushType] = useState<BrushType>("pen");
+  // 新建文本的默认字体/字号（对标画笔 brushWidth/brushType：工具栏下方悬浮条设置，落笔即用此值）。
+  // 选中已有文本时悬浮条回填该文本值并改该文本，同时同步更新这两个 state 作为下次新建默认。
+  const [brushFontSize, setBrushFontSize] = useState(28);
+  const [brushFontFamily, setBrushFontFamily] = useState<string>(CANVAS_FONTS[0].value);
+  // Web 链接编辑缓冲：输入时只更新本地，blur/Enter 时提交到 stroke.href（避免每键一次 undo）。
+  const [linkDraft, setLinkDraft] = useState<string | null>(null);
+  // 箭头端点是否自动绑定到目标元素（对标 Excalidraw binding preference，默认开）。
+  const [bindingEnabled, setBindingEnabled] = useState(true);
+  // 画布尺寸预设：free=无固定画板框；A4/16:9/4:3/square=可见画板框 + 导出裁剪到该框。
+  const [canvasPreset, setCanvasPreset] = useState<"free" | "A4" | "16:9" | "4:3" | "square">(
+    "free",
+  );
+  // 预设画板框（画布坐标，视口中心居中）；free 时为 null。
   const [overlapMode, setOverlapMode] = useState<OverlapMode>("mix");
   const [bgLayout, setBgLayout] = useState<CanvasLayout>("grid");
   const [bgColor, setBgColor] = useState<string>(() => defaultCanvasBg(theme === "dark"));
@@ -203,8 +252,21 @@ export function CanvasTool() {
   // 屏幕↔画布：screen = canvas * zoom + pan；canvas = (screen - pan) / zoom。
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+  // 预设画板框（画布坐标，视口中心居中）；free 时为 null。
+  const presetFrame = useMemo(() => {
+    if (canvasPreset === "free") return null;
+    const p = CANVAS_PRESETS.find((c) => c.id === canvasPreset)!;
+    if (p.w === 0 || p.h === 0) return null;
+    const cx = (viewSize.w / 2 - pan.x) / zoom;
+    const cy = (viewSize.h / 2 - pan.y) / zoom;
+    return { x: cx - p.w / 2, y: cy - p.h / 2, w: p.w, h: p.h };
+  }, [canvasPreset, pan.x, pan.y, viewSize.w, viewSize.h, zoom]);
   const spaceDownRef = useRef(false); // 空格键按住：进入抓手平移模式（事件读取）
   const [spaceDown, setSpaceDown] = useState(false); // 空格按下（驱动光标 UI）
+  const [ctrlDown, setCtrlDown] = useState(false); // Ctrl/Cmd 按下（链接 hover 光标提示）
+  const [statsOpen, setStatsOpen] = useState(false); // Stats 面板展开
+  // 内部剪贴板：Ctrl/Cmd+C 复制选中 stroke，Ctrl/Cmd+V 粘贴（带偏移）。不与系统剪贴板交互。
+  const clipboardRef = useRef<Stroke[]>([]);
   const [panning, setPanning] = useState(false); // 是否正在平移拖动（用于光标 grabbing）
   const [undoStack, setUndoStack] = useState<SceneSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<SceneSnapshot[]>([]);
@@ -353,6 +415,7 @@ export function CanvasTool() {
   // 空格键：按住进入抓手平移模式；Esc/0 重置视口。
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) setCtrlDown(true);
       if (e.code === "Space") {
         // 避免在输入框/编辑态吞掉空格
         const t = e.target as HTMLElement;
@@ -376,6 +439,7 @@ export function CanvasTool() {
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) setCtrlDown(false);
       if (e.code === "Space") {
         spaceDownRef.current = false;
         setSpaceDown(false);
@@ -422,9 +486,8 @@ export function CanvasTool() {
     return () => canvas.removeEventListener("wheel", onWheel);
   }, [viewSize.w, viewSize.h]);
 
-  // 启动时：若 IDB 存有最近一次的文件句柄且有读权限，则自动恢复该画布。
-  // 等 viewSize 测得后再恢复，使 restoreCanvas 能按真实画布尺寸映射坐标。
-  // 首次进入页面通常无权限句柄（需用户主动打开过），此时不弹窗、静默跳过。
+  // 启动恢复：优先用 IDB 持久化的场景历史（含撤销栈）水合工作现场；无历史则回落到文件句柄自动打开。
+  // 等 viewSize 测得后再恢复。IDB 历史优先 = 刷新/HMR 后保留上次工作现场与撤销历史。
   const bootRestoreTriedRef = useRef(false);
   useEffect(() => {
     if (bootRestoreTriedRef.current) return;
@@ -432,6 +495,34 @@ export function CanvasTool() {
     bootRestoreTriedRef.current = true;
     let cancelled = false;
     (async () => {
+      // 1) 优先 IDB 历史快照（含 undo/redo 栈）。
+      try {
+        const hist = await loadSceneHistory();
+        if (cancelled) return;
+        if (hist && (hist.strokes.length || hist.groups.length || hist.undoStack.length)) {
+          applyingRemoteRef.current = true;
+          setStrokes(cloneStrokes(hist.strokes));
+          setGroups(cloneGroups(hist.groups));
+          setUndoStack(hist.undoStack);
+          setRedoStack(hist.redoStack);
+          requestAnimationFrame(() => {
+            applyingRemoteRef.current = false;
+          });
+          // 仍恢复文件句柄用于"保存至当前文件"（不加载文件内容，避免覆盖现场）。
+          const stored = await loadFileHandle();
+          if (cancelled) return;
+          if (stored) {
+            if (await verifyReadPermission(stored.handle)) {
+              setColoraFileHandle(stored.handle);
+              setColoraFileName(stored.name);
+            }
+          }
+          return;
+        }
+      } catch {
+        /* ignore */
+      }
+      // 2) 无 IDB 历史：回落到文件句柄自动打开（原行为）。
       const stored = await loadFileHandle();
       if (!stored || cancelled) return;
       try {
@@ -568,6 +659,16 @@ export function CanvasTool() {
         dragRef.current?.type === "pointDrag" ||
         (editingLinearId !== null && selectedStrokes[0]?.id === editingLinearId),
     });
+    // 画板预设框（画布坐标，视口 transform 下画虚线）。
+    if (presetFrame) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(99,102,241,0.7)";
+      ctx.lineWidth = 1 / zoom;
+      ctx.setLineDash([8 / zoom, 6 / zoom]);
+      ctx.strokeRect(presetFrame.x, presetFrame.y, presetFrame.w, presetFrame.h);
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
     if (selectionBox) {
       const left = Math.min(selectionBox.start.x, selectionBox.end.x),
         top = Math.min(selectionBox.start.y, selectionBox.end.y);
@@ -581,12 +682,36 @@ export function CanvasTool() {
       ctx.strokeRect(left, top, w, h);
       ctx.restore();
     }
+    // 吸附辅助线：屏幕空间全视口虚线（move 时由 guidesRef 写入）。
+    const guides = guidesRef.current;
+    if (guides.length) {
+      ctx.save();
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0); // 屏幕空间，不受视口 transform
+      ctx.strokeStyle = "rgba(204,120,90,0.9)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      for (const g of guides) {
+        const screen = g.axis === "x" ? g.pos * zoom + pan.x : g.pos * zoom + pan.y;
+        ctx.beginPath();
+        if (g.axis === "x") {
+          ctx.moveTo(screen, 0);
+          ctx.lineTo(screen, viewSize.h);
+        } else {
+          ctx.moveTo(0, screen);
+          ctx.lineTo(viewSize.w, screen);
+        }
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
     // pan 用 pan.x/pan.y 依赖（比 pan 整体引用更精确）；renderScene 接收整体 pan 仅用于背景。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     bgColor,
     bgLayout,
     brushWidth,
+    canvasPreset,
     draft,
     editingLinearId,
     groups,
@@ -620,10 +745,39 @@ export function CanvasTool() {
     textCommittedRef.current = true;
     const v = value.trim();
     const editingId = editingTextIdRef.current;
+    const containerId = textInput?.containerId;
     if (v) {
       if (editingId) {
-        // 编辑现有文本：只更新 text，保留字体/字号/颜色。
+        // 编辑现有文本：只更新 text，保留字体/字号/颜色/容器绑定。
         commitStrokes(strokes.map((s) => (s.id === editingId ? { ...s, text: v } : s)));
+      } else if (containerId) {
+        // 新建容器绑定文本：points=容器左上角(cx,cy)，w/h=容器尺寸，回写容器 boundTextId。
+        const textId = createId("stroke");
+        commitGroups(
+          [
+            ...strokes.map((s) => (s.id === containerId ? { ...s, boundTextId: textId } : s)),
+            {
+              id: textId,
+              name: `文本 ${strokes.length + 1}`,
+              kind: "text" as const,
+              points: [{ x: cx, y: cy }],
+              width: 1,
+              paint: {
+                mode: "solid" as const,
+                solid: isDark ? "#0f172a" : "#fafafa",
+                stops: cloneStops(DEFAULT_STOPS),
+                space: "rgb" as const,
+              },
+              text: v,
+              fontSize: brushFontSize,
+              fontFamily: brushFontFamily,
+              containerId,
+              w: textInput?.containerW,
+              h: textInput?.containerH,
+            },
+          ],
+          groups,
+        );
       } else {
         addStroke({
           id: createId("stroke"),
@@ -638,8 +792,8 @@ export function CanvasTool() {
             space: "rgb",
           },
           text: v,
-          fontSize: 28,
-          fontFamily: CANVAS_FONTS[0].value,
+          fontSize: brushFontSize,
+          fontFamily: brushFontFamily,
         });
       }
     }
@@ -721,6 +875,13 @@ export function CanvasTool() {
       });
       return;
     }
+    if (mode === "image") {
+      // 图片模式：按下拖拽确定插入框，松手读文件并按框尺寸插入。
+      // 单击（无拖拽）则用图片自然尺寸在点击点插入——通过隐藏 file input 选文件。
+      setSelectedIds([]);
+      setDraft({ type: "image", start: point, end: point });
+      return;
+    }
     if (mode === "line") {
       setDraft({ type: "line", start: point, end: point });
       return;
@@ -729,6 +890,14 @@ export function CanvasTool() {
       setDraft({ type: "shape", shape: shapeOfMode(mode)!, start: point, end: point });
       return;
     }
+    // Ctrl/Cmd + 点击带链接的元素：直接在新标签打开，不选中/不启动拖动。
+    if (mode === "select" && (event.ctrlKey || event.metaKey)) {
+      const hit = hitTopStroke(point);
+      if (hit?.href) {
+        window.open(hit.href, "_blank", "noopener,noreferrer");
+        return;
+      }
+    }
     const hit = hitTopStroke(point);
     if (hit) {
       if (!selectedIds.includes(hit.id)) setSelectedIds([hit.id]);
@@ -736,6 +905,7 @@ export function CanvasTool() {
       if (editingLinearId && editingLinearId !== hit.id) setEditingLinearId(null);
       dragRef.current = {
         type: "move",
+        start: point,
         last: point,
         startStrokes: cloneStrokes(strokes),
         startGroups: cloneGroups(groups),
@@ -747,6 +917,7 @@ export function CanvasTool() {
     if (selBounds && pointInBounds(point, selBounds)) {
       dragRef.current = {
         type: "move",
+        start: point,
         last: point,
         startStrokes: cloneStrokes(strokes),
         startGroups: cloneGroups(groups),
@@ -776,7 +947,7 @@ export function CanvasTool() {
       setDraft({ type: "brush", points: [...draft.points, point] });
       return;
     }
-    if (draft?.type === "line" || draft?.type === "shape") {
+    if (draft?.type === "line" || draft?.type === "shape" || draft?.type === "image") {
       setDraft({ ...draft, end: point });
       return;
     }
@@ -787,29 +958,60 @@ export function CanvasTool() {
       return;
     }
     if (dragRef.current?.type === "move") {
-      const dx = point.x - dragRef.current.last.x,
-        dy = point.y - dragRef.current.last.y;
-      dragRef.current.last = point;
-      setStrokes((current) =>
-        current.map((stroke) =>
+      const drag = dragRef.current;
+      // 用按下快照的选中联合 bounds + 累计位移算绝对目标 bounds，跑吸附（避免增量累积抖动）。
+      const startSelected = drag.startStrokes.filter((s) => selectedIds.includes(s.id));
+      const startUnion = unionWorldBounds(startSelected);
+      const totalDx = point.x - drag.start.x;
+      const totalDy = point.y - drag.start.y;
+      let dx = totalDx;
+      let dy = totalDy;
+      guidesRef.current = [];
+      if (startUnion && (startUnion.width || startUnion.height)) {
+        const targetBounds = {
+          minX: startUnion.minX + totalDx,
+          minY: startUnion.minY + totalDy,
+          maxX: startUnion.maxX + totalDx,
+          maxY: startUnion.maxY + totalDy,
+        };
+        const snap = snapMove(
+          targetBounds,
+          drag.startStrokes,
+          new Set(selectedIds),
+          6 / zoom,
+          gridSnap,
+        );
+        dx += snap.dx;
+        dy += snap.dy;
+        guidesRef.current = snap.guides;
+      }
+      // 本帧增量 = 修正后累计位移 - 上次累计位移（last 存的是上次 point）。
+      const frameDx = dx - (drag.last.x - drag.start.x);
+      const frameDy = dy - (drag.last.y - drag.start.y);
+      drag.last = { x: drag.start.x + dx, y: drag.start.y + dy };
+      const movedIds = new Set(selectedIds);
+      setStrokes((current) => {
+        const next = current.map((stroke) =>
           selectedIds.includes(stroke.id)
             ? {
                 ...stroke,
-                points: stroke.points.map((item) => ({ x: item.x + dx, y: item.y + dy })),
+                points: stroke.points.map((item) => ({ x: item.x + frameDx, y: item.y + frameDy })),
               }
             : stroke,
-        ),
-      );
+        );
+        return rebindArrows(next, movedIds);
+      });
     }
     if (dragRef.current?.type === "marquee")
       setSelectionBox({ start: dragRef.current.start, end: point });
     if (dragRef.current?.type === "resize") applyResizeMove(point);
     // 纯悬停（无拖动、无草稿、select 模式）：命中线条本体或在已选中组合大框内，
     // 均显示四向移动光标——大框内任意处可拖动整组。
-    if (mode === "select" && !draft && !dragRef.current)
-      setHoveringStroke(
-        Boolean(hitTopStroke(point)) || Boolean(selBounds && pointInBounds(point, selBounds)),
-      );
+    if (mode === "select" && !draft && !dragRef.current) {
+      const hit = hitTopStroke(point);
+      setHoveringStroke(Boolean(hit) || Boolean(selBounds && pointInBounds(point, selBounds)));
+      setHoveringLink(Boolean(hit?.href));
+    }
   };
   const onPointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const point = canvasPoint(event);
@@ -835,6 +1037,26 @@ export function CanvasTool() {
       if (!lockedTool) setMode("select");
       return;
     }
+    if (draft?.type === "image") {
+      const dragged = distance(draft.start, point) > 8;
+      if (dragged) {
+        // 拖拽框：记录目标框（左上角 + 宽高），打开 file input 选图按框插入。
+        const x = Math.min(draft.start.x, point.x);
+        const y = Math.min(draft.start.y, point.y);
+        const w = Math.abs(point.x - draft.start.x);
+        const h = Math.abs(point.y - draft.start.y);
+        imageInsertTargetRef.current = { x, y, w, h };
+      } else {
+        // 单击：在点击点用自然尺寸插入。
+        imageInsertTargetRef.current = null;
+        // 记录点击点，insertImageFromFile 用其为中心；这里用 draft.start 作为中心。
+        imageInsertTargetRef.current = { x: point.x, y: point.y, w: 0, h: 0 };
+      }
+      setDraft(null);
+      imageInputRef.current?.click();
+      if (!lockedTool) setMode("select");
+      return;
+    }
     if (draft?.type === "line" || draft?.type === "shape") {
       if (distance(draft.start, point) > 8) {
         const isLine = draft.type === "line";
@@ -850,12 +1072,34 @@ export function CanvasTool() {
                 : sh === "arrow"
                   ? "箭头"
                   : "形状";
+        // 箭头：端点吸附绑定到目标元素（启用时）。吸附阈值 ~12px 屏幕空间 → canvas 空间 12/zoom。
+        const isArrowShape = !isLine && sh === "arrow";
+        let arrowPoints: Point[] | undefined;
+        let arrowBindings: Stroke["bindings"] | undefined;
+        if (isArrowShape && bindingEnabled) {
+          const threshold = 12 / zoom;
+          const snapStart = findSnapAnchor(strokes, draft.start, threshold);
+          const snapEnd = findSnapAnchor(strokes, point, threshold);
+          const start = snapStart?.point ?? draft.start;
+          const end = snapEnd?.point ?? point;
+          arrowPoints = [start, end];
+          if (snapStart || snapEnd) {
+            arrowBindings = {
+              ...(snapStart
+                ? { start: { strokeId: snapStart.strokeId, anchor: snapStart.anchor } }
+                : {}),
+              ...(snapEnd ? { end: { strokeId: snapEnd.strokeId, anchor: snapEnd.anchor } } : {}),
+            };
+          }
+        }
         addStroke({
           id: createId("stroke"),
           name: `${label} ${strokes.length + 1}`,
           kind: isLine ? "line" : "shape",
           shape: sh,
-          points: isLine ? [draft.start, point] : makeShapePoints(sh!, draft.start, point),
+          points:
+            arrowPoints ??
+            (isLine ? [draft.start, point] : makeShapePoints(sh!, draft.start, point)),
           width: brushWidth,
           paint: defaultPaint(isLine ? "#0EA5E9" : "#F97316"),
           // 仅线性元素（直线/箭头/波浪/曲线/螺旋）带边角；闭合形状不使用 roundness。
@@ -863,6 +1107,7 @@ export function CanvasTool() {
             ? { roundness: brushRoundness }
             : {}),
           strokeStyle: brushStrokeStyle,
+          ...(arrowBindings ? { bindings: arrowBindings } : {}),
         });
       }
       setDraft(null);
@@ -898,12 +1143,32 @@ export function CanvasTool() {
     if (dragRef.current?.type === "resize") {
       applyResizeEnd();
     }
+    guidesRef.current = [];
     dragRef.current = null;
   };
 
   const onDoubleClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    if (mode !== "select" || !selectedStroke || selectedGroup) return;
     const point = canvasPoint(event);
+    // 双击空白处：切到文本工具并在该位置进入文本输入（对标 Excalidraw 双击空白创建文本）。
+    // 命中线条本体时走下面的编辑/插色标逻辑，不触发新建文本。
+    if (mode === "select" && !hitTopStroke(point)) {
+      setMode("text");
+      setSelectedIds([]);
+      closeInspector();
+      textCommittedRef.current = false;
+      editingTextIdRef.current = null;
+      const rect = event.currentTarget.getBoundingClientRect();
+      setTextInput({
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+        cx: point.x,
+        cy: point.y,
+        value: "",
+        editingId: null,
+      });
+      return;
+    }
+    if (mode !== "select" || !selectedStroke || selectedGroup) return;
     if (!hitStroke(selectedStroke, point)) return;
     // 文本双击：进入编辑（预填原文本，提交时更新而非新建）。
     if (selectedStroke.kind === "text") {
@@ -928,24 +1193,35 @@ export function CanvasTool() {
       setEditingLinearId((id) => (id === selectedStroke.id ? null : selectedStroke.id));
       return;
     }
-    // 闭合形状双击（渐变模式）：在双击位置插入色标。
-    const points = renderPoints(selectedStroke);
-    const pos = nearestPercentOnPath(points, point);
-    const source = selectedStroke.paint;
-    const picked = stopAtPercent(source.stops, pos, source.space);
-    const newStop: PathStop = {
-      id: createStopId("stop"),
-      hex: picked.hex,
-      alpha: picked.alpha,
-      pos: Math.round(pos),
-    };
-    commitStrokes(
-      strokes.map((stroke) =>
-        stroke.id === selectedStroke.id
-          ? { ...stroke, paint: { ...stroke.paint, stops: [...stroke.paint.stops, newStop] } }
-          : stroke,
-      ),
-    );
+    // 闭合形状双击：进入容器文本编辑（对标 Excalidraw）。若形状已绑定文本则编辑它，否则新建绑定文本。
+    {
+      const container = selectedStroke;
+      const b = renderBounds(container);
+      // 已绑定文本：取该文本 stroke 进入编辑。
+      const existing = container.boundTextId
+        ? strokes.find((s) => s.id === container.boundTextId)
+        : undefined;
+      const textStroke = existing ?? (container.kind === "shape" ? undefined : undefined);
+      // 文本定位锚点 = 容器左上角；w/h = 容器尺寸。
+      const tp = { x: b.minX, y: b.minY };
+      const sx = tp.x * zoom + pan.x;
+      const sy = tp.y * zoom + pan.y;
+      editingTextIdRef.current = textStroke?.id ?? null;
+      textCommittedRef.current = false;
+      setTextInput({
+        x: sx,
+        y: sy,
+        cx: tp.x,
+        cy: tp.y,
+        value: textStroke?.text ?? "",
+        editingId: textStroke?.id ?? null,
+        // 容器 id：提交时用——新建文本时设 containerId 并回写容器的 boundTextId。
+        containerId: container.id,
+        containerW: b.width,
+        containerH: b.height,
+      });
+      return;
+    }
   };
 
   const updateSelectedStroke = (updater: (stroke: Stroke) => Stroke) => {
@@ -958,6 +1234,19 @@ export function CanvasTool() {
     if (!selectedIds.length) return;
     const ids = new Set(selectedIds);
     commitStrokes(strokes.map((stroke) => (ids.has(stroke.id) ? updater(stroke) : stroke)));
+  };
+  // 提交链接：空串清除 href。仅单选时由 inspector 触发。
+  const commitLink = (value: string) => {
+    const v = value.trim();
+    updateSelectedStrokes((stroke) => {
+      if (!v) {
+        const { href: _href, ...rest } = stroke;
+        void _href;
+        return rest;
+      }
+      return { ...stroke, href: v };
+    });
+    setLinkDraft(null);
   };
   const updateSelectedGroup = (updater: (group: StrokeGroup) => StrokeGroup) => {
     if (!selectedGroup) return;
@@ -1162,6 +1451,98 @@ export function CanvasTool() {
     const rest = strokes.filter((stroke) => !selectedIds.includes(stroke.id));
     commitStrokes(direction === "front" ? [...rest, ...selected] : [...selected, ...rest]);
   };
+  // 对齐/分布/翻转：作用于 selectedStrokes，经 commitStrokes 入 undo。
+  const alignSelected = (mode: "left" | "center-h" | "right" | "top" | "middle-v" | "bottom") => {
+    if (selectedStrokes.length < 2) return;
+    commitStrokes(alignStrokes(strokes, selectedStrokes, mode));
+  };
+  const distributeSelected = (mode: "horizontal" | "vertical") => {
+    if (selectedStrokes.length < 3) return;
+    commitStrokes(distributeStrokes(strokes, selectedStrokes, mode));
+  };
+  const flipSelected = (mode: "horizontal" | "vertical") => {
+    if (!selectedStrokes.length) return;
+    commitStrokes(flipStrokes(strokes, selectedStrokes, mode));
+  };
+
+  // 数值输入：单选时改 x/y/w/h/angle（世界坐标）。blur/Enter 提交，一步 undo。
+  // x/y=平移 selBounds.minX/minY 到目标；w/h=缩放到目标尺寸（以左上角为锚）；
+  // angle=设 stroke.angle。线性/形状缩放用 resizeTransform，image/容器文本设 w/h。
+  const setNumericBox = (field: "x" | "y" | "w" | "h" | "angle", value: number) => {
+    if (!selectedStroke || !selBounds) return;
+    const ids = new Set(selectedIds);
+    if (field === "angle") {
+      const a = (value * Math.PI) / 180;
+      commitStrokes(strokes.map((s) => (ids.has(s.id) ? { ...s, angle: a } : s)));
+      return;
+    }
+    if (field === "x" || field === "y") {
+      const target = value;
+      const cur = field === "x" ? selBounds.minX : selBounds.minY;
+      const d = target - cur;
+      const movedIds = ids;
+      commitStrokes(
+        rebindArrows(
+          strokes.map((s) =>
+            ids.has(s.id)
+              ? {
+                  ...s,
+                  points: s.points.map((p) =>
+                    field === "x" ? { ...p, x: p.x + d } : { ...p, y: p.y + d },
+                  ),
+                }
+              : s,
+          ),
+          movedIds,
+        ),
+      );
+      return;
+    }
+    // w/h：缩放到目标尺寸，以左上角为固定锚。
+    const curW = selBounds.width;
+    const curH = selBounds.height;
+    const targetW = field === "w" ? value : curW;
+    const targetH = field === "h" ? value : curH;
+    if (targetW <= 0 || targetH <= 0) return;
+    const sx = curW > 0 ? targetW / curW : 1;
+    const sy = curH > 0 ? targetH / curH : 1;
+    const ox = selBounds.minX;
+    const oy = selBounds.minY;
+    const movedIds = ids;
+    commitStrokes(
+      rebindArrows(
+        strokes.map((s) => {
+          if (!ids.has(s.id)) return s;
+          // image/容器文本：直接设 w/h（image 单点不变）。
+          if (s.kind === "image" || (s.kind === "text" && s.containerId)) {
+            if (field === "w") return { ...s, w: value };
+            return { ...s, h: value };
+          }
+          // 文本：按缩放比调 fontSize + 定位点平移跟随。
+          if (s.kind === "text") {
+            const scale = field === "w" ? sx : sy;
+            return {
+              ...s,
+              fontSize: Math.max(8, Math.round((s.fontSize ?? 28) * scale)),
+              points: s.points.map((p) => ({
+                x: ox + (p.x - ox) * (field === "w" ? sx : 1),
+                y: oy + (p.y - oy) * (field === "h" ? sy : 1),
+              })),
+            };
+          }
+          // 线性/形状：以左上角为锚缩放 points（angle=0 局部坐标，旋转元素近似处理）。
+          return {
+            ...s,
+            points: s.points.map((p) => ({
+              x: ox + (p.x - ox) * sx,
+              y: oy + (p.y - oy) * sy,
+            })),
+          };
+        }),
+        movedIds,
+      ),
+    );
+  };
   const clearCanvas = () => {
     setConfirmDialog({
       title: "清空画布",
@@ -1190,19 +1571,25 @@ export function CanvasTool() {
   };
   const exportPng = (scale: number, withBackground = true) => {
     if (viewSize.w === 0) return;
+    // 预设画板：导出裁剪到画板框（画布坐标 frame），否则用视口尺寸。
+    const frame = presetFrame;
+    const w = frame ? frame.w : viewSize.w;
+    const h = frame ? frame.h : viewSize.h;
     const canvas = document.createElement("canvas");
-    canvas.width = viewSize.w * scale;
-    canvas.height = viewSize.h * scale;
+    canvas.width = w * scale;
+    canvas.height = h * scale;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.setTransform(scale, 0, 0, scale, frame ? -frame.x : 0, frame ? -frame.y : 0);
     const off = document.createElement("canvas");
-    off.width = viewSize.w * scale;
-    off.height = viewSize.h * scale;
-    off.getContext("2d")?.setTransform(scale, 0, 0, scale, 0, 0);
+    off.width = w * scale;
+    off.height = h * scale;
+    off
+      .getContext("2d")
+      ?.setTransform(scale, 0, 0, scale, frame ? -frame.x : 0, frame ? -frame.y : 0);
     renderScene({
       ctx,
-      size: viewSize,
+      size: { w, h },
       strokes,
       groups,
       overlapMode,
@@ -1210,6 +1597,8 @@ export function CanvasTool() {
       bgLayout,
       bgColor,
       showBackground: withBackground,
+      pan: { x: 0, y: 0 },
+      zoom: 1,
     });
     const link = document.createElement("a");
     link.download = `colora-canvas-${scale}x.png`;
@@ -1436,6 +1825,380 @@ export function CanvasTool() {
     await navigator.clipboard.writeText(value);
     toast.success(message);
   };
+
+  // 读图片文件 → data URL + 自然像素尺寸。SVG 用 text() 包成 data URL，其它位图用 readAsDataURL。
+  // 大图（>5MB data URL）给 toast 警告，避免 .colora 文件膨胀。
+  const readImageFile = (file: File): Promise<{ src: string; nw: number; nh: number } | null> =>
+    new Promise((resolve) => {
+      const isSvg = file.type === "image/svg+xml" || file.name.toLowerCase().endsWith(".svg");
+      const done = (src: string) => {
+        const probe = new Image();
+        probe.onload = () => {
+          const nw = probe.naturalWidth || 100;
+          const nh = probe.naturalHeight || 100;
+          if (src.length > 5 * 1024 * 1024) toast.warning("图片较大，将增加文件体积");
+          resolve({ src, nw, nh });
+        };
+        probe.onerror = () => {
+          toast.error("无法读取图片");
+          resolve(null);
+        };
+        probe.src = src;
+      };
+      if (isSvg) {
+        file
+          .text()
+          .then((text) => done(`data:image/svg+xml;utf8,${encodeURIComponent(text)}`))
+          .catch(() => resolve(null));
+      } else {
+        const reader = new FileReader();
+        reader.onload = () => done(typeof reader.result === "string" ? reader.result : "");
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
+      }
+    });
+
+  // 在画布坐标 (cx,cy) 插入图片；w/h 用自然尺寸（按 zoom 适配视口，最大不超过视口 60%）。
+  // 落地后触发重绘（图片解码完成由 img.decode 异步回调 setStrokes 触发一次重渲）。
+  const insertImageAt = useCallback(
+    async (file: File, cx: number, cy: number) => {
+      const meta = await readImageFile(file);
+      if (!meta) return;
+      // 初始尺寸：按自然尺寸，若过大则缩到视口 60%。
+      let w = meta.nw;
+      let h = meta.nh;
+      const maxW = viewSize.w * 0.6;
+      const maxH = viewSize.h * 0.6;
+      if (w > maxW || h > maxH) {
+        const k = Math.min(maxW / w, maxH / h);
+        w = Math.round(w * k);
+        h = Math.round(h * k);
+      }
+      // 左上角对齐到点击点。
+      const x = cx - w / 2;
+      const y = cy - h / 2;
+      const id = createId("stroke");
+      addStroke({
+        id,
+        name: `图片 ${strokes.length + 1}`,
+        kind: "image",
+        points: [{ x, y }],
+        width: 0,
+        paint: { mode: "solid", solid: "#000000", stops: [], space: "rgb" },
+        src: meta.src,
+        nw: meta.nw,
+        nh: meta.nh,
+        w,
+        h,
+      });
+      // 图片解码完成后强制重绘（解码是异步的，首帧可能画占位框）。
+      const probe = new Image();
+      probe.onload = () => setStrokes((cur) => [...cur]);
+      probe.src = meta.src;
+    },
+    [addStroke, strokes.length, viewSize.h, viewSize.w],
+  );
+
+  // 图片 file input 选中文件后：按 imageInsertTargetRef 的框插入（w/h=0 表示用自然尺寸在点居中）。
+  const onImageInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // 允许重复选同一文件
+    if (!file) return;
+    const target = imageInsertTargetRef.current;
+    imageInsertTargetRef.current = null;
+    const meta = await readImageFile(file);
+    if (!meta) return;
+    let w: number;
+    let h: number;
+    let x: number;
+    let y: number;
+    if (target && target.w > 0 && target.h > 0) {
+      // 拖拽框：按图片比例 contain 到框内，居中。
+      const k = Math.min(target.w / meta.nw, target.h / meta.nh);
+      w = Math.max(1, Math.round(meta.nw * k));
+      h = Math.max(1, Math.round(meta.nh * k));
+      x = target.x + (target.w - w) / 2;
+      y = target.y + (target.h - h) / 2;
+    } else {
+      // 单击：用自然尺寸（同 insertImageAt 的尺寸适配），在点击点居中。
+      w = meta.nw;
+      h = meta.nh;
+      const maxW = viewSize.w * 0.6;
+      const maxH = viewSize.h * 0.6;
+      if (w > maxW || h > maxH) {
+        const k = Math.min(maxW / w, maxH / h);
+        w = Math.round(w * k);
+        h = Math.round(h * k);
+      }
+      x = (target?.x ?? viewSize.w / 2) - w / 2;
+      y = (target?.y ?? viewSize.h / 2) - h / 2;
+    }
+    addStroke({
+      id: createId("stroke"),
+      name: `图片 ${strokes.length + 1}`,
+      kind: "image",
+      points: [{ x, y }],
+      width: 0,
+      paint: { mode: "solid", solid: "#000000", stops: [], space: "rgb" },
+      src: meta.src,
+      nw: meta.nw,
+      nh: meta.nh,
+      w,
+      h,
+    });
+    const probe = new Image();
+    probe.onload = () => setStrokes((cur) => [...cur]);
+    probe.src = meta.src;
+  };
+
+  // 全局粘贴图片：在视口中心插入剪贴板里的图片。焦点在输入框/可编辑元素时跳过（交给其原生处理）。
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      const t = event.target as HTMLElement | null;
+      if (t && t.closest('input, textarea, select, [contenteditable="true"]')) return;
+      const items = event.clipboardData?.items;
+      if (!items) return;
+      let file: File | null = null;
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          file = item.getAsFile();
+          if (file) break;
+        }
+      }
+      if (!file) return;
+      event.preventDefault();
+      // 落点 = 视口中心（画布坐标）。
+      const cx = (viewSize.w / 2 - pan.x) / zoom;
+      const cy = (viewSize.h / 2 - pan.y) / zoom;
+      void insertImageAt(file, cx, cy);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [insertImageAt, pan.x, pan.y, viewSize.h, viewSize.w, zoom]);
+
+  // 多窗口同步：初始化 BroadcastChannel，监听其它 tab 的场景广播/hello。
+  useEffect(() => {
+    const ch = getChannel();
+    channelRef.current = ch;
+    if (!ch) return;
+    const onMessage = (e: MessageEvent) => {
+      const msg = e.data;
+      if (!msg || msg.origin === ORIGIN) return; // 忽略自己的回声
+      if (msg.kind === "hello") {
+        // 新 tab 上线：回应自己的当前快照让它追上。
+        broadcastScene(ch, {
+          strokes: strokesRef.current,
+          groups,
+          undoStack,
+          redoStack,
+        });
+        return;
+      }
+      if (msg.kind === "scene") {
+        // 直接应用远端快照（不走 commit，避免循环广播）。
+        applyingRemoteRef.current = true;
+        setStrokes(cloneStrokes(msg.snapshot.strokes as Stroke[]));
+        setGroups(cloneGroups(msg.snapshot.groups as StrokeGroup[]));
+        setUndoStack(msg.snapshot.undoStack as SceneSnapshot[]);
+        setRedoStack(msg.snapshot.redoStack as SceneSnapshot[]);
+        // 下一帧清除标志，让后续本地变更可正常广播。
+        requestAnimationFrame(() => {
+          applyingRemoteRef.current = false;
+        });
+      }
+    };
+    ch.addEventListener("message", onMessage);
+    broadcastHello(ch); // 上线广播 hello，让现有 tab 回应
+    return () => {
+      ch.removeEventListener("message", onMessage);
+      ch.close();
+      channelRef.current = null;
+    };
+    // 仅在挂载时建通道；内部用 ref 读取最新状态。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 持久化 + 广播：监听场景与历史变化，debounced 写 IDB + 广播给其它 tab。
+  // 收到远端快照时（applyingRemoteRef）跳过，避免循环。
+  useEffect(() => {
+    if (applyingRemoteRef.current) return;
+    const id = window.setTimeout(() => {
+      const snapshot = {
+        strokes: cloneStrokes(strokes),
+        groups: cloneGroups(groups),
+        undoStack,
+        redoStack,
+      };
+      void saveSceneHistory(snapshot);
+      broadcastScene(channelRef.current, snapshot);
+    }, 300);
+    return () => window.clearTimeout(id);
+  }, [strokes, groups, undoStack, redoStack]);
+
+  // 完整快捷键：撤销/重做、全选、复制/粘贴、组合/取消、图层、方向键微移、工具单键、缩放、Zen。
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const inField = !!t?.closest('input, textarea, select, [contenteditable="true"]');
+      const mod = e.ctrlKey || e.metaKey;
+      // 输入框内：只放行全局必要快捷键（undo/redo 仍交由原生）——这里一律跳过，交给字段自身。
+      if (inField) return;
+      // 撤销/重做。
+      if (mod && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      if (
+        (mod && e.shiftKey && e.key.toLowerCase() === "z") ||
+        (mod && e.key.toLowerCase() === "y")
+      ) {
+        e.preventDefault();
+        redo();
+        return;
+      }
+      // 全选。
+      if (mod && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        setSelectedIds(strokes.map((s) => s.id));
+        return;
+      }
+      // 复制/粘贴（内部剪贴板）。
+      if (mod && e.key.toLowerCase() === "c") {
+        if (selectedStrokes.length) {
+          clipboardRef.current = cloneStrokes(selectedStrokes);
+        }
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "v") {
+        if (clipboardRef.current.length) {
+          e.preventDefault();
+          const copies = clipboardRef.current.map((s, i) => ({
+            ...s,
+            id: createId("stroke"),
+            name: `${s.name} 副本`,
+            groupId: undefined,
+            points: s.points.map((p) => ({ x: p.x + 28 + i * 8, y: p.y + 28 + i * 8 })),
+            paint: clonePaint(s.paint),
+            ...(s.bindings
+              ? {
+                  bindings: {
+                    ...(s.bindings.start ? { start: { ...s.bindings.start } } : {}),
+                    ...(s.bindings.end ? { end: { ...s.bindings.end } } : {}),
+                  },
+                }
+              : {}),
+          }));
+          commitStrokes([...strokes, ...copies]);
+          setSelectedIds(copies.map((c) => c.id));
+        }
+        return;
+      }
+      // 组合/取消。
+      if (mod && !e.shiftKey && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        createGroup();
+        return;
+      }
+      if (mod && e.shiftKey && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        ungroup();
+        return;
+      }
+      // 图层前后。
+      if (mod && e.key === "]") {
+        e.preventDefault();
+        moveLayer("front");
+        return;
+      }
+      if (mod && e.key === "[") {
+        e.preventDefault();
+        moveLayer("back");
+        return;
+      }
+      // 方向键微移（Shift=10px），每次一步 undo。
+      if (
+        (e.key === "ArrowLeft" ||
+          e.key === "ArrowRight" ||
+          e.key === "ArrowUp" ||
+          e.key === "ArrowDown") &&
+        selectedIds.length
+      ) {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+        const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+        const ids = new Set(selectedIds);
+        commitStrokes(
+          rebindArrows(
+            strokes.map((s) =>
+              ids.has(s.id)
+                ? { ...s, points: s.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) }
+                : s,
+            ),
+            ids,
+          ),
+        );
+        return;
+      }
+      // 缩放（Ctrl/Cmd + +/-/0）。
+      if (mod && (e.key === "=" || e.key === "+")) {
+        e.preventDefault();
+        setZoom((z) => clamp(z * 1.2, 0.1, 8));
+        return;
+      }
+      if (mod && e.key === "-") {
+        e.preventDefault();
+        setZoom((z) => clamp(z / 1.2, 0.1, 8));
+        return;
+      }
+      if (mod && e.key === "0") {
+        // 与视口重置的 0 冲突——Ctrl+0 缩放 100%，裸 0 重置视口（已在监听 A）。
+        e.preventDefault();
+        setZoom(1);
+        return;
+      }
+      // Zen 切换（Alt+Z）。
+      if (e.altKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        toggleZen();
+        return;
+      }
+      // 工具单键（无修饰键）。
+      if (!mod && !e.altKey && !e.shiftKey) {
+        const map: Record<string, Mode> = {
+          v: "select",
+          h: "hand",
+          r: "rectangle",
+          d: "diamond",
+          a: "arrow",
+          l: "line",
+          p: "brush",
+          t: "text",
+          e: "eraser",
+        };
+        const m = map[e.key.toLowerCase()];
+        if (m) {
+          e.preventDefault();
+          setMode(m);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    strokes,
+    selectedIds,
+    selectedStrokes,
+    undo,
+    redo,
+    createGroup,
+    ungroup,
+    moveLayer,
+    commitStrokes,
+    toggleZen,
+  ]);
+
   const toolButtons: { id: Mode; label: string; icon: typeof MousePointer2 }[] = [
     { id: "hand", label: "抓手", icon: Hand },
     { id: "select", label: "选择", icon: MousePointer2 },
@@ -1446,6 +2209,7 @@ export function CanvasTool() {
     { id: "line", label: "直线", icon: Slash },
     { id: "brush", label: "画笔", icon: Pencil },
     { id: "text", label: "文本", icon: Type },
+    { id: "image", label: "图片", icon: ImageIcon },
     { id: "eraser", label: "橡皮", icon: Eraser },
   ];
 
@@ -1526,7 +2290,11 @@ export function CanvasTool() {
       ? (() => {
           const b = renderBounds(single);
           const pad =
-            single.kind === "text" ? Math.max((single.fontSize ?? 28) * 0.12, 6) : single.width / 2;
+            single.kind === "text"
+              ? Math.max((single.fontSize ?? 28) * 0.12, 6)
+              : single.kind === "image"
+                ? 6
+                : single.width / 2;
           return {
             minX: b.minX - pad,
             minY: b.minY - pad,
@@ -1609,7 +2377,12 @@ export function CanvasTool() {
         handleLocal = { x: mx + nx * (pad + gap), y: my + ny * (pad + gap) };
       } else {
         const b = renderBounds(s);
-        const pad = s.kind === "text" ? Math.max((s.fontSize ?? 28) * 0.12, 6) : s.width / 2;
+        const pad =
+          s.kind === "text"
+            ? Math.max((s.fontSize ?? 28) * 0.12, 6)
+            : s.kind === "image"
+              ? 6
+              : s.width / 2;
         const cx = (b.minX + b.maxX) / 2;
         handleLocal = { x: cx, y: b.minY - pad - gap };
       }
@@ -1740,8 +2513,9 @@ export function CanvasTool() {
       const isCorner = handle.length === 2; // nw/ne/se/sw
       const isVertical = handle === "n" || handle === "s";
       const isHorizontal = handle === "e" || handle === "w";
-      setStrokes((current) =>
-        current.map((stroke) => {
+      const movedIds = new Set(selectedIds);
+      setStrokes((current) => {
+        const next = current.map((stroke) => {
           if (!ids.has(stroke.id)) return stroke;
           const original = snapshot.find((s) => s.id === stroke.id);
           if (!original) return stroke;
@@ -1761,9 +2535,60 @@ export function CanvasTool() {
               points: original.points.map((p) => mapPoint(p)),
             };
           }
+          // 图片笔画：单点左上角 + w/h，按手柄调整左上角与宽高（角/边手柄分别锁两轴/单轴）。
+          // 旋转态下 localPoint 已是局部坐标，box 也是 angle=0 局部框（renderBounds），直接局部算。
+          if (original.kind === "image") {
+            const op = original.points[0] ?? { x: 0, y: 0 };
+            const ow = original.w ?? original.nw ?? 0;
+            const oh = original.h ?? original.nh ?? 0;
+            // 固定锚 = 被拖手柄的对角（在 box 局部坐标）。box = 单 image 的 renderBounds。
+            const opposite: Record<ResizeHandle, ResizeHandle> = {
+              nw: "se",
+              ne: "sw",
+              se: "nw",
+              sw: "ne",
+              n: "s",
+              s: "n",
+              e: "w",
+              w: "e",
+            };
+            const fixed = handlePoint(drag.box, opposite[handle]);
+            const fx = fixed.x;
+            const fy = fixed.y;
+            let nx = op.x;
+            let ny = op.y;
+            let nw = ow;
+            let nh = oh;
+            // 右/下方向手柄：固定左/上边，改宽/高。
+            if (handle === "e" || handle === "ne" || handle === "se")
+              nw = Math.max(1, localPoint.x - fx);
+            if (handle === "s" || handle === "sw" || handle === "se")
+              nh = Math.max(1, localPoint.y - fy);
+            // 左/上方向手柄：固定右/下边，改左上角坐标 + 宽/高。
+            if (handle === "w" || handle === "nw" || handle === "sw") {
+              nx = Math.min(localPoint.x, fx);
+              nw = Math.max(1, fx - localPoint.x);
+            }
+            if (handle === "n" || handle === "ne" || handle === "nw") {
+              ny = Math.min(localPoint.y, fy);
+              nh = Math.max(1, fy - localPoint.y);
+            }
+            return { ...stroke, points: [{ x: nx, y: ny }], w: nw, h: nh };
+          }
           return { ...stroke, points: original.points.map((p) => mapPoint(p)) };
-        }),
-      );
+        });
+        const rebound = rebindArrows(next, movedIds);
+        // 容器缩放后同步其绑定文本的 w/h（reflow），并入同一次提交。
+        return rebound.map((s) => {
+          if (s.kind !== "text" || !s.containerId) return s;
+          const container = rebound.find((c) => c.id === s.containerId);
+          if (!container) return s;
+          const b = renderBounds(container);
+          return b.width === (s.w ?? 0) && b.height === (s.h ?? 0)
+            ? s
+            : { ...s, w: b.width, h: b.height };
+        });
+      });
     },
     [selectedIds, selectedStrokes],
   );
@@ -1794,8 +2619,8 @@ export function CanvasTool() {
       }
       const ids = new Set(selectedIds);
       const multi = selectedStrokes.length > 1;
-      setStrokes((current) =>
-        current.map((stroke) => {
+      setStrokes((current) => {
+        const next = current.map((stroke) => {
           if (!ids.has(stroke.id)) return stroke;
           const origAngle = drag.origAngles[stroke.id] ?? 0;
           if (!multi) return { ...stroke, angle: normalizeAngle(origAngle + delta) };
@@ -1805,8 +2630,9 @@ export function CanvasTool() {
             points: rotatePoints(stroke.points, drag.center, delta),
             angle: normalizeAngle(origAngle + delta),
           };
-        }),
-      );
+        });
+        return rebindArrows(next, ids);
+      });
     },
     [selectedIds, selectedStrokes.length],
   );
@@ -1874,7 +2700,22 @@ export function CanvasTool() {
         const points = original.points.map((p, i) =>
           i === drag.pointIndex ? { x: lp.x, y: lp.y } : p,
         );
-        return { ...stroke, points };
+        // 拖箭头端点 → 解除该端绑定（端点已手动移开，不再跟随目标）。
+        let bindings = original.bindings;
+        if (bindings) {
+          const isStart = drag.pointIndex === 0;
+          const isEnd = drag.pointIndex === original.points.length - 1;
+          const keepStart = !(isStart && bindings.start);
+          const keepEnd = !(isEnd && bindings.end);
+          const next: typeof bindings = {
+            ...(keepStart && bindings.start ? { start: bindings.start } : {}),
+            ...(keepEnd && bindings.end ? { end: bindings.end } : {}),
+          };
+          bindings = next.start || next.end ? next : undefined;
+        }
+        return bindings !== original.bindings
+          ? { ...stroke, points, bindings }
+          : { ...stroke, points };
       }),
     );
   }, []);
@@ -2029,8 +2870,18 @@ export function CanvasTool() {
         const isColora =
           file.name.toLowerCase().endsWith(".colora") ||
           file.type === "application/vnd.colora+json";
-        if (!isColora) return;
+        const isImage = file.type.startsWith("image/");
+        if (!isColora && !isImage) return;
         event.preventDefault();
+        if (isImage && !isColora) {
+          // 拖入图片：在落点用自然尺寸插入。
+          const rect = event.currentTarget.getBoundingClientRect();
+          const sx = ((event.clientX - rect.left) / rect.width) * viewSize.w;
+          const sy = ((event.clientY - rect.top) / rect.height) * viewSize.h;
+          const point = { x: (sx - pan.x) / zoom, y: (sy - pan.y) / zoom };
+          await insertImageAt(file, point.x, point.y);
+          return;
+        }
         try {
           const text = await file.text();
           await loadColora(text, null, file.name.replace(/\.[^.]+$/, ""));
@@ -2041,6 +2892,14 @@ export function CanvasTool() {
         }
       }}
     >
+      {/* 隐藏的图片文件选择 input（图片工具点击/拖框时触发） */}
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp"
+        className="hidden"
+        onChange={onImageInputChange}
+      />
       <canvas
         ref={canvasRef}
         role="img"
@@ -2049,7 +2908,10 @@ export function CanvasTool() {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        onPointerLeave={() => setHoveringStroke(false)}
+        onPointerLeave={() => {
+          setHoveringStroke(false);
+          setHoveringLink(false);
+        }}
         onDoubleClick={onDoubleClick}
         className={cn(
           "absolute inset-0 h-full w-full touch-none",
@@ -2060,9 +2922,11 @@ export function CanvasTool() {
               : mode === "text"
                 ? "cursor-text"
                 : mode === "select"
-                  ? hoveringStroke
-                    ? "cursor-move"
-                    : "cursor-default"
+                  ? ctrlDown && hoveringLink
+                    ? "cursor-pointer"
+                    : hoveringStroke
+                      ? "cursor-move"
+                      : "cursor-default"
                   : "cursor-crosshair",
         )}
         style={mode === "eraser" ? { cursor: ERASER_CURSOR } : undefined}
@@ -2177,8 +3041,78 @@ export function CanvasTool() {
         </div>
       )}
 
+      {/* 左上 overlay：Zen 切换 + Stats + 画板预设（zen 时也显示，作退出入口）。 */}
+      <div className="absolute left-3 top-3 z-30 flex flex-col gap-1.5">
+        <div className="flex items-center gap-1.5">
+          <Tip label={zenMode ? "退出 Zen 模式" : "进入 Zen 模式（隐藏侧栏与工具栏）"}>
+            <Button
+              type="button"
+              variant={zenMode ? "default" : "outline"}
+              size="icon"
+              className="size-8 border-border/60 bg-background/80 shadow-lg backdrop-blur-md"
+              onClick={toggleZen}
+              aria-label="Zen 模式"
+              aria-pressed={zenMode}
+            >
+              <EyeOff className="size-4" />
+            </Button>
+          </Tip>
+          <Tip label="统计信息">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="size-8 border-border/60 bg-background/80 shadow-lg backdrop-blur-md"
+              onClick={() => setStatsOpen((v) => !v)}
+              aria-label="统计信息"
+              aria-pressed={statsOpen}
+            >
+              <BarChart3 className="size-4" />
+            </Button>
+          </Tip>
+        </div>
+        {statsOpen && (
+          <div className="rounded-lg border border-border/60 bg-background/80 px-2.5 py-2 text-[11px] shadow-lg backdrop-blur-md">
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground">元素</span>
+              <span className="tabular-nums">{strokes.length}</span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground">选中</span>
+              <span className="tabular-nums">{selectedIds.length}</span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground">缩放</span>
+              <span className="tabular-nums">{Math.round(zoom * 100)}%</span>
+            </div>
+          </div>
+        )}
+        {!zenMode && (
+          <div className="flex flex-col gap-1">
+            <span className="px-1 text-[10px] font-medium text-muted-foreground">画板</span>
+            <select
+              value={canvasPreset}
+              onChange={(e) => setCanvasPreset(e.target.value as typeof canvasPreset)}
+              aria-label="画板尺寸预设"
+              className="h-7 w-24 rounded-md border border-border/60 bg-background/80 px-1.5 text-[11px] shadow-lg backdrop-blur-md outline-none focus:border-ring"
+            >
+              {CANVAS_PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
       {/* 悬浮工具栏（对标 Excalidraw）：icon 按钮组 + 锁定 + 撤销/重做 */}
-      <div className="absolute left-1/2 top-3 z-30 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-2xl border border-border/60 bg-background/80 p-1.5 shadow-lg backdrop-blur-md">
+      <div
+        className={cn(
+          "absolute left-1/2 top-3 z-30 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-2xl border border-border/60 bg-background/80 p-1.5 shadow-lg backdrop-blur-md",
+          zenMode && "hidden",
+        )}
+      >
         <Tip label={lockedTool ? "解锁工具" : "锁定工具（画完不切回选择）"}>
           <Button
             type="button"
@@ -2237,10 +3171,24 @@ export function CanvasTool() {
             <Redo2 className="size-4" />
           </Button>
         </Tip>
+        <div className="mx-0.5 h-5 w-px bg-border" />
+        <Tip label={gridSnap ? "关闭网格吸附" : "开启网格吸附"}>
+          <Button
+            type="button"
+            variant={gridSnap ? "default" : "ghost"}
+            size="icon"
+            className="size-8"
+            onClick={() => setGridSnap((v) => !v)}
+            aria-label="网格吸附"
+            aria-pressed={gridSnap}
+          >
+            <Magnet className="size-4" />
+          </Button>
+        </Tip>
       </div>
 
       {/* 画笔工具：笔刷类型选择条（对标 Excalidraw 选中元素时的属性栏），工具栏下方常驻。 */}
-      {mode === "brush" && (
+      {mode === "brush" && !zenMode && (
         <div className="absolute left-1/2 top-14 z-30 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-xl border border-border/60 bg-background/80 p-1 shadow-lg backdrop-blur-md">
           {BRUSH_TYPES.map((b) => (
             <Tip key={b.id} label={b.label}>
@@ -2259,6 +3207,193 @@ export function CanvasTool() {
         </div>
       )}
 
+      {/* 多选：对齐 / 分布 / 翻转条（工具栏下方悬浮，≥2 选中时显示）。 */}
+      {selectedStrokes.length >= 2 && !zenMode && (
+        <div className="absolute left-1/2 top-14 z-30 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-xl border border-border/60 bg-background/80 p-1 shadow-lg backdrop-blur-md">
+          <Tip label="左对齐">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={() => alignSelected("left")}
+              aria-label="左对齐"
+            >
+              <AlignLeft className="size-4" />
+            </Button>
+          </Tip>
+          <Tip label="水平居中">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={() => alignSelected("center-h")}
+              aria-label="水平居中"
+            >
+              <AlignCenter className="size-4" />
+            </Button>
+          </Tip>
+          <Tip label="右对齐">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={() => alignSelected("right")}
+              aria-label="右对齐"
+            >
+              <AlignRight className="size-4" />
+            </Button>
+          </Tip>
+          <div className="mx-0.5 h-5 w-px bg-border" />
+          <Tip label="顶对齐">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={() => alignSelected("top")}
+              aria-label="顶对齐"
+            >
+              <AlignStartVertical className="size-4" />
+            </Button>
+          </Tip>
+          <Tip label="垂直居中">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={() => alignSelected("middle-v")}
+              aria-label="垂直居中"
+            >
+              <AlignCenterVertical className="size-4" />
+            </Button>
+          </Tip>
+          <Tip label="底对齐">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={() => alignSelected("bottom")}
+              aria-label="底对齐"
+            >
+              <AlignEndVertical className="size-4" />
+            </Button>
+          </Tip>
+          <div className="mx-0.5 h-5 w-px bg-border" />
+          <Tip label="水平等距分布">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={() => distributeSelected("horizontal")}
+              disabled={selectedStrokes.length < 3}
+              aria-label="水平等距分布"
+            >
+              <AlignHorizontalDistributeCenter className="size-4" />
+            </Button>
+          </Tip>
+          <Tip label="垂直等距分布">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={() => distributeSelected("vertical")}
+              disabled={selectedStrokes.length < 3}
+              aria-label="垂直等距分布"
+            >
+              <AlignVerticalDistributeCenter className="size-4" />
+            </Button>
+          </Tip>
+          <div className="mx-0.5 h-5 w-px bg-border" />
+          <Tip label="水平翻转">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={() => flipSelected("horizontal")}
+              aria-label="水平翻转"
+            >
+              <FlipHorizontal2 className="size-4" />
+            </Button>
+          </Tip>
+          <Tip label="垂直翻转">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={() => flipSelected("vertical")}
+              aria-label="垂直翻转"
+            >
+              <FlipVertical2 className="size-4" />
+            </Button>
+          </Tip>
+        </div>
+      )}
+
+      {/* 文本工具：字体/字号选择条（与画笔笔刷条一致，工具栏下方悬浮）。
+          文本模式时设新建默认；选中单条文本笔画时回填该文本值并改该文本。 */}
+      {(() => {
+        const selectedText =
+          mode === "select" && selectedStroke?.kind === "text" ? selectedStroke : undefined;
+        if (zenMode || (mode !== "text" && !selectedText)) return null;
+        const curFont = selectedText?.fontFamily ?? brushFontFamily;
+        const curSize = selectedText?.fontSize ?? brushFontSize;
+        const apply = (family: string, size: number) => {
+          setBrushFontFamily(family);
+          setBrushFontSize(size);
+          if (selectedText) {
+            updateSelectedStrokes((stroke) => ({
+              ...stroke,
+              fontFamily: family,
+              fontSize: size,
+            }));
+          }
+        };
+        return (
+          <div className="absolute left-1/2 top-14 z-30 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 rounded-xl border border-border/60 bg-background/80 p-1 shadow-lg backdrop-blur-md">
+            <Tip label="字体">
+              <select
+                value={curFont}
+                onChange={(e) => apply(e.target.value, curSize)}
+                aria-label="字体"
+                className="h-7 max-w-[8rem] truncate rounded-md border border-border/60 bg-background px-1.5 text-xs outline-none focus:border-ring"
+                style={{ fontFamily: curFont }}
+              >
+                {CANVAS_FONTS.map((f) => (
+                  <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </Tip>
+            <div className="mx-0.5 h-5 w-px bg-border" />
+            <Tip label="字号">
+              <input
+                type="range"
+                min={8}
+                max={120}
+                step={1}
+                value={curSize}
+                onChange={(e) => apply(curFont, Number(e.target.value))}
+                aria-label="字号"
+                className="w-24 accent-foreground"
+              />
+            </Tip>
+            <span className="min-w-[3rem] text-center font-mono text-xs tabular-nums text-muted-foreground">
+              {Math.round(curSize)}px
+            </span>
+          </div>
+        );
+      })()}
+
       {/* 适应内容浮层：视口内无任何笔画时，屏幕正下中显示（对标 Excalidraw）。 */}
       {strokes.length > 0 && !hasContentInViewport && (
         <button
@@ -2271,7 +3406,10 @@ export function CanvasTool() {
       )}
 
       <div
-        className="pointer-events-none absolute right-3 top-3 z-40 flex max-w-[calc(100vw-1.5rem)] flex-col items-end gap-2"
+        className={cn(
+          "pointer-events-none absolute right-3 top-3 z-40 flex max-w-[calc(100vw-1.5rem)] flex-col items-end gap-2",
+          zenMode && "hidden",
+        )}
         style={cornerStyle}
       >
         <button
@@ -2332,6 +3470,117 @@ export function CanvasTool() {
                         调整颜色、粗细、重叠方式，并导出当前选中线条。
                       </p>
                     </div>
+
+                    {/* Web 链接：单选时附加超链接，Ctrl/Cmd+点击在画布上打开，SVG 导出包 <a>。 */}
+                    {selectedStroke && (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                          <LinkIcon className="size-3.5" /> 链接
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="url"
+                            inputMode="url"
+                            placeholder="https://"
+                            value={linkDraft ?? selectedStroke.href ?? ""}
+                            onChange={(e) => setLinkDraft(e.target.value)}
+                            onBlur={(e) => commitLink(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                (e.target as HTMLInputElement).blur();
+                              } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                setLinkDraft(null);
+                                (e.target as HTMLInputElement).blur();
+                              }
+                            }}
+                            className="h-8 min-w-0 flex-1 rounded-md border border-border/60 bg-background px-2 text-xs outline-none focus:border-ring"
+                            aria-label="元素链接 URL"
+                          />
+                          {selectedStroke.href ? (
+                            <>
+                              <Tip label="新标签打开">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  className="size-8 shrink-0"
+                                  onClick={() =>
+                                    selectedStroke.href &&
+                                    window.open(
+                                      selectedStroke.href,
+                                      "_blank",
+                                      "noopener,noreferrer",
+                                    )
+                                  }
+                                  aria-label="打开链接"
+                                >
+                                  <ArrowRight className="size-3.5" />
+                                </Button>
+                              </Tip>
+                              <Tip label="清除链接">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  className="size-8 shrink-0"
+                                  onClick={() => commitLink("")}
+                                  aria-label="清除链接"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </Tip>
+                            </>
+                          ) : null}
+                        </div>
+                        <p className="text-[10px] leading-relaxed text-muted-foreground">
+                          Ctrl/Cmd + 点击元素在新标签打开。
+                        </p>
+                      </div>
+                    )}
+
+                    {/* 数值输入：单选时显示 x/y/w/h/角度（世界坐标），blur/Enter 提交。 */}
+                    {selectedStroke && selBounds && (
+                      <div className="grid grid-cols-5 items-center gap-1.5">
+                        {(
+                          [
+                            { key: "x", value: Math.round(selBounds.minX), label: "X" },
+                            { key: "y", value: Math.round(selBounds.minY), label: "Y" },
+                            { key: "w", value: Math.round(selBounds.width), label: "W" },
+                            { key: "h", value: Math.round(selBounds.height), label: "H" },
+                            {
+                              key: "angle",
+                              value: Math.round(((selectedStroke.angle ?? 0) * 180) / Math.PI),
+                              label: "°",
+                            },
+                          ] as const
+                        ).map((f) => (
+                          <div key={f.key} className="flex flex-col items-center gap-0.5">
+                            <span className="text-[10px] font-medium text-muted-foreground">
+                              {f.label}
+                            </span>
+                            <input
+                              type="number"
+                              defaultValue={f.value}
+                              key={`${selectedStroke.id}-${f.key}-${f.value}`}
+                              onBlur={(e) => {
+                                const v = Number(e.target.value);
+                                if (Number.isFinite(v)) setNumericBox(f.key, v);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  (e.target as HTMLInputElement).blur();
+                                }
+                              }}
+                              className="h-7 w-full rounded-md border border-border/60 bg-background px-1 text-center text-[11px] tabular-nums outline-none focus:border-ring"
+                              aria-label={f.label}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
                     {/* 线宽三档（细/中/粗，对标 Excalidraw STROKE_WIDTH）。 */}
                     <div className="grid grid-cols-3 gap-1.5">
@@ -2437,27 +3686,6 @@ export function CanvasTool() {
                         }
                         onReverse={reverseSelectionStops}
                         text={selectedStroke?.kind === "text" ? selectedStroke.text : undefined}
-                        fontSize={
-                          selectedStroke?.kind === "text" ? selectedStroke.fontSize : undefined
-                        }
-                        fontFamily={
-                          selectedStroke?.kind === "text" ? selectedStroke.fontFamily : undefined
-                        }
-                        onSetFont={
-                          selectedStroke?.kind === "text"
-                            ? (family) =>
-                                updateSelectedStrokes((stroke) => ({
-                                  ...stroke,
-                                  fontFamily: family,
-                                }))
-                            : undefined
-                        }
-                        onSetFontSize={
-                          selectedStroke?.kind === "text"
-                            ? (size) =>
-                                updateSelectedStrokes((stroke) => ({ ...stroke, fontSize: size }))
-                            : undefined
-                        }
                       />
                     )}
 
@@ -2721,8 +3949,10 @@ export function CanvasTool() {
       {textInput &&
         (() => {
           const editingStroke = strokes.find((s) => s.id === editingTextIdRef.current);
-          const fs = editingStroke?.fontSize ?? 28;
-          const ff = editingStroke?.fontFamily ?? CANVAS_FONTS[0].value;
+          const fs = editingStroke?.fontSize ?? brushFontSize;
+          const ff = editingStroke?.fontFamily ?? brushFontFamily;
+          const isContainer = !!textInput.containerId;
+          const boxW = isContainer ? (textInput.containerW ?? 0) * zoom : undefined;
           return (
             <textarea
               ref={textAreaRef}
@@ -2751,7 +3981,8 @@ export function CanvasTool() {
                 top: `${textInput.y}px`,
                 fontFamily: ff,
                 fontSize: fs * zoom,
-                lineHeight: 1,
+                lineHeight: isContainer ? 1.2 : 1,
+                width: boxW,
                 color: isDark ? "#fafafa" : "#0f172a",
                 caretColor: isDark ? "#fafafa" : "#0f172a",
                 margin: 0,
@@ -2759,7 +3990,8 @@ export function CanvasTool() {
                 border: 0,
                 outline: 0,
                 background: "transparent",
-                whiteSpace: "pre",
+                whiteSpace: isContainer ? "pre-wrap" : "pre",
+                wordBreak: isContainer ? "break-word" : "normal",
                 boxSizing: "content-box",
                 backfaceVisibility: "hidden",
               }}
@@ -2777,16 +4009,34 @@ export function CanvasTool() {
         }}
         onExportSvg={() => {
           if (viewSize.w === 0) return;
-          const code = createSvg(
-            viewSize,
-            strokes,
-            groups,
-            overlapMode,
-            bgLayout,
-            bgColor,
-            exportOptions.withBackground,
-          );
-          downloadText("colora-canvas.svg", code, "image/svg+xml");
+          if (presetFrame) {
+            // 预设画板：SVG viewBox 裁剪到画板框，strokes 平移 -frame。
+            const shifted = strokes.map((s) => ({
+              ...s,
+              points: s.points.map((p) => ({ x: p.x - presetFrame.x, y: p.y - presetFrame.y })),
+            }));
+            const code = createSvg(
+              { w: presetFrame.w, h: presetFrame.h },
+              shifted,
+              groups,
+              overlapMode,
+              bgLayout,
+              bgColor,
+              exportOptions.withBackground,
+            );
+            downloadText("colora-canvas.svg", code, "image/svg+xml");
+          } else {
+            const code = createSvg(
+              viewSize,
+              strokes,
+              groups,
+              overlapMode,
+              bgLayout,
+              bgColor,
+              exportOptions.withBackground,
+            );
+            downloadText("colora-canvas.svg", code, "image/svg+xml");
+          }
           setExportDialogOpen(false);
         }}
         onExportJson={() => {

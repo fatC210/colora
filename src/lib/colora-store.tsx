@@ -71,6 +71,8 @@ export type PreviewExportState = {
 type Store = {
   theme: "light" | "dark";
   toggleTheme: () => void;
+  zenMode: boolean;
+  toggleZen: () => void;
   color: string;
   setColor: (hex: string) => void;
   prevColor: string;
@@ -194,6 +196,7 @@ function migrateLegacyCollections(user: string) {
 
 export function ColoraProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [zenMode, setZenMode] = useState(false);
   const [color, setColorState] = useState("#6366F1");
   const [prevColor, setPrevColor] = useState("#6366F1");
   const [palette, setPalette] = useState<string[]>(DEFAULT_PALETTE);
@@ -237,6 +240,7 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setTheme(load<"light" | "dark">("colora.theme", "light"));
+    setZenMode(load<boolean>("colora.zen", false));
     setUser(load<string | null>("colora.user", null));
     setAccounts(load<Record<string, string>>("colora.accounts", {}));
   }, []);
@@ -259,6 +263,10 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
     document.documentElement.classList.toggle("dark", theme === "dark");
     localStorage.setItem("colora.theme", JSON.stringify(theme));
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("colora.zen", JSON.stringify(zenMode));
+  }, [zenMode]);
 
   const persistSaved = useCallback(
     (next: SavedPalette[]) => {
@@ -304,6 +312,8 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
     () => ({
       theme,
       toggleTheme: () => setTheme((t) => (t === "light" ? "dark" : "light")),
+      zenMode,
+      toggleZen: () => setZenMode((v) => !v),
       color,
       setColor: (hex) => {
         setPrevColor(color);
@@ -400,6 +410,7 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
     }),
     [
       theme,
+      zenMode,
       color,
       prevColor,
       palette,

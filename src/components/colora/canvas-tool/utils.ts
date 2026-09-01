@@ -12,6 +12,15 @@ export const cloneStrokes = (strokes: Stroke[]) =>
     ...stroke,
     points: stroke.points.map((point) => ({ ...point })),
     paint: clonePaint(stroke.paint),
+    // bindings 是嵌套对象，展开一层即可深拷贝（{start,end} 各自是 {strokeId,anchor} 平对象）。
+    ...(stroke.bindings
+      ? {
+          bindings: {
+            ...(stroke.bindings.start ? { start: { ...stroke.bindings.start } } : {}),
+            ...(stroke.bindings.end ? { end: { ...stroke.bindings.end } } : {}),
+          },
+        }
+      : {}),
   }));
 export const cloneGroups = (groups: StrokeGroup[]) =>
   groups.map((group) => ({
@@ -21,7 +30,8 @@ export const cloneGroups = (groups: StrokeGroup[]) =>
   }));
 export const createId = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-export const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+export const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
 export const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 export const defaultPaint = (solid = "#7C3AED"): StrokePaint => ({
   mode: "gradient",

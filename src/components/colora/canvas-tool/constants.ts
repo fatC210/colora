@@ -4,6 +4,20 @@ import type { BrushType, CanvasLayout } from "./types";
 // 演示笔画的原始坐标系（首次测量画布尺寸后按比例缩放入场）
 export const INITIAL_W = 1120;
 export const INITIAL_H = 720;
+
+// 画布尺寸预设（画布坐标像素）。free=无固定画板；其余为可见画板框 + 导出裁剪范围。
+export const CANVAS_PRESETS: {
+  id: "free" | "A4" | "16:9" | "4:3" | "square";
+  label: string;
+  w: number;
+  h: number;
+}[] = [
+  { id: "free", label: "自由", w: 0, h: 0 },
+  { id: "A4", label: "A4", w: 1120, h: 794 },
+  { id: "16:9", label: "16:9", w: 1280, h: 720 },
+  { id: "4:3", label: "4:3", w: 960, h: 720 },
+  { id: "square", label: "正方形", w: 800, h: 800 },
+];
 export const DEFAULT_STOPS: PathStop[] = [
   { id: "stop-a", hex: "#8B5CF6", pos: 0, alpha: 100 },
   { id: "stop-b", hex: "#06B6D4", pos: 50, alpha: 100 },

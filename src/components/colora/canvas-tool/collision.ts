@@ -28,6 +28,14 @@ export function hitStroke(stroke: Stroke, point: Point) {
   // 旋转态：指针逆旋转到 angle=0 局部坐标系再测（points/文本框都在局部轴对齐）。
   const lp = toLocalPoint(stroke, point);
   const points = renderPoints(stroke);
+  // 图片笔画：包围盒命中（点落在图片框内即命中）。
+  if (stroke.kind === "image") {
+    const p = points[0];
+    if (!p) return false;
+    const w = stroke.w ?? stroke.nw ?? 0;
+    const h = stroke.h ?? stroke.nh ?? 0;
+    return lp.x >= p.x && lp.x <= p.x + w && lp.y >= p.y && lp.y <= p.y + h;
+  }
   // 文本笔画：包围盒命中（点落在文本框内即命中）。
   if (stroke.kind === "text") {
     const p = points[0];

@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import { hexAlphaToCss, hexToRgb, hslToRgb, normalizeHex, rgbToHex, rgbToHsl } from "@/lib/color";
-import { CANVAS_FONTS, INTERP_SPACES } from "./constants";
+import { INTERP_SPACES } from "./constants";
 import { clamp } from "./utils";
 import { ColorSlider } from "./ColorSlider";
 import { Tip } from "../primitives";
@@ -34,10 +34,6 @@ export function ColorEditor({
   hideModeToggle,
   extra,
   text,
-  fontSize,
-  fontFamily,
-  onSetFont,
-  onSetFontSize,
 }: {
   title: string;
   subtitle?: string;
@@ -56,12 +52,8 @@ export function ColorEditor({
   onReverse?: () => void;
   hideModeToggle?: boolean;
   extra?: React.ReactNode;
-  // 文本笔画专属：传入 text（非 undefined）时显示字体/字号控件。
+  // 文本笔画专属：传入 text（非 undefined）时显示提示，字体/字号在顶部工具栏悬浮条调整。
   text?: string;
-  fontSize?: number;
-  fontFamily?: string;
-  onSetFont?: (family: string) => void;
-  onSetFontSize?: (size: number) => void;
 }) {
   const [activeStopId, setActiveStopId] = useState<string | null>(null);
   const [editingPosId, setEditingPosId] = useState<string | null>(null);
@@ -246,37 +238,9 @@ export function ColorEditor({
           )}
         </div>
 
-        {text !== undefined && onSetFont && onSetFontSize && (
-          <div className="mb-3 space-y-2 rounded-lg border border-neutral-800 bg-neutral-900/60 p-2">
-            <div>
-              <div className="mb-1 text-[10px] font-medium text-neutral-500">字体</div>
-              <select
-                value={fontFamily ?? CANVAS_FONTS[0].value}
-                onChange={(e) => onSetFont(e.target.value)}
-                className="h-8 w-full rounded-md border border-neutral-700 bg-neutral-950 px-2 text-xs text-neutral-200 outline-none focus:border-neutral-500"
-              >
-                {CANVAS_FONTS.map((f) => (
-                  <option key={f.value} value={f.value}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <div className="mb-1 flex items-center justify-between text-[10px] font-medium text-neutral-500">
-                <span>字号</span>
-                <span className="font-mono text-neutral-300">{Math.round(fontSize ?? 28)}px</span>
-              </div>
-              <input
-                type="range"
-                min={8}
-                max={120}
-                step={1}
-                value={fontSize ?? 28}
-                onChange={(e) => onSetFontSize(Number(e.target.value))}
-                className="w-full accent-neutral-300"
-              />
-            </div>
+        {text !== undefined && (
+          <div className="mb-2 text-[11px] text-neutral-500">
+            字体、字号请在画布顶部工具栏下方的悬浮条调整。
           </div>
         )}
 

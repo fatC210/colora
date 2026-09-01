@@ -1,9 +1,11 @@
 import type { Bounds, Point, ResizeHandle, SelectionBox, Stroke } from "./types";
 import { isClosedShape, renderPoints } from "./path";
 
-/** 线性笔画：开放线条（画笔/直线/箭头/波浪/曲线/螺旋），即非闭合且非文本。 */
+/** 线性笔画：开放线条（画笔/直线/箭头/波浪/曲线/螺旋），即非闭合、非文本、非图片。 */
 export function isLinearStroke(stroke: Stroke): boolean {
-  return !isClosedShape(stroke) && stroke.kind !== "text";
+  if (isClosedShape(stroke)) return false;
+  if (stroke.kind === "text" || stroke.kind === "image") return false;
+  return true;
 }
 
 /** 线性元素每段的中点列表（用于编辑态插入折点手柄）。长度 = points.length - 1。 */
@@ -26,6 +28,12 @@ function getMeasureCtx(): CanvasRenderingContext2D | null {
 export function textMetrics(stroke: Stroke): { width: number; height: number } {
   const fs = stroke.fontSize ?? 28;
   const ff = stroke.fontFamily ?? "sans-serif";
+  // 容器文本（有 containerId + w）：按 w 自动换行，宽=w，高=换行后行数。
+  if (stroke.containerId && stroke.w && stroke.w > 0) {
+    const wrapped = wrapText(stroke.text ?? "", stroke.w, fs, ff);
+    const height = wrapped.length <= 1 ? fs : (wrapped.length - 1) * fs * 1.2 + fs;
+    return { width: stroke.w, height };
+  }
   const lines = (stroke.text ?? "").split("\n");
   const ctx = getMeasureCtx();
   let widest = 0;
@@ -38,6 +46,36 @@ export function textMetrics(stroke: Stroke): { width: number; height: number } {
   // 高度：单行 = fs；多行 = 行间距 1.2*fs × (行数-1) + 末行高 fs（末行不额外加行间距）。
   const height = lines.length <= 1 ? fs : (lines.length - 1) * fs * 1.2 + fs;
   return { width: Math.max(widest, fs * 0.5), height };
+}
+
+/**
+ * 把文本按宽度自动换行（贪心逐字符断行，兼顾中英文——中文按字、英文按空格处可断）。
+ * 返回换行后的行数组（不含末尾换行）。空文本返回 [""]。
+ */
+export function wrapText(text: string, maxWidth: number, fs: number, ff: string): string[] {
+  const ctx = getMeasureCtx();
+  if (!ctx) return text.split("\n");
+  ctx.font = `${fs}px ${ff}`;
+  const result: string[] = [];
+  // 先按显式换行拆，每段再做宽度换行。
+  for (const paragraph of text.split("\n")) {
+    if (paragraph === "") {
+      result.push("");
+      continue;
+    }
+    let line = "";
+    for (const ch of paragraph) {
+      const candidate = line + ch;
+      if (ctx.measureText(candidate).width <= maxWidth || line === "") {
+        line = candidate;
+      } else {
+        result.push(line);
+        line = ch;
+      }
+    }
+    if (line) result.push(line);
+  }
+  return result.length ? result : [""];
 }
 
 export function getBounds(points: Point[]): Bounds {
@@ -66,6 +104,14 @@ export function pointInBounds(point: Point, bounds: Bounds): boolean {
  */
 export function renderBounds(stroke: Stroke): Bounds {
   const points = renderPoints(stroke);
+  // 图片笔画：单点左上角 + w/h（angle=0 局部框）。
+  if (stroke.kind === "image") {
+    const p = points[0];
+    const w = stroke.w ?? stroke.nw ?? 0;
+    const h = stroke.h ?? stroke.nh ?? 0;
+    if (!p) return getBounds(points);
+    return { minX: p.x, minY: p.y, maxX: p.x + w, maxY: p.y + h, width: w, height: h };
+  }
   // 文本笔画：用 measureText 精确测量宽高，使选中框/手柄贴合文本。
   if (stroke.kind === "text") {
     const p = points[0];
@@ -142,8 +188,13 @@ export function selectionBounds(strokes: Stroke[]): Bounds | null {
   for (const s of strokes) {
     if (!s.points.length) continue;
     const b = worldBounds(s);
-    // padding：线条用线宽半宽（紧贴本体）；文本给固定间距，使选中框不贴死文字。
-    const pad = s.kind === "text" ? Math.max((s.fontSize ?? 28) * 0.12, 6) : s.width / 2;
+    // padding：线条用线宽半宽（紧贴本体）；文本给固定间距，使选中框不贴死文字；图片固定 6px。
+    const pad =
+      s.kind === "text"
+        ? Math.max((s.fontSize ?? 28) * 0.12, 6)
+        : s.kind === "image"
+          ? 6
+          : s.width / 2;
     if (b.minX - pad < minX) minX = b.minX - pad;
     if (b.minY - pad < minY) minY = b.minY - pad;
     if (b.maxX + pad > maxX) maxX = b.maxX + pad;

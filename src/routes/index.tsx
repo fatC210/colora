@@ -58,29 +58,33 @@ function ColoraApp() {
   const [tool, setTool] = useState<ToolId>("palette");
   const [collapsed, setCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const { cbMode, setCbMode } = useColora();
+  const { cbMode, setCbMode, zenMode } = useColora();
 
   const title = TOOLS.find((t) => t.id === tool)?.label ?? "";
+  // Zen 模式：只显示画布，隐藏侧栏/横幅/标题/信息面板。画布内部 chrome 由 CanvasTool 按 zen 自行隐藏。
+  const showCanvas = zenMode || tool === "canvas";
 
   return (
     <div className="colora-app-shell">
-      <CbFilters />
-      <Sidebar
-        tool={tool}
-        onTool={(t) => {
-          setTool(t);
-          setMobileNavOpen(false);
-        }}
-        open={mobileNavOpen}
-        onOpenChange={setMobileNavOpen}
-      />
+      {!zenMode && <CbFilters />}
+      {!zenMode && (
+        <Sidebar
+          tool={tool}
+          onTool={(t) => {
+            setTool(t);
+            setMobileNavOpen(false);
+          }}
+          open={mobileNavOpen}
+          onOpenChange={setMobileNavOpen}
+        />
+      )}
 
       <main
         className="colora-main"
         style={cbMode !== "none" ? { filter: `url(#cb-${cbMode})` } : undefined}
       >
         <div className="colora-content-scroller">
-          {cbMode !== "none" && (
+          {!zenMode && cbMode !== "none" && (
             <div className="flex items-center justify-between gap-3 border-b border-border bg-muted px-4 py-3 text-sm sm:px-6">
               <span>当前处于 {CB_LABELS[cbMode]} 模拟模式</span>
               <Tip label="退出色盲模拟">
@@ -97,11 +101,11 @@ function ColoraApp() {
           )}
 
           {/* 画布工具常驻挂载（hidden 切换显隐），避免切走再切回时丢失笔画/重置状态。 */}
-          <div className={tool === "canvas" ? "contents" : "hidden"}>
+          <div className={showCanvas ? "contents" : "hidden"}>
             <CanvasTool />
           </div>
 
-          {tool !== "canvas" && (
+          {!zenMode && tool !== "canvas" && (
             <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
               <h1 className="colora-page-title mb-4 text-2xl font-bold tracking-tight sm:mb-5 sm:text-3xl">
                 {title}
@@ -117,7 +121,7 @@ function ColoraApp() {
           )}
         </div>
 
-        {tool !== "canvas" && (
+        {!zenMode && tool !== "canvas" && (
           <InfoPanel collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
         )}
       </main>
