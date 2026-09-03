@@ -1068,24 +1068,29 @@
 
 .colora-inspector-trigger {
   cursor: pointer;
-  color: var(--inspector-icon);
-  background: var(--inspector-surface);
-  border-color: var(--inspector-border);
+  border-color: transparent;
   box-shadow: 0 12px 34px var(--inspector-shade);
   transition:
     background-color 0.15s ease,
-    color 0.15s ease;
+    color 0.15s ease,
+    transform 0.15s ease;
 }
 
-/* hover 与其他按钮一致：给一个半透明中性灰背景，不动边框 */
+/* 常态：画布对比色作底（半透，低调可见），图标用画布色。 */
+.colora-inspector-trigger {
+  background: color-mix(in srgb, var(--trigger-bg) 55%, transparent);
+  color: var(--trigger-fg);
+}
+
+/* hover：加深到 85%，明显反馈。 */
 .colora-inspector-trigger:hover {
-  background-color: color-mix(in srgb, var(--inspector-icon) 10%, var(--inspector-surface));
+  background: color-mix(in srgb, var(--trigger-bg) 85%, transparent);
 }
 
-/* 面板展开时按钮处于激活态：表面/前景反转，醒目提示可再次点击收起 */
+/* 面板展开时实心高亮，与常态/ hover 明显区分。 */
 .colora-inspector-trigger[aria-expanded="true"] {
-  background: var(--inspector-icon);
-  color: var(--inspector-surface);
+  background: var(--trigger-bg);
+  color: var(--trigger-fg);
   border-color: transparent;
 }
 

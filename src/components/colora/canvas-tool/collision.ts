@@ -1,7 +1,14 @@
 import type { Point, SelectionBox, Stroke } from "./types";
 import { clamp, distance } from "./utils";
-import { renderPoints } from "./path";
-import { textMetrics, isLinearStroke, toLocalPoint, worldBounds } from "./geometry";
+import { renderPoints, isClosedShape } from "./path";
+import {
+  textMetrics,
+  isLinearStroke,
+  toLocalPoint,
+  worldBounds,
+  renderBounds,
+  pointInBounds,
+} from "./geometry";
 import { arrowHeadPoints, curvePoints } from "@/lib/path-gradient";
 
 export function pointToSegmentDistance(point: Point, a: Point, b: Point) {
@@ -35,6 +42,10 @@ export function hitStroke(stroke: Stroke, point: Point) {
     const w = stroke.w ?? stroke.nw ?? 0;
     const h = stroke.h ?? stroke.nh ?? 0;
     return lp.x >= p.x && lp.x <= p.x + w && lp.y >= p.y && lp.y <= p.y + h;
+  }
+  // 闭合形状：点落在包围盒内即命中（便于从中间选中/双击进入文本编辑，对标 Excalidraw）。
+  if (isClosedShape(stroke)) {
+    return pointInBounds(lp, renderBounds(stroke));
   }
   // 文本笔画：包围盒命中（点落在文本框内即命中）。
   if (stroke.kind === "text") {

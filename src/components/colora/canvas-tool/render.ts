@@ -40,12 +40,20 @@ let mixTmpCanvas: HTMLCanvasElement | null = null;
 
 // 图片缓存：src(data URL) → HTMLImageElement。已解码的图复用，避免每帧重建/重新解码。
 const imageCache = new Map<string, HTMLImageElement>();
-/** 取已解码的图片（未就绪返回 null，并触发后台解码）。 */
+// 图片解码完成时触发的重绘回调（由 CanvasTool 注册，避免图片首次加载后停留在占位框）。
+let imageReadyCallback: (() => void) | null = null;
+export function setImageReadyCallback(cb: (() => void) | null) {
+  imageReadyCallback = cb;
+}
+/** 取已解码的图片（未就绪返回 null，并触发后台解码，就绪后回调重绘）。 */
 function getImage(src: string): HTMLImageElement | null {
   let img = imageCache.get(src);
   if (!img) {
     img = new Image();
-    img.decode().catch(() => {});
+    img.onload = () => {
+      // 解码完成，触发一次重绘让占位框换成真实图片。
+      imageReadyCallback?.();
+    };
     img.src = src;
     imageCache.set(src, img);
     return null; // 本帧尚未就绪
@@ -699,10 +707,7 @@ export function createSvg(
     const a = stroke.angle ?? 0;
     const flush = () => {
       if (!parts.length) return;
-      // Web 链接：把整条 stroke 的 parts 包进 <a>（旋转 <g> 之内，位置正确）。
-      const body = stroke.href
-        ? `<a href="${escapeAttr(stroke.href)}" target="_blank" rel="noopener noreferrer">${parts.join("")}</a>`
-        : parts.join("");
+      const body = parts.join("");
       if (a) {
         const c = strokeCenter(stroke);
         const deg = ((a * 180) / Math.PI).toFixed(2);
