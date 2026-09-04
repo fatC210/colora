@@ -11,6 +11,7 @@ import {
   ArrowRight,
   Circle,
   Diamond,
+  BringForward,
   Download,
   Eraser,
   EyeOff,
@@ -28,6 +29,7 @@ import {
   Pencil,
   Redo2,
   Save,
+  SendBackward,
   Slash,
   SlidersHorizontal,
   Square,
@@ -270,8 +272,8 @@ export function CanvasTool() {
   const [panning, setPanning] = useState(false); // 是否正在平移拖动（用于光标 grabbing）
   const [undoStack, setUndoStack] = useState<SceneSnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<SceneSnapshot[]>([]);
-  // 属性面板开关（trigger 在左上，面板在右上）。
-  const [inspectorOpen, setInspectorOpen] = useState(false);
+  // 画布面板开关（仅由左上触发按钮控制，不随选中变化）。
+  const [canvasOpen, setCanvasOpen] = useState(false);
   // 当前已保存/已打开的 .colora 文件句柄：有值时"保存"直接覆写该文件，无值时弹"另存为"。
   const [coloraFileHandle, setColoraFileHandle] = useState<FileSystemFileHandle | null>(null);
   // 已打开文件的文件名（用于默认保存名 + UI 展示）。
@@ -301,11 +303,8 @@ export function CanvasTool() {
     return groups.find((groupItem) => groupItem.id === groupId);
   }, [groups, selectedStrokes]);
 
-  // 选中元素时自动打开属性面板；取消选中时自动收起。
-  useEffect(() => {
-    if (mode !== "select") return;
-    setInspectorOpen(selectedStrokes.length > 0);
-  }, [mode, selectedStrokes.length]);
+  // 元素面板开关：选中元素自动开、取消选中自动收（对标 Excalidraw），与画布面板独立。
+  const elementOpen = selectedStrokes.length > 0;
 
   // 选中笔画的联合包围盒（用于显示变换手柄）。框选/拖动中不显示。
   const selBounds = useMemo(() => selectionBounds(selectedStrokes), [selectedStrokes]);
@@ -1150,7 +1149,6 @@ export function CanvasTool() {
         );
       } else {
         setSelectedIds([]);
-        setInspectorOpen(false); // 点击空白收起属性面板
       }
       setSelectionBox(null);
     }
@@ -1489,81 +1487,6 @@ export function CanvasTool() {
   // 数值输入：单选时改 x/y/w/h/angle（世界坐标）。blur/Enter 提交，一步 undo。
   // x/y=平移 selBounds.minX/minY 到目标；w/h=缩放到目标尺寸（以左上角为锚）；
   // angle=设 stroke.angle。线性/形状缩放用 resizeTransform，image/容器文本设 w/h。
-  const setNumericBox = (field: "x" | "y" | "w" | "h" | "angle", value: number) => {
-    if (!selectedStroke || !selBounds) return;
-    const ids = new Set(selectedIds);
-    if (field === "angle") {
-      const a = (value * Math.PI) / 180;
-      commitStrokes(strokes.map((s) => (ids.has(s.id) ? { ...s, angle: a } : s)));
-      return;
-    }
-    if (field === "x" || field === "y") {
-      const target = value;
-      const cur = field === "x" ? selBounds.minX : selBounds.minY;
-      const d = target - cur;
-      const movedIds = ids;
-      commitStrokes(
-        rebindArrows(
-          strokes.map((s) =>
-            ids.has(s.id)
-              ? {
-                  ...s,
-                  points: s.points.map((p) =>
-                    field === "x" ? { ...p, x: p.x + d } : { ...p, y: p.y + d },
-                  ),
-                }
-              : s,
-          ),
-          movedIds,
-        ),
-      );
-      return;
-    }
-    // w/h：缩放到目标尺寸，以左上角为固定锚。
-    const curW = selBounds.width;
-    const curH = selBounds.height;
-    const targetW = field === "w" ? value : curW;
-    const targetH = field === "h" ? value : curH;
-    if (targetW <= 0 || targetH <= 0) return;
-    const sx = curW > 0 ? targetW / curW : 1;
-    const sy = curH > 0 ? targetH / curH : 1;
-    const ox = selBounds.minX;
-    const oy = selBounds.minY;
-    const movedIds = ids;
-    commitStrokes(
-      rebindArrows(
-        strokes.map((s) => {
-          if (!ids.has(s.id)) return s;
-          // image/容器文本：直接设 w/h（image 单点不变）。
-          if (s.kind === "image" || (s.kind === "text" && s.containerId)) {
-            if (field === "w") return { ...s, w: value };
-            return { ...s, h: value };
-          }
-          // 文本：按缩放比调 fontSize + 定位点平移跟随。
-          if (s.kind === "text") {
-            const scale = field === "w" ? sx : sy;
-            return {
-              ...s,
-              fontSize: Math.max(8, Math.round((s.fontSize ?? 28) * scale)),
-              points: s.points.map((p) => ({
-                x: ox + (p.x - ox) * (field === "w" ? sx : 1),
-                y: oy + (p.y - oy) * (field === "h" ? sy : 1),
-              })),
-            };
-          }
-          // 线性/形状：以左上角为锚缩放 points（angle=0 局部坐标，旋转元素近似处理）。
-          return {
-            ...s,
-            points: s.points.map((p) => ({
-              x: ox + (p.x - ox) * sx,
-              y: oy + (p.y - oy) * sy,
-            })),
-          };
-        }),
-        movedIds,
-      ),
-    );
-  };
   const clearCanvas = () => {
     setConfirmDialog({
       title: "清空画布",
@@ -3067,12 +2990,12 @@ export function CanvasTool() {
       {/* 左上：属性面板触发按钮（打开/收起属性面板）。zen 时隐藏。
           用画布背景对比色作底，常态半透、hover 加深、展开时实心高亮，三态分明。 */}
       {!zenMode && (
-        <Tip label={inspectorOpen ? "收起属性面板" : "展开属性面板"}>
+        <Tip label={canvasOpen ? "收起画布面板" : "展开画布面板"}>
           <button
             type="button"
-            onClick={() => setInspectorOpen((v) => !v)}
-            aria-label="属性面板"
-            aria-expanded={inspectorOpen}
+            onClick={() => setCanvasOpen((v) => !v)}
+            aria-label="画布面板"
+            aria-expanded={canvasOpen}
             className="colora-inspector-trigger pointer-events-auto absolute left-3 top-3 z-30 inline-flex size-9 items-center justify-center overflow-hidden rounded-md shadow-md transition-all hover:scale-105"
             style={
               {
@@ -3086,73 +3009,21 @@ export function CanvasTool() {
         </Tip>
       )}
 
-      {/* 左上属性面板（inspectorOpen 时在触发按钮下方展开）。 */}
-      {inspectorOpen && !zenMode && (
+      {/* 元素面板（选中时自动打开）+ 画布面板（trigger 控制），左上一列堆叠，可同时出现。 */}
+      {(elementOpen || canvasOpen) && !zenMode && (
         <div className="pointer-events-none absolute left-3 top-14 z-30 flex flex-col gap-2">
-          <div
-            className="colora-inspector-panel pointer-events-auto flex w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-md"
-            onPointerDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 py-2.5">
-              <div className="text-xs font-semibold text-foreground">
-                {selectedStrokes.length ? "元素" : "画布"}
+          {/* 元素面板：仅 elementOpen 时显示。 */}
+          {elementOpen && (
+            <div
+              className="colora-inspector-panel pointer-events-auto flex w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-md"
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 py-2.5">
+                <div className="text-xs font-semibold text-foreground">元素</div>
               </div>
-            </div>
 
-            <div className="max-h-[min(70dvh,560px)] overflow-y-auto overflow-x-hidden p-3">
-              {selectedStrokes.length ? (
+              <div className="max-h-[min(70dvh,560px)] overflow-y-auto overflow-x-hidden p-3">
                 <div className="space-y-3">
-                  <div className="text-sm font-semibold text-foreground">
-                    {selectedStrokes.length === 1 ? "元素" : `已选中 ${selectedStrokes.length} 个`}
-                  </div>
-
-                  {/* 位置与尺寸：单选时显示 x/y/w/h/角度。 */}
-                  {selectedStroke && selBounds && (
-                    <div className="space-y-2">
-                      <div className="text-[11px] font-medium text-muted-foreground">
-                        位置与尺寸
-                      </div>
-                      <div className="grid grid-cols-5 items-center gap-1.5">
-                        {(
-                          [
-                            { key: "x", value: Math.round(selBounds.minX), label: "X" },
-                            { key: "y", value: Math.round(selBounds.minY), label: "Y" },
-                            { key: "w", value: Math.round(selBounds.width), label: "W" },
-                            { key: "h", value: Math.round(selBounds.height), label: "H" },
-                            {
-                              key: "angle",
-                              value: Math.round(((selectedStroke.angle ?? 0) * 180) / Math.PI),
-                              label: "°",
-                            },
-                          ] as const
-                        ).map((f) => (
-                          <div key={f.key} className="flex flex-col items-center gap-0.5">
-                            <span className="text-[10px] font-medium text-muted-foreground">
-                              {f.label}
-                            </span>
-                            <input
-                              type="number"
-                              defaultValue={f.value}
-                              key={`${selectedStroke.id}-${f.key}-${f.value}`}
-                              onBlur={(e) => {
-                                const v = Number(e.target.value);
-                                if (Number.isFinite(v)) setNumericBox(f.key, v);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  (e.target as HTMLInputElement).blur();
-                                }
-                              }}
-                              className="h-7 w-full rounded-md border border-border/60 bg-background px-1 text-center text-[11px] tabular-nums outline-none focus:border-ring"
-                              aria-label={f.label}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
                   {/* 描边粗细。 */}
                   <div className="space-y-2">
                     <div className="text-[11px] font-medium text-muted-foreground">描边粗细</div>
@@ -3164,8 +3035,10 @@ export function CanvasTool() {
                             key={w.id}
                             type="button"
                             aria-pressed={active}
+                            aria-label={w.label}
+                            title={w.label}
                             className={cn(
-                              "flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors",
+                              "flex flex-1 items-center justify-center rounded-lg px-2 py-2.5 transition-colors",
                               active
                                 ? "bg-background text-foreground shadow-sm"
                                 : "text-muted-foreground hover:text-foreground",
@@ -3175,7 +3048,11 @@ export function CanvasTool() {
                               setBrushWidth(w.value);
                             }}
                           >
-                            {w.label}
+                            {/* 粗细横线图标：宽度随档位变化。 */}
+                            <span
+                              className="block w-5 rounded-full bg-current"
+                              style={{ height: w.value }}
+                            />
                           </button>
                         );
                       })}
@@ -3196,8 +3073,10 @@ export function CanvasTool() {
                               key={r}
                               type="button"
                               aria-pressed={active}
+                              aria-label={r === "sharp" ? "方角" : "圆角"}
+                              title={r === "sharp" ? "方角" : "圆角"}
                               className={cn(
-                                "flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors",
+                                "flex flex-1 items-center justify-center rounded-lg px-2 py-2.5 transition-colors",
                                 active
                                   ? "bg-background text-foreground shadow-sm"
                                   : "text-muted-foreground hover:text-foreground",
@@ -3209,7 +3088,22 @@ export function CanvasTool() {
                                 setBrushRoundness(r);
                               }}
                             >
-                              {r === "sharp" ? "方角" : "圆角"}
+                              {/* 边角折线图标：方角直角、圆角圆弧。 */}
+                              <svg
+                                viewBox="0 0 20 20"
+                                className="size-4"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                {r === "sharp" ? (
+                                  <path d="M5 15 V6 H15" />
+                                ) : (
+                                  <path d="M5 15 V11 Q5 6 10 6 H15" />
+                                )}
+                              </svg>
                             </button>
                           );
                         })}
@@ -3230,8 +3124,10 @@ export function CanvasTool() {
                             key={st}
                             type="button"
                             aria-pressed={active}
+                            aria-label={st === "solid" ? "实线" : st === "dashed" ? "虚线" : "点线"}
+                            title={st === "solid" ? "实线" : st === "dashed" ? "虚线" : "点线"}
                             className={cn(
-                              "flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors",
+                              "flex flex-1 items-center justify-center rounded-lg px-2 py-2.5 transition-colors",
                               active
                                 ? "bg-background text-foreground shadow-sm"
                                 : "text-muted-foreground hover:text-foreground",
@@ -3241,7 +3137,25 @@ export function CanvasTool() {
                               setBrushStrokeStyle(st);
                             }}
                           >
-                            {st === "solid" ? "实线" : st === "dashed" ? "虚线" : "点线"}
+                            {/* 线型图标：实线/虚线/点线。 */}
+                            <svg
+                              viewBox="0 0 20 4"
+                              className="h-1 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                            >
+                              <line
+                                x1="1"
+                                y1="2"
+                                x2="19"
+                                y2="2"
+                                strokeDasharray={
+                                  st === "solid" ? undefined : st === "dashed" ? "4 3" : "0.5 3"
+                                }
+                              />
+                            </svg>
                           </button>
                         );
                       })}
@@ -3304,107 +3218,132 @@ export function CanvasTool() {
                   {/* 排列与组合。 */}
                   <div className="space-y-2">
                     <div className="text-[11px] font-medium text-muted-foreground">排列与组合</div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 gap-1 justify-start px-2 text-xs"
-                        onClick={createGroup}
-                        disabled={selectedIds.length < 2}
-                      >
-                        <Group className="size-3.5" /> 组合
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 gap-1 justify-start px-2 text-xs"
-                        onClick={ungroup}
-                        disabled={!selectedGroup}
-                      >
-                        <Ungroup className="size-3.5" /> 取消
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 justify-start px-2 text-xs"
-                        onClick={() => moveLayer("front")}
-                      >
-                        上移顶层
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 justify-start px-2 text-xs"
-                        onClick={() => moveLayer("back")}
-                      >
-                        下移底层
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="col-span-2 h-8 gap-1 justify-start px-2 text-xs text-red-600 hover:bg-red-500/10 hover:text-red-600 dark:text-red-400"
-                        onClick={deleteSelected}
-                      >
-                        <Trash2 className="size-3.5" /> 删除选中
-                      </Button>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      <Tip label="组合（Ctrl+G）">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 gap-1 justify-center px-2 text-xs"
+                          onClick={createGroup}
+                          disabled={selectedIds.length < 2}
+                        >
+                          <Group className="size-3.5" /> 组合
+                        </Button>
+                      </Tip>
+                      <Tip label="取消组合（Ctrl+Shift+G）">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 gap-1 justify-center px-2 text-xs"
+                          onClick={ungroup}
+                          disabled={!selectedGroup}
+                        >
+                          <Ungroup className="size-3.5" /> 取消
+                        </Button>
+                      </Tip>
+                      <Tip label="上移一层">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 justify-center px-2 text-xs"
+                          onClick={() => moveLayer("front")}
+                        >
+                          上移
+                        </Button>
+                      </Tip>
+                      <Tip label="下移一层">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 justify-center px-2 text-xs"
+                          onClick={() => moveLayer("back")}
+                        >
+                          下移
+                        </Button>
+                      </Tip>
                     </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 w-full gap-1 justify-center text-xs text-red-600 hover:bg-red-500/10 hover:text-red-600 dark:text-red-400"
+                      onClick={deleteSelected}
+                    >
+                      <Trash2 className="size-3.5" /> 删除选中
+                    </Button>
                   </div>
 
                   {/* 导出选中。 */}
                   <div className="space-y-2">
                     <div className="text-[11px] font-medium text-muted-foreground">导出选中</div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 justify-start px-2 text-xs"
-                        onClick={() => exportSelectedPng(false)}
-                      >
-                        透明 PNG
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 justify-start px-2 text-xs"
-                        onClick={() => exportSelectedPng(true)}
-                      >
-                        背景 PNG
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 justify-start px-2 text-xs"
-                        onClick={() => exportSelectedSvg(false)}
-                      >
-                        透明 SVG
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 justify-start px-2 text-xs"
-                        onClick={() => exportSelectedSvg(true)}
-                      >
-                        背景 SVG
-                      </Button>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      <Tip label="透明背景 PNG">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 justify-center px-1 text-xs"
+                          onClick={() => exportSelectedPng(false)}
+                        >
+                          PNG
+                        </Button>
+                      </Tip>
+                      <Tip label="带背景 PNG">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 justify-center px-1 text-xs"
+                          onClick={() => exportSelectedPng(true)}
+                        >
+                          PNG+
+                        </Button>
+                      </Tip>
+                      <Tip label="透明背景 SVG">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 justify-center px-1 text-xs"
+                          onClick={() => exportSelectedSvg(false)}
+                        >
+                          SVG
+                        </Button>
+                      </Tip>
+                      <Tip label="带背景 SVG">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 justify-center px-1 text-xs"
+                          onClick={() => exportSelectedSvg(true)}
+                        >
+                          SVG+
+                        </Button>
+                      </Tip>
                     </div>
                   </div>
                 </div>
-              ) : (
+              </div>
+            </div>
+          )}
+          {/* 画布面板：仅 canvasOpen 时显示（trigger 控制，不随选中变化）。 */}
+          {canvasOpen && (
+            <div
+              className="colora-inspector-panel pointer-events-auto flex w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-md"
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 py-2.5">
+                <div className="text-xs font-semibold text-foreground">画布</div>
+              </div>
+              <div className="max-h-[min(70dvh,560px)] overflow-y-auto overflow-x-hidden p-3">
                 <div className="space-y-3">
-                  <div className="text-sm font-semibold text-foreground">画布</div>
-
                   {/* 文件。 */}
                   <div className="space-y-1.5">
-                    <div className="text-[11px] font-medium text-muted-foreground">文件</div>
                     <Button
                       type="button"
                       size="sm"
@@ -3450,6 +3389,18 @@ export function CanvasTool() {
                         <Trash2 className="size-3.5" /> 重置画布
                       </Button>
                     </Tip>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 w-full justify-start gap-1.5 text-xs"
+                      onClick={() => setExportDialogOpen(true)}
+                    >
+                      <Download className="size-3.5" /> 导出画布...
+                    </Button>
+                    <p className="text-[10px] leading-relaxed text-muted-foreground">
+                      可把 .colora 文件直接拖入画布导入，跨设备打开继续编辑。
+                    </p>
                   </div>
 
                   {/* 画布背景。 */}
@@ -3524,30 +3475,12 @@ export function CanvasTool() {
                       })}
                     </div>
                   </div>
-
-                  {/* 导出画布。 */}
-                  <div className="space-y-1.5">
-                    <div className="text-[11px] font-medium text-muted-foreground">导出画布</div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 w-full justify-start gap-1.5 text-xs"
-                      onClick={() => setExportDialogOpen(true)}
-                    >
-                      <Download className="size-3.5" /> 导出画布...
-                    </Button>
-                    <p className="text-[10px] leading-relaxed text-muted-foreground">
-                      可把 .colora 文件直接拖入画布导入，跨设备打开继续编辑。
-                    </p>
-                  </div>
                 </div>
-              )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
-
       {/* 悬浮工具栏（对标 Excalidraw）：icon 按钮组 + 锁定 + 撤销/重做 */}
       <div
         className={cn(
