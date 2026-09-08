@@ -11,7 +11,9 @@ import {
   ArrowRight,
   Circle,
   Diamond,
-  BringForward,
+  BringToFront,
+  ChevronRight,
+  Copy,
   Download,
   Eraser,
   EyeOff,
@@ -29,7 +31,7 @@ import {
   Pencil,
   Redo2,
   Save,
-  SendBackward,
+  SendToBack,
   Slash,
   SlidersHorizontal,
   Square,
@@ -50,6 +52,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import { useColora } from "@/lib/colora-store";
 import {
@@ -865,6 +880,8 @@ export function CanvasTool() {
   const isShapeMode = (m: Mode) => shapeOfMode(m) !== undefined;
 
   const onPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    // 右键：交给 ContextMenu，不启动任何画布交互。
+    if (event.button === 2) return;
     // text 模式只开输入浮层，不捕获指针（否则 textarea 无法获焦）。
     if (mode !== "text") event.currentTarget.setPointerCapture(event.pointerId);
     const point = canvasPoint(event);
@@ -2849,34 +2866,106 @@ export function CanvasTool() {
         className="hidden"
         onChange={onImageInputChange}
       />
-      <canvas
-        ref={canvasRef}
-        role="img"
-        aria-label="Colora 画布工作区"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onPointerLeave={() => {
-          setHoveringStroke(false);
-        }}
-        onDoubleClick={onDoubleClick}
-        className={cn(
-          "absolute inset-0 h-full w-full touch-none",
-          panning
-            ? "cursor-grabbing"
-            : mode === "hand" || spaceDown
-              ? "cursor-grab"
-              : mode === "text"
-                ? "cursor-text"
-                : mode === "select"
-                  ? hoveringStroke
-                    ? "cursor-move"
-                    : "cursor-default"
-                  : "cursor-crosshair",
-        )}
-        style={mode === "eraser" ? { cursor: ERASER_CURSOR } : undefined}
-      />
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <canvas
+            ref={canvasRef}
+            role="img"
+            aria-label="Colora 画布工作区"
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            onPointerLeave={() => {
+              setHoveringStroke(false);
+            }}
+            onDoubleClick={onDoubleClick}
+            onContextMenu={(e) => {
+              // 右键命中元素则选中（便于菜单操作作用于该元素）。
+              const point = canvasPoint(e);
+              const hit = hitTopStroke(point);
+              if (hit && !selectedIds.includes(hit.id)) setSelectedIds([hit.id]);
+            }}
+            className={cn(
+              "absolute inset-0 h-full w-full touch-none",
+              panning
+                ? "cursor-grabbing"
+                : mode === "hand" || spaceDown
+                  ? "cursor-grab"
+                  : mode === "text"
+                    ? "cursor-text"
+                    : mode === "select"
+                      ? hoveringStroke
+                        ? "cursor-move"
+                        : "cursor-default"
+                      : "cursor-crosshair",
+            )}
+            style={mode === "eraser" ? { cursor: ERASER_CURSOR } : undefined}
+          />
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-52">
+          {selectedStrokes.length > 0 ? (
+            <>
+              <ContextMenuItem onSelect={duplicateSelected}>
+                <Copy className="mr-2 size-4" /> 复制
+                <span className="ml-auto text-[11px] text-muted-foreground">Ctrl+D</span>
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={() => moveLayer("front")}>
+                <BringToFront className="mr-2 size-4" /> 上移一层
+                <span className="ml-auto text-[11px] text-muted-foreground">Ctrl+]</span>
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={() => moveLayer("back")}>
+                <SendToBack className="mr-2 size-4" /> 下移一层
+                <span className="ml-auto text-[11px] text-muted-foreground">Ctrl+[</span>
+              </ContextMenuItem>
+              {(selectedIds.length >= 2 || selectedGroup) && (
+                <>
+                  <ContextMenuSeparator />
+                  {selectedIds.length >= 2 && (
+                    <ContextMenuItem onSelect={createGroup}>
+                      <Group className="mr-2 size-4" /> 组合
+                      <span className="ml-auto text-[11px] text-muted-foreground">Ctrl+G</span>
+                    </ContextMenuItem>
+                  )}
+                  {selectedGroup && (
+                    <ContextMenuItem onSelect={ungroup}>
+                      <Ungroup className="mr-2 size-4" /> 取消组合
+                      <span className="ml-auto text-[11px] text-muted-foreground">
+                        Ctrl+Shift+G
+                      </span>
+                    </ContextMenuItem>
+                  )}
+                </>
+              )}
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                onSelect={deleteSelected}
+                className="text-red-600 focus:bg-red-500/10 focus:text-red-600 dark:text-red-400"
+              >
+                <Trash2 className="mr-2 size-4" /> 删除
+                <span className="ml-auto text-[11px] opacity-70">Del</span>
+              </ContextMenuItem>
+            </>
+          ) : (
+            <>
+              <ContextMenuItem onSelect={() => setSelectedIds(strokes.map((s) => s.id))}>
+                <MousePointer2 className="mr-2 size-4" /> 全选
+                <span className="ml-auto text-[11px] text-muted-foreground">Ctrl+A</span>
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={() => setZoom(1)}>
+                <Maximize className="mr-2 size-4" /> 重置视图
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={zoomToFit}>
+                <Maximize className="mr-2 size-4" /> 适应内容
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem onSelect={resetCanvas}>
+                <Trash2 className="mr-2 size-4" /> 重置画布
+              </ContextMenuItem>
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
 
       {/* 画布上的路径色标手柄 */}
       {stopHandles.length > 0 && (
@@ -3011,11 +3100,11 @@ export function CanvasTool() {
 
       {/* 元素面板（选中时自动打开）+ 画布面板（trigger 控制），左上一列堆叠，可同时出现。 */}
       {(elementOpen || canvasOpen) && !zenMode && (
-        <div className="pointer-events-none absolute left-3 top-14 z-30 flex flex-col gap-2">
+        <div className="pointer-events-none absolute left-3 top-14 z-30 flex max-h-[calc(100dvh-5rem)] flex-col gap-3 overflow-y-auto pb-3">
           {/* 元素面板：仅 elementOpen 时显示。 */}
           {elementOpen && (
             <div
-              className="colora-inspector-panel pointer-events-auto flex w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-md"
+              className="colora-inspector-panel pointer-events-auto flex w-80 max-w-[calc(100vw-1.5rem)] shrink-0 flex-col overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-md"
               onPointerDown={(event) => event.stopPropagation()}
             >
               <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 py-2.5">
@@ -3215,117 +3304,123 @@ export function CanvasTool() {
                     </div>
                   )}
 
-                  {/* 排列与组合。 */}
+                  {/* 操作：组合/取消 + 图层上移/下移 + 复制 + 删除（纯图标行，对标 Excalidraw actions）。 */}
                   <div className="space-y-2">
-                    <div className="text-[11px] font-medium text-muted-foreground">排列与组合</div>
-                    <div className="grid grid-cols-4 gap-1.5">
+                    <div className="text-[11px] font-medium text-muted-foreground">操作</div>
+                    <div className="grid grid-cols-6 gap-1.5">
+                      <Tip label="复制（Ctrl+D）">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-full"
+                          onClick={duplicateSelected}
+                          aria-label="复制"
+                        >
+                          <Copy className="size-4" />
+                        </Button>
+                      </Tip>
                       <Tip label="组合（Ctrl+G）">
                         <Button
                           type="button"
-                          size="sm"
+                          size="icon"
                           variant="ghost"
-                          className="h-8 gap-1 justify-center px-2 text-xs"
+                          className="h-8 w-full"
                           onClick={createGroup}
                           disabled={selectedIds.length < 2}
+                          aria-label="组合"
                         >
-                          <Group className="size-3.5" /> 组合
+                          <Group className="size-4" />
                         </Button>
                       </Tip>
                       <Tip label="取消组合（Ctrl+Shift+G）">
                         <Button
                           type="button"
-                          size="sm"
+                          size="icon"
                           variant="ghost"
-                          className="h-8 gap-1 justify-center px-2 text-xs"
+                          className="h-8 w-full"
                           onClick={ungroup}
                           disabled={!selectedGroup}
+                          aria-label="取消组合"
                         >
-                          <Ungroup className="size-3.5" /> 取消
+                          <Ungroup className="size-4" />
                         </Button>
                       </Tip>
-                      <Tip label="上移一层">
+                      <Tip label="上移一层（Ctrl+]）">
                         <Button
                           type="button"
-                          size="sm"
+                          size="icon"
                           variant="ghost"
-                          className="h-8 justify-center px-2 text-xs"
+                          className="h-8 w-full"
                           onClick={() => moveLayer("front")}
+                          aria-label="上移一层"
                         >
-                          上移
+                          <BringToFront className="size-4" />
                         </Button>
                       </Tip>
-                      <Tip label="下移一层">
+                      <Tip label="下移一层（Ctrl+[）">
                         <Button
                           type="button"
-                          size="sm"
+                          size="icon"
                           variant="ghost"
-                          className="h-8 justify-center px-2 text-xs"
+                          className="h-8 w-full"
                           onClick={() => moveLayer("back")}
+                          aria-label="下移一层"
                         >
-                          下移
+                          <SendToBack className="size-4" />
+                        </Button>
+                      </Tip>
+                      <Tip label="删除选中">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-full text-red-600 hover:bg-red-500/10 hover:text-red-600 dark:text-red-400"
+                          onClick={deleteSelected}
+                          aria-label="删除选中"
+                        >
+                          <Trash2 className="size-4" />
                         </Button>
                       </Tip>
                     </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 w-full gap-1 justify-center text-xs text-red-600 hover:bg-red-500/10 hover:text-red-600 dark:text-red-400"
-                      onClick={deleteSelected}
-                    >
-                      <Trash2 className="size-3.5" /> 删除选中
-                    </Button>
                   </div>
 
-                  {/* 导出选中。 */}
+                  {/* 导出选中：长选项 + 二级菜单选格式。 */}
                   <div className="space-y-2">
                     <div className="text-[11px] font-medium text-muted-foreground">导出选中</div>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      <Tip label="透明背景 PNG">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
                         <Button
                           type="button"
                           size="sm"
                           variant="ghost"
-                          className="h-8 justify-center px-1 text-xs"
-                          onClick={() => exportSelectedPng(false)}
+                          className="h-8 w-full justify-start gap-1.5 px-2 text-xs"
                         >
-                          PNG
+                          <Download className="size-3.5" />
+                          <span className="flex-1 text-left">导出选中元素...</span>
+                          <ChevronRight className="size-3.5 text-muted-foreground" />
                         </Button>
-                      </Tip>
-                      <Tip label="带背景 PNG">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 justify-center px-1 text-xs"
-                          onClick={() => exportSelectedPng(true)}
-                        >
-                          PNG+
-                        </Button>
-                      </Tip>
-                      <Tip label="透明背景 SVG">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 justify-center px-1 text-xs"
-                          onClick={() => exportSelectedSvg(false)}
-                        >
-                          SVG
-                        </Button>
-                      </Tip>
-                      <Tip label="带背景 SVG">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 justify-center px-1 text-xs"
-                          onClick={() => exportSelectedSvg(true)}
-                        >
-                          SVG+
-                        </Button>
-                      </Tip>
-                    </div>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        side="right"
+                        align="start"
+                        sideOffset={6}
+                        className="w-44"
+                      >
+                        <DropdownMenuItem onSelect={() => exportSelectedPng(false)}>
+                          透明 PNG
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => exportSelectedPng(true)}>
+                          带背景 PNG
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => exportSelectedSvg(false)}>
+                          透明 SVG
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => exportSelectedSvg(true)}>
+                          带背景 SVG
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               </div>
@@ -3334,7 +3429,7 @@ export function CanvasTool() {
           {/* 画布面板：仅 canvasOpen 时显示（trigger 控制，不随选中变化）。 */}
           {canvasOpen && (
             <div
-              className="colora-inspector-panel pointer-events-auto flex w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-md"
+              className="colora-inspector-panel pointer-events-auto flex w-80 max-w-[calc(100vw-1.5rem)] shrink-0 flex-col overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-md"
               onPointerDown={(event) => event.stopPropagation()}
             >
               <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 py-2.5">

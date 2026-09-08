@@ -304,6 +304,7 @@ export function ColorEditor({
             value={Math.round(activeHsl.s)}
             max={100}
             unit="%"
+            markerColor={activeHex}
             track={`linear-gradient(to right, ${rgbToHex(hslToRgb({ h: activeHsl.h, s: 0, l: activeHsl.l }))}, ${rgbToHex(hslToRgb({ h: activeHsl.h, s: 100, l: activeHsl.l }))})`}
             onChange={(value) => setActiveHsl({ s: value })}
           />
@@ -312,6 +313,7 @@ export function ColorEditor({
             value={Math.round(activeHsl.l)}
             max={100}
             unit="%"
+            markerColor={activeHex}
             track={`linear-gradient(to right, #000 0%, ${hueColor} 50%, #fff 100%)`}
             onChange={(value) => setActiveHsl({ l: value })}
           />
