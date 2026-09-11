@@ -12,6 +12,7 @@ import {
   Circle,
   Diamond,
   BringToFront,
+  ChevronDown,
   ChevronRight,
   Copy,
   Download,
@@ -24,11 +25,14 @@ import {
   Group,
   Hand,
   Image as ImageIcon,
+  Keyboard,
   Lock,
   Magnet,
   Maximize,
+  Minus,
   MousePointer2,
   Pencil,
+  Plus,
   Redo2,
   Save,
   SendToBack,
@@ -87,11 +91,14 @@ import {
   INITIAL_H,
   INITIAL_W,
   STROKE_WIDTHS,
+  ZOOM_MAX,
+  ZOOM_MIN,
   defaultCanvasBg,
 } from "./constants";
 import { ColorEditor } from "./ColorEditor";
 import { Tip } from "../primitives";
 import { ExportCanvasDialog, type ExportOptions } from "./ExportCanvasDialog";
+import { ShortcutHelpDialog } from "./ShortcutHelpDialog";
 import { initialStrokes } from "./initial-strokes";
 import { boxIntersectsStroke, hitStroke } from "./collision";
 import { openColoraFile, restoreCanvas, saveColoraFile } from "./file-format";
@@ -188,6 +195,9 @@ export function CanvasTool() {
   const scaledRef = useRef(false);
   const stopDragRafRef = useRef(0);
   const stopDragInfoRef = useRef<{ stopId: string; x: number; y: number } | null>(null);
+  // 拖拽手柄（色标/旋转）拖拽中：驱动 grabbing 光标。
+  // CSS :active 在 setPointerCapture / window 监听拖拽期间不生效，故用状态驱动。
+  const [handleDragging, setHandleDragging] = useState(false);
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
   // 图片插入：隐藏 file input + 待插入目标框（拖拽确定尺寸时记录，null=用自然尺寸在点击点插入）。
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -295,6 +305,8 @@ export function CanvasTool() {
   const [coloraFileName, setColoraFileName] = useState<string>("画布");
   // 导出弹窗：打开状态 + 导出选项（含背景、缩放倍率）。
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  // 快捷键速查弹窗开关。
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   const [exportOptions, setExportOptions] = useState<ExportOptions>({
     withBackground: true,
     scale: 2,
@@ -362,6 +374,11 @@ export function CanvasTool() {
     setPan({ x: viewSize.w / 2 - cx * z, y: viewSize.h / 2 - cy * z });
   }, [strokes, viewSize.w, viewSize.h]);
 
+  // 缩放回调：键盘（Ctrl±/0）、缩放控件按钮与右键菜单共用同一条路径，避免逻辑漂移。
+  const zoomIn = useCallback(() => setZoom((z) => clamp(z * 1.2, ZOOM_MIN, ZOOM_MAX)), []);
+  const zoomOut = useCallback(() => setZoom((z) => clamp(z / 1.2, ZOOM_MIN, ZOOM_MAX)), []);
+  const zoomReset = useCallback(() => setZoom(1), []);
+
   // 选中组合内的笔画是否彼此重叠（包围盒相交）。无重叠时"重叠处理"置灰。
   const groupHasOverlap = useMemo(() => {
     if (!selectedGroup || selectedStrokes.length < 2) return false;
@@ -417,6 +434,8 @@ export function CanvasTool() {
   // 空格键：按住进入抓手平移模式；Esc/0 重置视口。
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // 弹窗打开时（快捷键速查/导出/确认），Esc 等按键交给弹窗自身处理，不触发画布行为。
+      if (shortcutHelpOpen || exportDialogOpen || confirmDialog) return;
       if (e.code === "Space") {
         // 避免在输入框/编辑态吞掉空格
         const t = e.target as HTMLElement;
@@ -451,7 +470,7 @@ export function CanvasTool() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [zoomToFit, editingLinearId]);
+  }, [zoomToFit, editingLinearId, shortcutHelpOpen, exportDialogOpen, confirmDialog]);
 
   // 滚轮：Ctrl/⌘+滚轮 或触控板 pinch（ctrlKey）→ 以鼠标位置为锚点缩放；
   // 普通滚轮 → 平移画布视口（对标 Excalidraw：滚轮平移、Ctrl 缩放）。
@@ -1415,6 +1434,8 @@ export function CanvasTool() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.target as HTMLElement | null)?.closest("input, textarea, select")) return;
+      // 弹窗打开时不响应画布删除/复制，避免误操作。
+      if (shortcutHelpOpen || exportDialogOpen || confirmDialog) return;
       if (event.key === "Delete" || event.key === "Backspace") {
         event.preventDefault();
         deleteSelected();
@@ -1426,7 +1447,7 @@ export function CanvasTool() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [deleteSelected, duplicateSelected]);
+  }, [deleteSelected, duplicateSelected, shortcutHelpOpen, exportDialogOpen, confirmDialog]);
 
   const undo = () => {
     const previous = undoStack.at(-1);
@@ -2009,6 +2030,13 @@ export function CanvasTool() {
       const mod = e.ctrlKey || e.metaKey;
       // 输入框内：只放行全局必要快捷键（undo/redo 仍交由原生）——这里一律跳过，交给字段自身。
       if (inField) return;
+      // 速查面板快捷键（? 或 Shift+/）最先处理；弹窗打开时其余按键不落到画布。
+      if (!mod && !e.altKey && (e.key === "?" || (e.key === "/" && e.shiftKey))) {
+        e.preventDefault();
+        setShortcutHelpOpen((v) => !v);
+        return;
+      }
+      if (shortcutHelpOpen || exportDialogOpen || confirmDialog) return;
       // 撤销/重做。
       if (mod && !e.shiftKey && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -2110,18 +2138,18 @@ export function CanvasTool() {
       // 缩放（Ctrl/Cmd + +/-/0）。
       if (mod && (e.key === "=" || e.key === "+")) {
         e.preventDefault();
-        setZoom((z) => clamp(z * 1.2, 0.1, 8));
+        zoomIn();
         return;
       }
       if (mod && e.key === "-") {
         e.preventDefault();
-        setZoom((z) => clamp(z / 1.2, 0.1, 8));
+        zoomOut();
         return;
       }
       if (mod && e.key === "0") {
         // 与视口重置的 0 冲突——Ctrl+0 缩放 100%，裸 0 重置视口（已在监听 A）。
         e.preventDefault();
-        setZoom(1);
+        zoomReset();
         return;
       }
       // Zen 切换（Alt+Z）。
@@ -2137,6 +2165,7 @@ export function CanvasTool() {
           h: "hand",
           r: "rectangle",
           d: "diamond",
+          o: "ellipse",
           a: "arrow",
           l: "line",
           p: "brush",
@@ -2163,6 +2192,12 @@ export function CanvasTool() {
     moveLayer,
     commitStrokes,
     toggleZen,
+    zoomIn,
+    zoomOut,
+    zoomReset,
+    shortcutHelpOpen,
+    exportDialogOpen,
+    confirmDialog,
   ]);
 
   const toolButtons: { id: Mode; label: string; icon: typeof MousePointer2 }[] = [
@@ -2639,10 +2674,12 @@ export function CanvasTool() {
       startGroups: cloneGroups(groups),
     };
     // window 监听接管 move/up（同 pointDrag，避免手柄卸载丢 capture）。
+    setHandleDragging(true);
     const onMove = (e: PointerEvent) =>
       applyRotationMove(canvasPoint({ clientX: e.clientX, clientY: e.clientY }), e.shiftKey);
     const onUp = () => {
       applyRotationEnd();
+      setHandleDragging(false);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
@@ -2952,7 +2989,12 @@ export function CanvasTool() {
                 <MousePointer2 className="mr-2 size-4" /> 全选
                 <span className="ml-auto text-[11px] text-muted-foreground">Ctrl+A</span>
               </ContextMenuItem>
-              <ContextMenuItem onSelect={() => setZoom(1)}>
+              <ContextMenuItem
+                onSelect={() => {
+                  setPan({ x: 0, y: 0 });
+                  zoomReset();
+                }}
+              >
                 <Maximize className="mr-2 size-4" /> 重置视图
               </ContextMenuItem>
               <ContextMenuItem onSelect={zoomToFit}>
@@ -2975,7 +3017,10 @@ export function CanvasTool() {
               key={stop.id}
               type="button"
               aria-label={`色标 ${Math.round(stop.pos)}%`}
-              className="pointer-events-auto absolute size-5 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-white shadow-[0_0_0_1px_var(--color-border),0_6px_18px_rgb(0_0_0/0.30)] outline-none transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring"
+              className={cn(
+                "pointer-events-auto absolute size-5 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-white shadow-[0_0_0_1px_var(--color-border),0_6px_18px_rgb(0_0_0/0.30)] outline-none transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring",
+                handleDragging ? "cursor-grabbing" : "cursor-grab",
+              )}
               style={{
                 left: `${left}%`,
                 top: `${top}%`,
@@ -2985,6 +3030,7 @@ export function CanvasTool() {
                 event.stopPropagation();
                 event.currentTarget.setPointerCapture(event.pointerId);
                 stopDragInfoRef.current = { stopId: stop.id, x: event.clientX, y: event.clientY };
+                setHandleDragging(true);
                 flushStopDrag();
               }}
               onPointerMove={(event) => {
@@ -2994,9 +3040,11 @@ export function CanvasTool() {
               }}
               onPointerUp={() => {
                 stopDragInfoRef.current = null;
+                setHandleDragging(false);
               }}
               onPointerCancel={() => {
                 stopDragInfoRef.current = null;
+                setHandleDragging(false);
               }}
               onKeyDown={(event) => {
                 if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
@@ -3040,8 +3088,11 @@ export function CanvasTool() {
               key={`rot-${i}`}
               type="button"
               aria-label="旋转手柄"
-              className="pointer-events-auto absolute size-3 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border border-blue-500 bg-white shadow-[0_0_0_1px_rgb(255_255_255)] outline-none transition-transform hover:scale-125 focus-visible:ring-2 focus-visible:ring-ring"
-              style={{ left: `${h.left}%`, top: `${h.top}%`, cursor: "grab" }}
+              className={cn(
+                "pointer-events-auto absolute size-3 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border border-blue-500 bg-white shadow-[0_0_0_1px_rgb(255_255_255)] outline-none transition-transform hover:scale-125 focus-visible:ring-2 focus-visible:ring-ring",
+                handleDragging ? "cursor-grabbing" : "cursor-grab",
+              )}
+              style={{ left: `${h.left}%`, top: `${h.top}%` }}
               onPointerDown={onRotationHandlePointerDown}
             />
           ))}
@@ -3883,12 +3934,93 @@ export function CanvasTool() {
         </button>
       )}
 
+      {/* 缩放控件（右下角）：混合式 pill —— 减/加 快捷缩放，中间百分比点开完整菜单。
+          遵守单色设计系统：仅用边框 + 背景 + 阴影浮起，不用任何色相。 */}
+      <div
+        className={cn(
+          "absolute bottom-6 right-3 z-30 inline-flex items-center rounded-lg border border-border/60 bg-background/80 shadow-lg backdrop-blur-md",
+          zenMode && "opacity-90",
+        )}
+        role="group"
+        aria-label="缩放"
+      >
+        <Tip label="缩小（Ctrl+-）">
+          <button
+            type="button"
+            onClick={zoomOut}
+            disabled={zoom <= ZOOM_MIN + 1e-6}
+            aria-label="缩小"
+            className="inline-flex size-8 items-center justify-center rounded-l-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          >
+            <Minus className="size-3.5" />
+          </button>
+        </Tip>
+        <div className="h-4 w-px bg-border" />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={`缩放 ${Math.round(zoom * 100)}%，点开更多选项`}
+              className="inline-flex h-8 w-[4.5rem] items-center justify-center gap-0.5 font-mono text-xs tabular-nums text-foreground transition-colors hover:bg-accent"
+            >
+              {Math.round(zoom * 100)}%
+              <ChevronDown className="size-3 text-muted-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="center" sideOffset={6} className="w-52">
+            <DropdownMenuItem onSelect={zoomIn} className="text-xs">
+              放大
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground">Ctrl+=</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={zoomOut} className="text-xs">
+              缩小
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground">Ctrl+-</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={zoomReset} className="text-xs">
+              缩放至 100%
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground">Ctrl+0</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={zoomToFit}
+              className="text-xs"
+              disabled={!strokes.length}
+            >
+              适应内容
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground">1</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <div className="h-4 w-px bg-border" />
+        <Tip label="放大（Ctrl+=）">
+          <button
+            type="button"
+            onClick={zoomIn}
+            disabled={zoom >= ZOOM_MAX - 1e-6}
+            aria-label="放大"
+            className="inline-flex size-8 items-center justify-center rounded-r-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          >
+            <Plus className="size-3.5" />
+          </button>
+        </Tip>
+      </div>
+
       <div
         className={cn(
           "pointer-events-none absolute right-3 top-3 z-40 flex max-w-[calc(100vw-1.5rem)] flex-col items-end gap-2",
         )}
         style={cornerStyle}
       >
+        {/* 快捷键速查：右上角常驻入口，Zen 模式下也可用。 */}
+        <Tip label="键盘快捷键（?）">
+          <button
+            type="button"
+            onClick={() => setShortcutHelpOpen(true)}
+            aria-label="键盘快捷键"
+            className="pointer-events-auto inline-flex size-9 items-center justify-center rounded-md border border-border/60 bg-background/80 shadow-lg backdrop-blur-md transition-colors hover:bg-accent"
+          >
+            <Keyboard className="size-4" />
+          </button>
+        </Tip>
         {/* Zen 按钮：非 zen 显示进入，zen 显示退出（高对比）。 */}
         <Tip label={zenMode ? "退出 Zen 模式（Alt+Z）" : "进入 Zen 模式（隐藏侧栏与工具栏）"}>
           {zenMode ? (
@@ -3971,6 +4103,7 @@ export function CanvasTool() {
             />
           );
         })()}
+      <ShortcutHelpDialog open={shortcutHelpOpen} onOpenChange={setShortcutHelpOpen} />
       <ExportCanvasDialog
         open={exportDialogOpen}
         onOpenChange={setExportDialogOpen}

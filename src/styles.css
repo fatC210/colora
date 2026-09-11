@@ -166,6 +166,18 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
+
+  /*
+   * 可点击元素恢复手型光标。
+   * Tailwind v4 的 preflight 移除了 button 的 `cursor: pointer`（v3 有），
+   * 导致未显式声明光标的裸 <button> 退回箭头光标。这里统一补回。
+   * 放在 base 层：utilities 层在其后，故 `disabled:cursor-not-allowed`、
+   * `cursor-grab` 等工具类仍可覆盖；手柄的内联 cursor 优先级更高，不受影响。
+   */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
 }
 
 @layer components {

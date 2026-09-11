@@ -97,3 +97,7 @@ export const CANVAS_BG_PRESETS: { hex: string; label: string }[] = [
   { hex: "#2B2B2B", label: "深墨" },
   { hex: "#0A0A0A", label: "近黑" },
 ];
+
+/** 画布缩放的上下限（对标 Excalidraw 的 0.1~8 倍），键盘与缩放控件共用。 */
+export const ZOOM_MIN = 0.1;
+export const ZOOM_MAX = 8;
