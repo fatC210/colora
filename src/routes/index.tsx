@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { ColoraProvider, useColora } from "@/lib/colora-store";
 import { CB_LABELS, cbMatrixValues } from "@/lib/color";
@@ -14,6 +14,7 @@ import { ImageTool } from "@/components/colora/ImageTool";
 import { ContrastTool } from "@/components/colora/ContrastTool";
 import { PreviewTool } from "@/components/colora/PreviewTool";
 import { Tip } from "@/components/colora/primitives";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -58,18 +59,34 @@ function ColoraApp() {
   const [tool, setTool] = useState<ToolId>("palette");
   const [collapsed, setCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const { cbMode, setCbMode, zenMode } = useColora();
+  const { cbMode, setCbMode, zenMode, toggleZen } = useColora();
+  const isMobile = useIsMobile();
 
-  const title = TOOLS.find((t) => t.id === tool)?.label ?? "";
-  // Zen 模式：只显示画布，隐藏侧栏/横幅/标题/信息面板。画布内部 chrome 由 CanvasTool 按 zen 自行隐藏。
-  const showCanvas = zenMode || tool === "canvas";
+  // 移动端不支持画布：入口已在侧栏/首页隐藏，这里再兜底两条绕过入口的路径——
+  //   1) 桌面端开启的 Zen 模式（持久化在 localStorage），移动端打开会直接进入画布且侧栏隐藏、无处可退；
+  //   2) 窗口从桌面端缩窄到移动端时，当前 tool 仍停留在画布。
+  // 用派生值立即纠正（不等 effect），避免纠正前渲染出一帧空屏。
+  const canvasBlocked = isMobile && (tool === "canvas" || zenMode);
+  const effectiveTool: ToolId = isMobile && tool === "canvas" ? "palette" : tool;
+  const effectiveZen = zenMode && !canvasBlocked;
+  const showCanvas = !canvasBlocked && (zenMode || tool === "canvas");
+
+  // 同步真实状态，使 localStorage 与选中态一致（派生值只负责渲染）。
+  useEffect(() => {
+    if (!isMobile) return;
+    if (zenMode) toggleZen();
+    if (tool === "canvas") setTool("palette");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile, zenMode, tool]);
+
+  const title = TOOLS.find((t) => t.id === effectiveTool)?.label ?? "";
 
   return (
     <div className="colora-app-shell">
-      {!zenMode && <CbFilters />}
-      {!zenMode && (
+      {!effectiveZen && <CbFilters />}
+      {!effectiveZen && (
         <Sidebar
-          tool={tool}
+          tool={effectiveTool}
           onTool={(t) => {
             setTool(t);
             setMobileNavOpen(false);
@@ -84,7 +101,7 @@ function ColoraApp() {
         style={cbMode !== "none" ? { filter: `url(#cb-${cbMode})` } : undefined}
       >
         <div className="colora-content-scroller">
-          {!zenMode && cbMode !== "none" && (
+          {!effectiveZen && cbMode !== "none" && (
             <div className="flex items-center justify-between gap-3 border-b border-border bg-muted px-4 py-3 text-sm sm:px-6">
               <span>当前处于 {CB_LABELS[cbMode]} 模拟模式</span>
               <Tip label="退出色盲模拟">
@@ -105,23 +122,23 @@ function ColoraApp() {
             <CanvasTool />
           </div>
 
-          {!zenMode && tool !== "canvas" && (
+          {!effectiveZen && !showCanvas && (
             <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
               <h1 className="colora-page-title mb-4 text-2xl font-bold tracking-tight sm:mb-5 sm:text-3xl">
                 {title}
               </h1>
-              {tool === "home" && <HomeTool onTool={setTool} />}
-              {tool === "palette" && <PaletteTool />}
-              {tool === "gradient" && <GradientTool />}
-              {tool === "mixer" && <MixerTool />}
-              {tool === "image" && <ImageTool />}
-              {tool === "contrast" && <ContrastTool />}
-              {tool === "preview" && <PreviewTool />}
+              {effectiveTool === "home" && <HomeTool onTool={setTool} />}
+              {effectiveTool === "palette" && <PaletteTool />}
+              {effectiveTool === "gradient" && <GradientTool />}
+              {effectiveTool === "mixer" && <MixerTool />}
+              {effectiveTool === "image" && <ImageTool />}
+              {effectiveTool === "contrast" && <ContrastTool />}
+              {effectiveTool === "preview" && <PreviewTool />}
             </div>
           )}
         </div>
 
-        {!zenMode && tool !== "canvas" && (
+        {!effectiveZen && !showCanvas && (
           <InfoPanel collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
         )}
       </main>

@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Logo } from "@/components/colora/Logo";
 import { useColora } from "@/lib/colora-store";
 import { CB_LABELS, type CBMode } from "@/lib/color";
@@ -28,6 +29,22 @@ import { Tip } from "./primitives";
 
 export type ToolId =
   "home" | "palette" | "gradient" | "canvas" | "mixer" | "image" | "contrast" | "preview";
+
+/** 移动端（窄屏 < 768px）暂不支持的工具：画布依赖精细指针与手势，触控体验未完善。 */
+const MOBILE_UNSUPPORTED: ReadonlySet<ToolId> = new Set<ToolId>(["canvas"]);
+
+/**
+ * 按设备过滤工具列表：移动端隐藏暂不支持的工具入口（侧栏与首页共用同一来源）。
+ * @param isMobile 窄屏判定（来自 useIsMobile，与 CSS 断点 768px 一致）。
+ */
+export function visibleTools(isMobile: boolean) {
+  return isMobile ? TOOLS.filter((t) => !MOBILE_UNSUPPORTED.has(t.id)) : TOOLS;
+}
+
+/** 该工具在移动端是否可用（用于纠正已选中的工具，如持久化的 Zen 模式）。 */
+export function isToolSupportedOnMobile(id: ToolId) {
+  return !MOBILE_UNSUPPORTED.has(id);
+}
 
 export const TOOLS: { id: ToolId; label: string; icon: typeof Home; badge?: string }[] = [
   { id: "home", label: "首页", icon: Home },
@@ -69,20 +86,19 @@ function NavItem({
   buttonRef?: (node: HTMLButtonElement | null) => void;
 }) {
   return (
-    <Tip label={label}>
-      <button
-        ref={buttonRef}
-        type="button"
-        onClick={onClick}
-        data-label={label}
-        data-active={active ? "true" : undefined}
-        className={cn(
-          "colora-sidebar-button relative flex w-full flex-col items-center rounded-lg text-[11px]",
-          active
-            ? "bg-sidebar-accent font-medium text-sidebar-foreground"
-            : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-        )}
-      >
+    <button
+      ref={buttonRef}
+      type="button"
+      onClick={onClick}
+      data-label={label}
+      data-active={active ? "true" : undefined}
+      className={cn(
+        "colora-sidebar-button relative flex w-full flex-col items-center rounded-lg text-[11px]",
+        active
+          ? "bg-sidebar-accent font-medium text-sidebar-foreground"
+          : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+      )}
+    >
       <Icon className="size-5" strokeWidth={1.6} />
       <span className="colora-sidebar-label leading-none">
         {label === "对比度检查" ? (
@@ -99,9 +115,25 @@ function NavItem({
           {badge}
         </span>
       )}
-      </button>
-    </Tip>
+    </button>
   );
+}
+
+/**
+ * 动作按钮的 tooltip 包装：侧栏（variant="sidebar"）按钮自带文字标签，tooltip 冗余，故不包；
+ * 移动端顶栏（variant="topbar"）为纯图标，tooltip 是唯一文字提示，保留。
+ */
+function ActionTip({
+  variant,
+  label,
+  children,
+}: {
+  variant: ActionVariant;
+  label: string;
+  children: React.ReactNode;
+}) {
+  if (variant === "sidebar") return <>{children}</>;
+  return <Tip label={label}>{children}</Tip>;
 }
 
 /** 色盲模拟按钮：sidebar 为纵向（桌面侧边栏），topbar 为横向小图标（移动端右上角）。 */
@@ -110,7 +142,7 @@ function ColorBlindAction({ variant }: { variant: ActionVariant }) {
   const active = cbMode !== "none";
   return (
     <Popover>
-      <Tip label="色盲模拟">
+      <ActionTip variant={variant} label="色盲模拟">
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -136,7 +168,7 @@ function ColorBlindAction({ variant }: { variant: ActionVariant }) {
             )}
           </button>
         </PopoverTrigger>
-      </Tip>
+      </ActionTip>
       <PopoverContent
         side={variant === "topbar" ? "bottom" : "right"}
         align="end"
@@ -168,7 +200,7 @@ function ColorBlindAction({ variant }: { variant: ActionVariant }) {
 function ThemeAction({ variant }: { variant: ActionVariant }) {
   const { theme, toggleTheme } = useColora();
   return (
-    <Tip label="深浅色切换">
+    <ActionTip variant={variant} label="深浅色切换">
       <button
         type="button"
         onClick={toggleTheme}
@@ -190,7 +222,7 @@ function ThemeAction({ variant }: { variant: ActionVariant }) {
           </span>
         )}
       </button>
-    </Tip>
+    </ActionTip>
   );
 }
 
@@ -221,7 +253,7 @@ function AccountAction({ variant }: { variant: ActionVariant }) {
 
   return (
     <Popover>
-      <Tip label={user ? `已登录：${user}` : "登录"}>
+      <ActionTip variant={variant} label={user ? `已登录：${user}` : "登录"}>
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -248,7 +280,7 @@ function AccountAction({ variant }: { variant: ActionVariant }) {
             )}
           </button>
         </PopoverTrigger>
-      </Tip>
+      </ActionTip>
       <PopoverContent
         side={variant === "topbar" ? "bottom" : "right"}
         align="end"
@@ -364,11 +396,14 @@ export function Sidebar({
   onOpenChange?: (open: boolean) => void;
 }) {
   const { logoGradient, randomizeLogoGradient } = useColora();
+  const isMobile = useIsMobile();
+  // 移动端隐藏暂不支持的工具入口（画布）；index 与下方 TOOLS.map 共用同一列表，保证指示器对齐。
+  const navTools = visibleTools(isMobile);
   const navRef = useRef<HTMLElement | null>(null);
   const navItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const activeIndicatorRef = useRef<HTMLSpanElement | null>(null);
   const activeToolIndex = Math.max(
-    TOOLS.findIndex((toolConfig) => toolConfig.id === tool),
+    navTools.findIndex((toolConfig) => toolConfig.id === tool),
     0,
   );
 
@@ -577,7 +612,7 @@ export function Sidebar({
 
         <nav ref={navRef} className="colora-sidebar-nav">
           <span ref={activeIndicatorRef} aria-hidden className="colora-sidebar-active-indicator" />
-          {TOOLS.map((toolConfig, index) => (
+          {navTools.map((toolConfig, index) => (
             <NavItem
               key={toolConfig.id}
               label={toolConfig.label}

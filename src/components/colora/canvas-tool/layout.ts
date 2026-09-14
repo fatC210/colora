@@ -110,6 +110,8 @@ export function distributeStrokes(
 /**
  * 翻转选中元素：关于自身中心（单选）或选区中心（多选）镜像 points。
  * 返回新 strokes。对线性/箭头镜像控制点；对闭合形状镜像后形状翻转。
+ * 图片特殊处理：points 仅一个左上角点，镜像 points 只会平移包围盒、像素内容不变，
+ * 故改为翻转 scaleX/scaleY 轴标志（对标 Excalidraw scale），位置保持不变。
  */
 export function flipStrokes(strokes: Stroke[], selected: Stroke[], mode: FlipMode): Stroke[] {
   if (!selected.length) return strokes;
@@ -131,6 +133,14 @@ export function flipStrokes(strokes: Stroke[], selected: Stroke[], mode: FlipMod
   const ids = new Set(selected.map((s) => s.id));
   return strokes.map((stroke) => {
     if (!ids.has(stroke.id)) return stroke;
+    // 图片：翻转轴标志，不改 points（像素内容镜像，位置不动）。
+    if (stroke.kind === "image") {
+      return {
+        ...stroke,
+        scaleX: (horiz ? -(stroke.scaleX ?? 1) : (stroke.scaleX ?? 1)) as 1 | -1,
+        scaleY: (!horiz ? -(stroke.scaleY ?? 1) : (stroke.scaleY ?? 1)) as 1 | -1,
+      };
+    }
     // 单元素翻转用自身中心（更直觉），多选用选区中心。
     const center = selected.length === 1 ? strokeCenter(stroke) : { x: cx, y: cy };
     const points = stroke.points.map((p) =>

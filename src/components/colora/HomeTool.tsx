@@ -2,7 +2,8 @@ import { ArrowRight } from "lucide-react";
 import { useColora, type GradientConfig, type GradientStop } from "@/lib/colora-store";
 import { generateHarmony, randomHex, simulateCB } from "@/lib/color";
 import type { ToolId } from "./Sidebar";
-import { TOOLS } from "./Sidebar";
+import { visibleTools } from "./Sidebar";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Logo } from "./Logo";
 import { Tip } from "./primitives";
@@ -43,6 +44,9 @@ const cloneGradientStops = (stops: GradientStop[]) =>
   stops.map((stop) => ({ ...stop, mesh: stop.mesh ? { ...stop.mesh } : undefined }));
 
 export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
+  const isMobile = useIsMobile();
+  // 移动端隐藏暂不支持的工具卡片（画布），与侧栏同一来源。
+  const tools = visibleTools(isMobile).filter((t) => t.id !== "home");
   const {
     palette,
     setPalette,
@@ -113,7 +117,7 @@ export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
       </section>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {TOOLS.filter((t) => t.id !== "home").map((t) => (
+        {tools.map((t) => (
           <button
             key={t.id}
             type="button"

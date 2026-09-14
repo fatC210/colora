@@ -55,6 +55,11 @@ export type Stroke = {
   nh?: number;
   w?: number;
   h?: number;
+  // 图片镜像翻转（对标 Excalidraw scale）：-1 = 该轴镜像，默认 1。绕图片盒中心翻转，不改 points。
+  scaleX?: 1 | -1;
+  scaleY?: 1 | -1;
+  // 元素级不透明度 0~100（对标 Excalidraw element.opacity）。默认 100（字段缺省即 100，兼容旧文件）。
+  opacity?: number;
   // Web 链接：Ctrl/Cmd+点击在新标签打开；SVG 导出包 <a>。
   href?: string;
   // 箭头绑定（仅 line / shape==="arrow"）：端点吸附到目标元素。

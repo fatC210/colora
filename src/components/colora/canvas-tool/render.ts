@@ -115,7 +115,7 @@ function drawBrushStroke(
     // 不用 multiply：深色画布下 multiply 会把颜色压到几乎看不见。source-over 半透在深浅背景均可见。
     target.lineWidth = w * 1.5;
     target.lineCap = "square";
-    target.globalAlpha = 0.85;
+    target.globalAlpha *= 0.85;
     if (isGrad) {
       drawGradientStroke(target, drawPts, source.stops, source.space, w * 1.5, false);
     } else {
@@ -126,7 +126,7 @@ function drawBrushStroke(
   } else if (bt === "highlighter") {
     target.lineWidth = w * 3;
     target.lineCap = "square";
-    target.globalAlpha = 0.5;
+    target.globalAlpha *= 0.5;
     if (isGrad) {
       drawGradientStroke(target, drawPts, source.stops, source.space, w * 3, false);
     } else {
@@ -159,7 +159,7 @@ function drawBrushStroke(
     target.stroke();
   } else if (bt === "spray") {
     // 沿路径采样，每点撒半径内的散点；渐变时按弧长百分比取色。
-    target.globalAlpha = 0.8;
+    target.globalAlpha *= 0.8;
     const radius = w * 1.2;
     const density = Math.max(6, Math.round(w * 1.5));
     const step = Math.max(2, w * 0.6);
@@ -329,6 +329,9 @@ export function renderScene({
     const a = stroke.angle ?? 0;
     const c = a ? strokeCenter(stroke) : null;
     target.save();
+    // 元素级不透明度（对标 Excalidraw element.opacity）：与笔刷质感 alpha 相乘叠加。
+    // save() 后 globalAlpha 为 1，故此处赋值即元素自身的透明度系数。
+    target.globalAlpha = (stroke.opacity ?? 100) / 100;
     if (c) {
       // 旋转态：绕包围盒中心旋转 angle（points 仍是 angle=0 坐标，变换后画出即旋转效果）。
       target.translate(c.x, c.y);
@@ -392,6 +395,25 @@ export function renderScene({
       if (!p || w <= 0 || h <= 0) {
         target.restore();
         return;
+      }
+      // 圆角（对标 Excalidraw：图片可圆角，比例半径 min(w,h)*0.22，与 roundedRect 形状一致）。
+      // 用 roundRect 路径 clip，使 drawImage 的方角被裁成圆角。
+      const round = stroke.roundness === "round";
+      if (round) {
+        const r = Math.min(w, h) * 0.22;
+        target.beginPath();
+        target.roundRect(p.x, p.y, w, h, r);
+        target.clip();
+      }
+      // 镜像翻转（对标 Excalidraw scale）：绕图片盒中心按轴翻转，不改 points。
+      const sx = stroke.scaleX ?? 1;
+      const sy = stroke.scaleY ?? 1;
+      if (sx === -1 || sy === -1) {
+        const ccx = p.x + w / 2;
+        const ccy = p.y + h / 2;
+        target.translate(ccx, ccy);
+        target.scale(sx, sy);
+        target.translate(-ccx, -ccy);
       }
       const img = stroke.src ? getImage(stroke.src) : null;
       if (img) {
@@ -707,7 +729,13 @@ export function createSvg(
     const a = stroke.angle ?? 0;
     const flush = () => {
       if (!parts.length) return;
-      const body = parts.join("");
+      // 元素级不透明度（对标 Excalidraw element.opacity）：<100 时包一层 opacity 组，
+      // 对所有元素类型统一生效；与渐变 stop 的 stop-opacity 自然叠加。
+      const op = stroke.opacity ?? 100;
+      const body =
+        op < 100
+          ? `<g opacity="${(op / 100).toFixed(3)}">${parts.join("")}</g>`
+          : parts.join("");
       if (a) {
         const c = strokeCenter(stroke);
         const deg = ((a * 180) / Math.PI).toFixed(2);
@@ -767,8 +795,24 @@ export function createSvg(
       const w = stroke.w ?? stroke.nw ?? 0;
       const h = stroke.h ?? stroke.nh ?? 0;
       if (!p || w <= 0 || h <= 0 || !stroke.src) return;
+      let defs = "";
+      // 圆角：clipPath（userSpaceOnUse），半径规则与 canvas 渲染一致 min(w,h)*0.22。
+      let clipAttr = "";
+      if (stroke.roundness === "round") {
+        const r = Math.min(w, h) * 0.22;
+        const cid = `clip-${stroke.id}`;
+        defs = `<defs><clipPath id="${cid}" clipPathUnits="userSpaceOnUse"><rect x="${p.x}" y="${p.y}" width="${w}" height="${h}" rx="${r.toFixed(2)}" /></clipPath></defs>`;
+        clipAttr = ` clip-path="url(#${cid})"`;
+      }
+      // 镜像翻转：绕图片盒中心按轴翻转（与 canvas 渲染一致）。
+      const sx = stroke.scaleX ?? 1;
+      const sy = stroke.scaleY ?? 1;
+      const flipAttr =
+        sx === -1 || sy === -1
+          ? ` transform="translate(${(p.x + w / 2).toFixed(1)} ${(p.y + h / 2).toFixed(1)}) scale(${sx} ${sy}) translate(${(-(p.x + w / 2)).toFixed(1)} ${(-(p.y + h / 2)).toFixed(1)})"`
+          : "";
       parts.push(
-        `<image href="${escapeAttr(stroke.src)}" x="${p.x}" y="${p.y}" width="${w}" height="${h}" preserveAspectRatio="none" />`,
+        `${defs}<image href="${escapeAttr(stroke.src)}" x="${p.x}" y="${p.y}" width="${w}" height="${h}" preserveAspectRatio="none"${clipAttr}${flipAttr} />`,
       );
       flush();
       return;

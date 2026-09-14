@@ -425,43 +425,67 @@ function MobileInfoPanel() {
     null,
   );
   const movedRef = useRef(false);
+  // 顶部角落的固定 chrome 占位（左上「展开侧边栏」+ 右上动作栏）。
+  // 悬浮按钮拖到这些区域时被顶到其下方，避免重叠。
+  const avoidRectsRef = useRef<{ left: number; right: number; bottom: number }[]>([]);
 
   const SIZE = 48;
   const MARGIN = 16;
   const BOTTOM_GAP = 88; // 5.5rem，与原 bottom 偏移一致
   const MOVE_THRESHOLD = 4;
+  const AVOID_GAP = 12; // 悬浮按钮与顶部 chrome 的间距
 
-  useEffect(() => {
-    setPos({
-      x: window.innerWidth - SIZE - MARGIN,
-      y: window.innerHeight - SIZE - BOTTOM_GAP,
-    });
-  }, []);
-
-  useEffect(() => {
-    const onResize = () => {
-      setPos((p) => {
-        if (!p) return p;
-        const maxX = window.innerWidth - SIZE - MARGIN;
-        const maxY = window.innerHeight - SIZE - MARGIN;
-        return {
-          x: Math.min(Math.max(MARGIN, p.x), maxX),
-          y: Math.min(Math.max(MARGIN, p.y), maxY),
-        };
-      });
-    };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
+  /**
+   * 位置收敛：限制在视口内；若与顶部角落 chrome（展开按钮/动作栏）有交集，
+   * 则下移到其下方——"拖到那一行即被顶下去"。
+   */
   const clampPos = (x: number, y: number) => {
     const maxX = window.innerWidth - SIZE - MARGIN;
     const maxY = window.innerHeight - SIZE - MARGIN;
-    return {
-      x: Math.min(Math.max(MARGIN, x), maxX),
-      y: Math.min(Math.max(MARGIN, y), maxY),
-    };
+    const nx = Math.min(Math.max(MARGIN, x), maxX);
+    let ny = Math.min(Math.max(MARGIN, y), maxY);
+    // 逐个检查避让区：横向有交集且纵向进入其高度带 → 下移到其下方。
+    // 取所有命中区中最靠下的下移结果，保证不退回任何已避让的区。
+    for (const r of avoidRectsRef.current) {
+      const overlapX = nx < r.right && nx + SIZE > r.left;
+      if (overlapX && ny < r.bottom + AVOID_GAP) {
+        ny = Math.min(r.bottom + AVOID_GAP, maxY);
+      }
+    }
+    return { x: nx, y: ny };
   };
+
+  // 测量顶部角落 chrome 的占位。运行时测量而非硬编码 CSS 值，rem 基准变化时仍准确。
+  // 桌面端这些元素 display:none（rect 为 0 → 不计入）。
+  useEffect(() => {
+    const measure = () => {
+      const rects: { left: number; right: number; bottom: number }[] = [];
+      for (const sel of [".colora-mobile-nav-toggle", ".colora-mobile-actions"]) {
+        const r = document.querySelector(sel)?.getBoundingClientRect();
+        if (r && r.width > 0 && r.height > 0) {
+          rects.push({ left: r.left, right: r.right, bottom: r.bottom });
+        }
+      }
+      avoidRectsRef.current = rects;
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
+  useEffect(() => {
+    setPos(
+      clampPos(window.innerWidth - SIZE - MARGIN, window.innerHeight - SIZE - BOTTOM_GAP),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const onResize = () => setPos((p) => (p ? clampPos(p.x, p.y) : p));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (!pos) return;
@@ -490,12 +514,13 @@ function MobileInfoPanel() {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
     if (!d || !movedRef.current) return;
-    // 吸附到最近的左右屏幕边缘，垂直位置保持
+    // 吸附到最近的左右屏幕边缘，垂直位置保持。
+    // 必须再走一次 clampPos：吸到左边缘时 x 可能与展开按钮重叠，此时需下移到其下方。
     setPos((p) => {
       if (!p) return p;
       const midX = p.x + SIZE / 2;
       const snapX = midX < window.innerWidth / 2 ? MARGIN : window.innerWidth - SIZE - MARGIN;
-      return { x: snapX, y: p.y };
+      return clampPos(snapX, p.y);
     });
   };
 

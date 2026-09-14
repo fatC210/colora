@@ -185,6 +185,14 @@ function restoreStroke(raw: unknown, fallback: Stroke): Stroke {
   const nh = posNum(raw.nh);
   const w = posNum(raw.w);
   const h = posNum(raw.h);
+  // 图片镜像翻转：仅接受 -1（1 为默认，省略）。
+  const scaleX: Stroke["scaleX"] = raw.scaleX === -1 ? -1 : undefined;
+  const scaleY: Stroke["scaleY"] = raw.scaleY === -1 ? -1 : undefined;
+  // 元素级不透明度：0~100，非有限值或 100（默认）时省略。
+  const opacity =
+    isFiniteNum(raw.opacity) && (raw.opacity as number) >= 0 && (raw.opacity as number) < 100
+      ? (raw.opacity as number)
+      : undefined;
   // Web 链接：非空字符串。
   const href = typeof raw.href === "string" && raw.href.length > 0 ? raw.href : undefined;
   // 文本绑定容器 id。
@@ -234,6 +242,9 @@ function restoreStroke(raw: unknown, fallback: Stroke): Stroke {
     ...(nh ? { nh } : {}),
     ...(w ? { w } : {}),
     ...(h ? { h } : {}),
+    ...(scaleX ? { scaleX } : {}),
+    ...(scaleY ? { scaleY } : {}),
+    ...(opacity !== undefined ? { opacity } : {}),
     ...(href ? { href } : {}),
     ...(bindings ? { bindings } : {}),
     ...(containerId ? { containerId } : {}),
