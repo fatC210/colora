@@ -22,7 +22,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useColora } from "@/lib/colora-store";
 import { formatAll, hexToRgb, rgbToHsl } from "@/lib/color";
+import { useT } from "@/lib/i18n/use-t";
 import { CodeRow, SectionShell } from "./components";
+import { ImageExportSection } from "./ImageExportSection";
 import {
   canvasToBlob,
   colorPng,
@@ -55,6 +57,7 @@ export function ExportDialog({
     previewExport,
   } = useColora();
   const [open, setOpen] = useState(false);
+  const t = useT();
   const contentRef = useRef<HTMLDivElement>(null);
 
   const colorInfo = useMemo(() => colorRows(color), [color]);
@@ -84,10 +87,10 @@ export function ExportDialog({
 
   const sections = {
     color: (
-      <SectionShell title="当前颜色" icon={ClipboardCopy}>
+      <SectionShell title={t("当前颜色")} icon={ClipboardCopy}>
         <div className="rounded-lg border border-border">
           {colorInfo.map(([label, value]) => (
-            <CodeRow key={label} label={label} value={value} />
+            <CodeRow key={label} label={t(label)} value={value} />
           ))}
         </div>
         <div className="flex flex-wrap justify-end gap-2">
@@ -101,7 +104,7 @@ export function ExportDialog({
               )
             }
           >
-            下载 JSON
+            {t("下载 JSON")}
           </button>
           <button
             className="rounded-md border border-border px-3 py-2 text-sm hover:bg-accent"
@@ -109,18 +112,18 @@ export function ExportDialog({
               download("colora-color.css", `:root { ${paletteFormats.css} }`, "text/css")
             }
           >
-            下载 CSS
+            {t("下载 CSS")}
           </button>
         </div>
       </SectionShell>
     ),
     palette: (
-      <SectionShell title="配色方案" icon={SwatchBook}>
+      <SectionShell title={t("配色方案")} icon={SwatchBook}>
         <div className="rounded-lg border border-border">
           <CodeRow label="HEX" value={paletteFormats.hexes.join("  ")} />
           <CodeRow label="RGB" value={paletteFormats.rgbs.join("  ")} />
           <CodeRow label="HSL" value={paletteFormats.hsls.join("  ")} />
-          <CodeRow label="CSS 变量" value={paletteFormats.css} />
+          <CodeRow label={t("CSS 变量")} value={paletteFormats.css} />
           <CodeRow label="Tailwind" value={paletteFormats.tailwind} />
           <CodeRow label="SCSS" value={paletteFormats.scss} />
           <CodeRow label="Swift" value={paletteFormats.swift} />
@@ -176,13 +179,13 @@ export function ExportDialog({
               )
             }
           >
-            ASE 文本
+            {t("ASE 文本")}
           </button>
         </div>
       </SectionShell>
     ),
     gradient: (
-      <SectionShell title="渐变" icon={LayoutGrid}>
+      <SectionShell title={t("渐变")} icon={LayoutGrid}>
         <div className="rounded-lg border border-border">
           <CodeRow label="CSS" value={gradientText} />
           <CodeRow label="SVG" value={gradientSvg(gradientConfig, gradientStops)} />
@@ -234,74 +237,16 @@ export function ExportDialog({
         </div>
       </SectionShell>
     ),
-    image: (
-      <SectionShell title="图片取色" icon={ImageIcon}>
-        <div className="rounded-lg border border-border">
-          <CodeRow label="提取数量" value={String(imageExport.count)} />
-          <CodeRow
-            label="提取颜色"
-            value={
-              imageExport.colors
-                .map((item) => `${item.hex} ${item.share.toFixed(1)}%`)
-                .join(" | ") || "暂无结果"
-            }
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <button
-            className="rounded-md border border-border px-3 py-2 text-sm hover:bg-accent"
-            onClick={() =>
-              download(
-                "colora-image-colors.json",
-                JSON.stringify(imageExport, null, 2),
-                "application/json",
-              )
-            }
-          >
-            JSON
-          </button>
-          <button
-            className="rounded-md border border-border px-3 py-2 text-sm hover:bg-accent"
-            onClick={() =>
-              download(
-                "colora-image-colors.svg",
-                colorSvg(imageExport.colors.map((item) => item.hex)),
-                "image/svg+xml",
-              )
-            }
-          >
-            SVG
-          </button>
-          <button
-            className="rounded-md border border-border px-3 py-2 text-sm hover:bg-accent"
-            onClick={() => {
-              const canvas = colorPng(
-                imageExport.colors.map((item) => item.hex),
-                imageExport.colors.map((item) => item.hex),
-              );
-              if (canvas) canvasToBlob(canvas, "colora-image-colors.png");
-            }}
-          >
-            PNG
-          </button>
-          <button
-            className="rounded-md border border-border px-3 py-2 text-sm hover:bg-accent"
-            onClick={() => copy(imageExport.colors.map((item) => item.hex).join(", "))}
-          >
-            复制 HEX
-          </button>
-        </div>
-      </SectionShell>
-    ),
+    image: <ImageExportSection state={imageExport} />,
     mixer: (
-      <SectionShell title="颜色混合" icon={Blend}>
+      <SectionShell title={t("颜色混合")} icon={Blend}>
         <div className="rounded-lg border border-border">
-          <CodeRow label="模式" value={mixerExport.mode} />
+          <CodeRow label={t("模式")} value={mixerExport.mode} />
           <CodeRow
-            label="输入色"
+            label={t("输入色")}
             value={mixerExport.items.map((item) => `${item.hex} ${item.weight}%`).join(" | ")}
           />
-          <CodeRow label="结果" value={mixerExport.result} />
+          <CodeRow label={t("结果")} value={mixerExport.result} />
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <button
@@ -333,18 +278,18 @@ export function ExportDialog({
             className="rounded-md border border-border px-3 py-2 text-sm hover:bg-accent"
             onClick={() => copy(mixerExport.result)}
           >
-            复制结果
+            {t("复制结果")}
           </button>
         </div>
       </SectionShell>
     ),
     contrast: (
-      <SectionShell title="对比度检查" icon={Contrast}>
+      <SectionShell title={t("对比度检查")} icon={Contrast}>
         <div className="rounded-lg border border-border">
-          <CodeRow label="前景" value={contrastExport.fg} />
-          <CodeRow label="背景" value={contrastExport.bg} />
-          <CodeRow label="对比度" value={`${contrastExport.ratio.toFixed(2)} : 1`} />
-          <CodeRow label="建议色" value={contrastExport.suggestions.join(" | ") || "暂无"} />
+          <CodeRow label={t("前景")} value={contrastExport.fg} />
+          <CodeRow label={t("背景")} value={contrastExport.bg} />
+          <CodeRow label={t("对比度")} value={`${contrastExport.ratio.toFixed(2)} : 1`} />
+          <CodeRow label={t("建议色")} value={contrastExport.suggestions.join(" | ") || "暂无"} />
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <button
@@ -364,12 +309,15 @@ export function ExportDialog({
             onClick={() =>
               download(
                 "colora-contrast.md",
-                markdownTable([
-                  ["前景", contrastExport.fg],
-                  ["背景", contrastExport.bg],
-                  ["对比度", `${contrastExport.ratio.toFixed(2)} : 1`],
-                  ["建议色", contrastExport.suggestions.join(", ") || "暂无"],
-                ]),
+                markdownTable(
+                  [
+                    [t("前景"), contrastExport.fg],
+                    [t("背景"), contrastExport.bg],
+                    [t("对比度"), `${contrastExport.ratio.toFixed(2)} : 1`],
+                    [t("建议色"), contrastExport.suggestions.join(", ") || t("暂无")],
+                  ],
+                  [t("项目"), t("值")],
+                ),
                 "text/markdown",
               )
             }
@@ -384,7 +332,7 @@ export function ExportDialog({
               )
             }
           >
-            复制摘要
+            {t("复制摘要")}
           </button>
           <button
             className="rounded-md border border-border px-3 py-2 text-sm hover:bg-accent"
@@ -402,11 +350,11 @@ export function ExportDialog({
       </SectionShell>
     ),
     preview: (
-      <SectionShell title="实时预览" icon={Monitor}>
+      <SectionShell title={t("实时预览")} icon={Monitor}>
         <div className="rounded-lg border border-border">
-          <CodeRow label="设备组" value={previewExport.group} />
-          <CodeRow label="设备" value={previewExport.device} />
-          <CodeRow label="配色来源" value={previewExport.colors.join(" | ")} />
+          <CodeRow label={t("设备组")} value={previewExport.group} />
+          <CodeRow label={t("设备")} value={previewExport.device} />
+          <CodeRow label={t("配色来源")} value={previewExport.colors.join(" | ")} />
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <button
@@ -447,16 +395,16 @@ export function ExportDialog({
             className="rounded-md border border-border px-3 py-2 text-sm hover:bg-accent"
             onClick={() => copy(JSON.stringify(previewExport))}
           >
-            复制 JSON
+            {t("复制 JSON")}
           </button>
         </div>
       </SectionShell>
     ),
     saved: (
-      <SectionShell title="收藏色板" icon={PaletteIcon}>
+      <SectionShell title={t("收藏色板")} icon={PaletteIcon}>
         <div className="rounded-lg border border-border">
-          <CodeRow label="数量" value={String(saved.length)} />
-          <CodeRow label="名称" value={saved.map((item) => item.name).join(" | ") || "暂无"} />
+          <CodeRow label={t("数量")} value={String(saved.length)} />
+          <CodeRow label={t("名称")} value={saved.map((item) => item.name).join(" | ") || "暂无"} />
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <button
@@ -497,7 +445,7 @@ export function ExportDialog({
             className="rounded-md border border-border px-3 py-2 text-sm hover:bg-accent"
             onClick={() => copy(JSON.stringify(saved))}
           >
-            复制 JSON
+            {t("复制 JSON")}
           </button>
         </div>
       </SectionShell>
@@ -537,7 +485,7 @@ export function ExportDialog({
         }}
       >
         <DialogHeader className="shrink-0 pr-8">
-          <DialogTitle>{module === "all" ? "导出中心" : "导出当前模块"}</DialogTitle>
+          <DialogTitle>{module === "all" ? t("导出中心") : t("导出当前模块")}</DialogTitle>
         </DialogHeader>
 
         {module === "all" ? (

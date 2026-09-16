@@ -2,12 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import { Download, MoreVertical, Plus } from "lucide-react";
 import { useColora } from "@/lib/colora-store";
 import { bestTextOn, normalizeHex, simulateCB } from "@/lib/color";
+import { useT } from "@/lib/i18n/use-t";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tip } from "../primitives";
 import { ExportDialog } from "../ExportDialog";
-import { DEVICE_GROUPS, COMPONENTS } from "./constants";
+import {
+  DEVICE_GROUPS,
+  COMPONENTS,
+  COMPONENT_LABELS,
+  defaultDeviceId,
+  type DeviceGroupId,
+} from "./constants";
 import {
   getPreviousColorOption,
   loadLockedColorQueue,
@@ -20,17 +27,11 @@ import {
   CardColorOptions,
   ColorOptionList,
   CompactDeviceGroupPreview,
-  CompactDeviceSizePreview,
   CustomColorQueue,
   DeviceGroupPreview,
-  DeviceSizePreview,
   renderComp,
 } from "./components";
-import type {
-  Card,
-  CardColorSelection,
-  ColorQueueItem,
-} from "./types";
+import type { Card, CardColorSelection, ColorQueueItem } from "./types";
 
 export function PreviewTool() {
   const {
@@ -43,11 +44,12 @@ export function PreviewTool() {
     setColor,
     setPreviewExport,
   } = useColora();
-  const [group, setGroup] = useState("手机");
-  const [device, setDevice] = useState(DEVICE_GROUPS["手机"][0].label);
+  const t = useT();
+  const [group, setGroup] = useState<DeviceGroupId>("phone");
+  const [device, setDevice] = useState(defaultDeviceId("phone"));
   const defaultCardBg = palette[4] ?? "#EDEDED";
   const [cards, setCards] = useState<Card[]>([
-    { id: "1", name: "预览卡片 01", bg: defaultCardBg, comps: [] },
+    { id: "1", name: t("预览卡片 {n}", { n: "01" }), bg: defaultCardBg, comps: [] },
   ]);
   const [cardColorSelections, setCardColorSelections] = useState<
     Record<string, CardColorSelection>
@@ -63,7 +65,8 @@ export function PreviewTool() {
   const [customDraftSource, setCustomDraftSource] = useState<"list" | "custom">("custom");
   const [queueHydrated, setQueueHydrated] = useState(false);
 
-  const dev = DEVICE_GROUPS[group].find((d) => d.label === device) ?? DEVICE_GROUPS[group][0];
+  const devGroup = DEVICE_GROUPS.find((g) => g.id === group) ?? DEVICE_GROUPS[0];
+  const dev = devGroup.devices.find((d) => d.id === device) ?? devGroup.devices[0];
   const scale = Math.min(1, 320 / dev.w, 560 / dev.h);
   const platformColors = useMemo(() => {
     const cardColors = cards.flatMap((card) => {
@@ -309,20 +312,21 @@ export function PreviewTool() {
         <Select
           value={group}
           onValueChange={(g) => {
-            setGroup(g);
-            setDevice(DEVICE_GROUPS[g][0].label);
+            const next = g as DeviceGroupId;
+            setGroup(next);
+            setDevice(defaultDeviceId(next));
           }}
         >
           <SelectTrigger className="w-full gap-2 sm:w-40">
             <CompactDeviceGroupPreview group={group} />
-            <span className="min-w-0 flex-1 truncate text-left">{group}</span>
+            <span className="min-w-0 flex-1 truncate text-left">{t(devGroup.label)}</span>
           </SelectTrigger>
           <SelectContent className="max-h-[360px]">
-            {Object.keys(DEVICE_GROUPS).map((g) => (
-              <SelectItem key={g} value={g} textValue={g} className="py-2">
+            {DEVICE_GROUPS.map((g) => (
+              <SelectItem key={g.id} value={g.id} textValue={t(g.label)} className="py-2">
                 <span className="flex items-center gap-3">
-                  <DeviceGroupPreview group={g} />
-                  <span>{g}</span>
+                  <DeviceGroupPreview group={g.id} />
+                  <span>{t(g.label)}</span>
                 </span>
               </SelectItem>
             ))}
@@ -330,17 +334,13 @@ export function PreviewTool() {
         </Select>
 
         <Select value={device} onValueChange={setDevice}>
-          <SelectTrigger className="w-full gap-2 sm:w-64">
-            <CompactDeviceSizePreview width={dev.w} height={dev.h} />
-            <span className="min-w-0 flex-1 truncate text-left">{device}</span>
+          <SelectTrigger className="w-full sm:w-64">
+            <span className="min-w-0 flex-1 truncate text-left">{t(dev.label)}</span>
           </SelectTrigger>
           <SelectContent className="max-h-[360px]">
-            {DEVICE_GROUPS[group].map((d) => (
-              <SelectItem key={d.label} value={d.label} textValue={d.label} className="py-2">
-                <span className="flex items-center gap-3">
-                  <DeviceSizePreview width={d.w} height={d.h} />
-                  <span>{d.label}</span>
-                </span>
+            {devGroup.devices.map((d) => (
+              <SelectItem key={d.id} value={d.id} textValue={t(d.label)}>
+                {t(d.label)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -355,20 +355,20 @@ export function PreviewTool() {
                 ...cards,
                 {
                   id: crypto.randomUUID(),
-                  name: `预览卡片 ${String(cards.length + 1).padStart(2, "0")}`,
+                  name: t("预览卡片 {n}", { n: String(cards.length + 1).padStart(2, "0") }),
                   bg: palette[cards.length % palette.length] ?? "#EDEDED",
                   comps: [],
                 },
               ])
             }
           >
-            <Plus className="size-4" /> 新建预览卡片
+            <Plus className="size-4" /> {t("新建预览卡片")}
           </Button>
           <ExportDialog
             module="preview"
             trigger={
               <Button variant="outline" className="flex-1 gap-2 sm:flex-none">
-                <Download className="size-4" /> 导出当前预览
+                <Download className="size-4" /> {t("导出当前预览")}
               </Button>
             }
           />
@@ -387,13 +387,13 @@ export function PreviewTool() {
                 {card.name}
               </span>
               <Popover>
-                <Tip label="卡片选项">
+                <Tip label={t("卡片选项")}>
                   <PopoverTrigger asChild>
                     <button
                       type="button"
                       onClick={() => openCardOptions(card)}
                       className="text-muted-foreground hover:text-foreground"
-                      aria-label="卡片选项"
+                      aria-label={t("卡片选项")}
                     >
                       <MoreVertical className="size-4" />
                     </button>
@@ -434,7 +434,7 @@ export function PreviewTool() {
                     onClick={() => setColor(c.color)}
                     className="w-full text-left"
                   >
-                    {renderComp(c, cbMode)}
+                    {renderComp(c, cbMode, t)}
                   </button>
                 ))}
                 {card.comps.length === 0 && (
@@ -442,9 +442,9 @@ export function PreviewTool() {
                     className="m-auto text-center text-xs opacity-80"
                     style={{ color: bestTextOn(simulateCB(card.bg, cbMode)) }}
                   >
-                    点击下方添加组件，
+                    {t("点击下方添加组件，")}
                     <br />
-                    预览配色效果
+                    {t("预览配色效果")}
                   </p>
                 )}
               </div>
@@ -457,7 +457,7 @@ export function PreviewTool() {
                   className="mt-3 flex h-16 w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:text-foreground"
                 >
                   <Plus className="size-4" />
-                  点击添加组件
+                  {t("点击添加组件")}
                 </button>
               </PopoverTrigger>
               <PopoverContent className="w-56 p-1">
@@ -480,7 +480,7 @@ export function PreviewTool() {
                     }
                     className="w-full rounded-md px-2.5 py-2 text-left text-sm hover:bg-accent"
                   >
-                    {comp.label}
+                    {t(comp.label)}
                   </button>
                 ))}
               </PopoverContent>
@@ -491,7 +491,7 @@ export function PreviewTool() {
                 {card.comps.map((c) => (
                   <div key={c.id} className="flex items-center gap-2 text-xs">
                     <span className="w-16 shrink-0 truncate text-muted-foreground sm:w-20">
-                      {COMPONENTS.find((x) => x.key === c.type)?.label}
+                      {t(COMPONENT_LABELS[c.type])}
                     </span>
                     <Popover>
                       <PopoverTrigger asChild>
@@ -499,7 +499,7 @@ export function PreviewTool() {
                           type="button"
                           onClick={() => selectCustomColor(c.color)}
                           className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md border border-border px-2 hover:bg-accent"
-                          aria-label={`选择组件颜色 ${c.color}`}
+                          aria-label={t("选择组件颜色 {hex}", { hex: c.color })}
                         >
                           <span
                             className="size-4 shrink-0 rounded-sm border border-border/70"
@@ -511,7 +511,7 @@ export function PreviewTool() {
                       <PopoverContent className="w-80 space-y-3 p-3">
                         <div>
                           <div className="mb-2 text-xs font-medium text-muted-foreground">
-                            应用颜色
+                            {t("应用颜色")}
                           </div>
                           <ColorOptionList
                             items={colorOptions}
@@ -567,16 +567,16 @@ export function PreviewTool() {
                         })
                       }
                       className="w-12 shrink-0 accent-foreground sm:w-16"
-                      aria-label="圆角"
+                      aria-label={t("圆角半径")}
                     />
-                    <Tip label="删除组件">
+                    <Tip label={t("删除组件")}>
                       <button
                         type="button"
                         onClick={() =>
                           update(card.id, { comps: card.comps.filter((x) => x.id !== c.id) })
                         }
                         className="ml-auto text-muted-foreground hover:text-foreground"
-                        aria-label="删除组件"
+                        aria-label={t("删除组件")}
                       >
                         ✕
                       </button>

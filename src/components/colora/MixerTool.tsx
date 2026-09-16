@@ -3,16 +3,21 @@ import { Plus, Sliders, Trash2, ChevronDown, Blend } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useColora } from "@/lib/colora-store";
 import { bestTextOn, formatAll, mixColors, randomHex, simulateCB, type MixMode } from "@/lib/color";
+import type { TKey } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/use-t";
 import { ColorPicker, CopyText, Tip } from "./primitives";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { ExportDialog } from "./ExportDialog";
 
-const MODES: { key: MixMode; label: string }[] = [
+const MODES: { key: MixMode; label: TKey }[] = [
   { key: "subtractive", label: "减色混合" },
   { key: "additive", label: "加色混合" },
   { key: "average", label: "平均混合" },
 ];
+
+/** 按 MixMode 直接取 label，避免调用点写 `find(...)?.label` 再处理 undefined。 */
+const MODE_LABELS = Object.fromEntries(MODES.map((m) => [m.key, m.label])) as Record<MixMode, TKey>;
 
 type MixItem = { hex: string; weight: number };
 
@@ -29,6 +34,7 @@ export function MixerTool() {
   const [mixKey, setMixKey] = useState(0);
   const [showModes, setShowModes] = useState(false);
   const mixTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const t = useT();
 
   const preview = mixColors(items, mode);
 
@@ -82,13 +88,13 @@ export function MixerTool() {
         {items.map((it, i) => (
           <div key={i} className="flex min-w-0 items-center gap-3">
             <Popover>
-              <Tip label={`颜色 ${i + 1}`}>
+              <Tip label={t("颜色 {n}", { n: i + 1 })}>
                 <PopoverTrigger asChild>
                   <button
                     type="button"
                     className="size-11 rounded-lg border border-border"
                     style={{ backgroundColor: simulateCB(it.hex, cbMode) }}
-                    aria-label={`颜色 ${i + 1}`}
+                    aria-label={t("颜色 {n}", { n: i + 1 })}
                   />
                 </PopoverTrigger>
               </Tip>
@@ -120,12 +126,12 @@ export function MixerTool() {
               />
             </div>
             {items.length > 2 && (
-              <Tip label="删除颜色">
+              <Tip label={t("删除颜色")}>
                 <button
                   type="button"
                   onClick={() => updateItems(items.filter((_, xi) => xi !== i))}
                   className="text-muted-foreground hover:text-foreground"
-                  aria-label="删除颜色"
+                  aria-label={t("删除颜色")}
                 >
                   <Trash2 className="size-4" />
                 </button>
@@ -148,7 +154,7 @@ export function MixerTool() {
           className="h-10 w-fit justify-self-end gap-2 rounded-md border border-border/80 bg-muted/5 px-4 hover:border-foreground/40 hover:bg-muted/15 md:justify-self-start"
           onClick={() => updateItems([...items, { hex: randomHex(), weight: 20 }])}
         >
-          <Plus className="size-4" /> 添加颜色
+          <Plus className="size-4" /> {t("添加颜色")}
         </Button>
       </section>
 
@@ -163,7 +169,7 @@ export function MixerTool() {
               variant="outline"
               className="absolute right-4 top-4 z-20 gap-2 bg-background/80 backdrop-blur-sm"
             >
-              <Blend className="size-4" /> 导出当前混合
+              <Blend className="size-4" /> {t("导出当前混合")}
             </Button>
           }
         />
@@ -229,7 +235,7 @@ export function MixerTool() {
         {mixing ? (
           <div className="z-10 flex items-center gap-2 rounded-full border border-background/30 bg-background/20 px-5 py-2 text-sm font-medium text-foreground shadow-lg backdrop-blur-md">
             <Blend className="size-4 animate-spin" />
-            混合中…
+            {t("混合中…")}
           </div>
         ) : result ? (
           <div
@@ -252,7 +258,7 @@ export function MixerTool() {
             className="z-10 gap-2 rounded-full border-2 bg-background/30 px-8 backdrop-blur-sm"
           >
             <Blend className="size-4" />
-            混合
+            {t("混合")}
           </Button>
         )}
       </section>
@@ -265,10 +271,10 @@ export function MixerTool() {
         >
           <span className="flex items-center gap-2">
             <Sliders className="size-4 text-muted-foreground" strokeWidth={1.6} />
-            混合模式（减色 / 加色 / 平均）
+            {t("混合模式（减色 / 加色 / 平均）")}
           </span>
           <span className="flex items-center gap-3 text-muted-foreground">
-            当前：{MODES.find((m) => m.key === mode)?.label}
+            {t("当前：{mode}", { mode: t(MODE_LABELS[mode]) })}
             <ChevronDown className={cn("size-4 transition-transform", showModes && "rotate-180")} />
           </span>
         </button>
@@ -289,7 +295,7 @@ export function MixerTool() {
                     : "text-muted-foreground hover:bg-accent",
                 )}
               >
-                {m.label}
+                {t(m.label)}
               </button>
             ))}
           </div>

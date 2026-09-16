@@ -1,10 +1,11 @@
 import { defaultPaint } from "./utils";
+import { getStoredLang, translate } from "@/lib/i18n";
 import type { Stroke } from "./types";
 
 export const initialStrokes: Stroke[] = [
   {
     id: "demo-1",
-    name: "演示曲线 1",
+    name: translate(getStoredLang(), "演示曲线 1"),
     kind: "brush",
     points: [
       { x: 178, y: 438 },
@@ -19,7 +20,7 @@ export const initialStrokes: Stroke[] = [
   },
   {
     id: "demo-2",
-    name: "演示波浪",
+    name: translate(getStoredLang(), "演示波浪"),
     kind: "shape",
     shape: "wave",
     points: [

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeftRight, ChevronDown, HelpCircle, List, Sparkles, Check } from "lucide-react";
 import { useColora } from "@/lib/colora-store";
 import { contrastRatio, hexToRgb, rgbToHex, rgbToHsl, hslToRgb, simulateCB } from "@/lib/color";
+import { useT } from "@/lib/i18n/use-t";
 import { CopyText, ColorPicker, Tip } from "./primitives";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -19,17 +20,19 @@ function Field({
   onChange: (hex: string) => void;
   cbMode: Parameters<typeof simulateCB>[1];
 }) {
+  const t = useT();
+
   return (
     <div className="flex w-full items-center gap-3 sm:w-auto">
       <span className="text-sm font-medium">{label}</span>
       <Popover>
-        <Tip label={`选择${label}`}>
+        <Tip label={t("选择{label}", { label })}>
           <PopoverTrigger asChild>
             <button
               type="button"
               className="size-10 ml-auto shrink-0 rounded-lg border border-border sm:ml-0"
               style={{ backgroundColor: simulateCB(value, cbMode) }}
-              aria-label={`选择${label}`}
+              aria-label={t("选择{label}", { label })}
             />
           </PopoverTrigger>
         </Tip>
@@ -63,11 +66,12 @@ function suggest(fg: string, bg: string, target: number) {
 }
 
 export function ContrastTool() {
-  const { setColor, cbMode, setContrastExport } = useColora();
+  const { cbMode, setContrastExport } = useColora();
   const [fg, setFg] = useState("#0F172A");
   const [bg, setBg] = useState("#F1F1F1");
   const [openSuggest, setOpenSuggest] = useState(false);
   const [openDetail, setOpenDetail] = useState(false);
+  const t = useT();
 
   const ratio = useMemo(() => contrastRatio(fg, bg), [fg, bg]);
   const aa = ratio >= 4.5;
@@ -79,7 +83,7 @@ export function ContrastTool() {
   }, [bg, fg, ratio, setContrastExport, suggestions]);
 
   const swapButton = (
-    <Tip label="交换前景色与背景色">
+    <Tip label={t("交换前景色与背景色")}>
       <button
         type="button"
         onClick={() => {
@@ -87,7 +91,7 @@ export function ContrastTool() {
           setBg(fg);
         }}
         className="grid size-10 place-items-center rounded-lg border border-border text-muted-foreground hover:text-foreground"
-        aria-label="交换前景色与背景色"
+        aria-label={t("交换前景色与背景色")}
       >
         <ArrowLeftRight className="size-4" />
       </button>
@@ -98,8 +102,8 @@ export function ContrastTool() {
     <div className="space-y-4">
       <section className="panel flex flex-col gap-4 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-6">
         <div className="flex items-center justify-between sm:hidden">
-          <span className="text-xs font-medium text-muted-foreground">颜色设置</span>
-          <Tip label="交换前景色与背景色">
+          <span className="text-xs font-medium text-muted-foreground">{t("颜色设置")}</span>
+          <Tip label={t("交换前景色与背景色")}>
             <button
               type="button"
               onClick={() => {
@@ -107,21 +111,21 @@ export function ContrastTool() {
                 setBg(fg);
               }}
               className="grid size-8 place-items-center rounded-lg border border-border text-muted-foreground hover:text-foreground"
-              aria-label="交换前景色与背景色"
+              aria-label={t("交换前景色与背景色")}
             >
               <ArrowLeftRight className="size-3.5 rotate-90" />
             </button>
           </Tip>
         </div>
-        <Field label="前景色" value={fg} onChange={setFg} cbMode={cbMode} />
+        <Field label={t("前景色")} value={fg} onChange={setFg} cbMode={cbMode} />
         <div className="border-t border-border sm:hidden" />
         <div className="hidden sm:contents">{swapButton}</div>
-        <Field label="背景色" value={bg} onChange={setBg} cbMode={cbMode} />
+        <Field label={t("背景色")} value={bg} onChange={setBg} cbMode={cbMode} />
         <ExportDialog
           module="contrast"
           trigger={
             <Button variant="outline" className="w-full gap-2 sm:w-auto">
-              <List className="size-4" /> 导出当前检查
+              <List className="size-4" /> {t("导出当前检查")}
             </Button>
           }
         />
@@ -131,36 +135,39 @@ export function ContrastTool() {
         className="rounded-xl border border-border p-6 sm:p-10"
         style={{ backgroundColor: simulateCB(bg, cbMode), color: simulateCB(fg, cbMode) }}
       >
-        <h2 className="text-4xl font-bold tracking-tight sm:text-5xl">设计让信息清晰可见</h2>
+        <h2 className="text-4xl font-bold tracking-tight sm:text-5xl">{t("设计让信息清晰可见")}</h2>
         <p className="mt-4 max-w-2xl text-base leading-relaxed opacity-90">
-          良好的对比度让内容更易阅读，帮助用户快速获取关键信息，提升体验与可访问性。
+          {t("良好的对比度让内容更易阅读，帮助用户快速获取关键信息，提升体验与可访问性。")}
         </p>
         <button
           type="button"
           className="mt-6 rounded-lg px-6 py-3 text-sm font-medium sm:mt-8"
           style={{ backgroundColor: simulateCB(fg, cbMode), color: simulateCB(bg, cbMode) }}
         >
-          主要按钮
+          {t("主要按钮")}
         </button>
-        <p className="mt-6 text-xs opacity-80">小号文字示例：12px 正文在此背景上的可读性表现。</p>
+        <p className="mt-6 text-xs opacity-80">
+          {t("小号文字示例：12px 正文在此背景上的可读性表现。")}
+        </p>
       </section>
 
       <section className="panel flex flex-wrap items-center justify-between gap-6 p-5 sm:gap-8 sm:p-6">
         <div>
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            对比度比率
+            {t("对比度比率")}
             <Tip
               label={
                 <span className="block max-w-60 whitespace-normal leading-relaxed">
-                  对比度比率表示前景色与背景色的亮度差异，范围为 1:1 到 21:1。普通正文建议至少
-                  4.5:1，大号文字至少 3:1。
+                  {t(
+                    "对比度比率表示前景色与背景色的亮度差异，范围为 1:1 到 21:1。普通正文建议至少 4.5:1，大号文字至少 3:1。",
+                  )}
                 </span>
               }
             >
               <button
                 type="button"
                 className="inline-grid size-5 place-items-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label="查看对比度比率说明"
+                aria-label={t("查看对比度比率说明")}
               >
                 <HelpCircle className="size-3.5" />
               </button>
@@ -183,7 +190,7 @@ export function ContrastTool() {
               )}
             >
               {r.pass ? <Check className="size-4" /> : <span className="text-xs">✕</span>}
-              {r.label} {r.pass ? "通过" : "不通过"}
+              {r.label} {r.pass ? t("通过") : t("不通过")}
             </div>
           ))}
         </div>
@@ -196,14 +203,17 @@ export function ContrastTool() {
           className="flex w-full items-center justify-between px-5 py-4 text-sm"
         >
           <span className="flex items-center gap-2">
-            <Sparkles className="size-4 text-muted-foreground" strokeWidth={1.6} /> 智能推荐替代色
+            <Sparkles className="size-4 text-muted-foreground" strokeWidth={1.6} />{" "}
+            {t("智能推荐替代色")}
           </span>
           <ChevronDown className={cn("size-4 transition-transform", openSuggest && "rotate-180")} />
         </button>
         {openSuggest && (
           <div className="border-t border-border px-5 py-4">
             {aa ? (
-              <p className="text-sm text-muted-foreground">当前组合已满足 AA 标准，无需替换。</p>
+              <p className="text-sm text-muted-foreground">
+                {t("当前组合已满足 AA 标准，无需替换。")}
+              </p>
             ) : (
               <div className="flex flex-wrap gap-3">
                 {suggestions.map((s) => (
@@ -225,7 +235,7 @@ export function ContrastTool() {
                 ))}
                 {suggestions.length === 0 && (
                   <p className="text-sm text-muted-foreground">
-                    未找到同色相的合格替代色，建议更换背景色。
+                    {t("未找到同色相的合格替代色，建议更换背景色。")}
                   </p>
                 )}
               </div>
@@ -241,31 +251,24 @@ export function ContrastTool() {
           className="flex w-full items-center justify-between px-5 py-4 text-sm"
         >
           <span className="flex items-center gap-2">
-            <List className="size-4 text-muted-foreground" strokeWidth={1.6} /> 对比度详情
+            <List className="size-4 text-muted-foreground" strokeWidth={1.6} /> {t("对比度详情")}
           </span>
           <ChevronDown className={cn("size-4 transition-transform", openDetail && "rotate-180")} />
         </button>
         {openDetail && (
           <div className="space-y-2 border-t border-border px-5 py-4 text-sm">
             {[
-              { label: "正文（小字 < 18px）AA ≥ 4.5:1", pass: ratio >= 4.5 },
-              { label: "正文（小字 < 18px）AAA ≥ 7:1", pass: ratio >= 7 },
-              { label: "大字（≥ 18px 粗体 / 24px）AA ≥ 3:1", pass: ratio >= 3 },
-              { label: "大字 AAA ≥ 4.5:1", pass: ratio >= 4.5 },
-              { label: "非文本元素（图标 / 边框）≥ 3:1", pass: ratio >= 3 },
+              { label: t("正文（小字 < 18px）AA ≥ 4.5:1"), pass: ratio >= 4.5 },
+              { label: t("正文（小字 < 18px）AAA ≥ 7:1"), pass: ratio >= 7 },
+              { label: t("大字（≥ 18px 粗体 / 24px）AA ≥ 3:1"), pass: ratio >= 3 },
+              { label: t("大字 AAA ≥ 4.5:1"), pass: ratio >= 4.5 },
+              { label: t("非文本元素（图标 / 边框）≥ 3:1"), pass: ratio >= 3 },
             ].map((r) => (
               <div key={r.label} className="flex items-center justify-between">
                 <span className="text-muted-foreground">{r.label}</span>
-                <span className="font-medium">{r.pass ? "通过" : "不通过"}</span>
+                <span className="font-medium">{r.pass ? t("通过") : t("不通过")}</span>
               </div>
             ))}
-            <button
-              type="button"
-              onClick={() => setColor(fg)}
-              className="mt-2 text-xs text-muted-foreground underline hover:text-foreground"
-            >
-              将前景色发送到信息面板
-            </button>
           </div>
         )}
       </section>

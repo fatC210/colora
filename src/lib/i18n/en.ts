@@ -1,0 +1,486 @@
+import { canvas } from "./en.canvas";
+
+/**
+ * 英文词典。**key 是中文原文，value 是英文译文**。
+ *
+ * 中文原文当 key 的好处：调用点直接写 `t("配色方案")`，改动最小、漏译一眼可见；
+ * 且中文侧是恒等映射，所以不需要 zh 词典 —— `translate("zh", key)` 返回 key 本身。
+ *
+ * 带插值的文案把占位符写进 key：`t("账户与设置（已登录：{email}）", { email })`。
+ *
+ * ⚠️ `core` 是**单个对象字面量**，TS 会对重复键直接报错 —— 这是刻意的安全网。
+ * 画布工具的词条量太大（216 条），单独放在 `./en.canvas` 里；跨文件的重复 key
+ * 编译器管不到，靠 `node check-i18n.cjs` 兜底（它同时检查重复 key 与漏翻）。
+ */
+const core = {
+  // ─────────────────────────── 通用动作 ───────────────────────────
+  删除: "Delete",
+  重命名: "Rename",
+  取消: "Cancel",
+  复制: "Copy",
+  重置: "Reset",
+  应用: "Apply",
+  添加: "Add",
+  保存: "Save",
+  导出: "Export",
+  锁定: "Lock",
+  解锁: "Unlock",
+  收藏: "Favorite",
+  展开: "Expand",
+  折叠: "Collapse",
+  暂无: "None",
+  暂无结果: "No results",
+  操作失败: "Operation failed",
+  通过: "Pass",
+  不通过: "Fail",
+
+  // ─────────────────────────── 侧栏与工具名 ───────────────────────────
+  首页: "Home",
+  配色方案: "Palette",
+  渐变编辑: "Gradient",
+  画布: "Canvas",
+  色彩混合: "Color Mixer",
+  图片取色: "Image Picker",
+  对比度检查: "Contrast Check",
+  实时预览: "Live Preview",
+  对比度: "Contrast",
+  检查: "Check",
+  色盲模拟: "Color Blindness",
+  账户: "Account",
+  账户与设置: "Account & Settings",
+  "账户与设置（已登录：{email}）": "Account & Settings (signed in: {email})",
+  打开侧边栏: "Open sidebar",
+  收起侧边栏: "Collapse sidebar",
+  展开侧边栏: "Expand sidebar",
+  收起参数面板: "Collapse panel",
+  展开参数面板: "Expand panel",
+  操作: "Actions",
+  "试试点击！": "Try clicking!",
+  点击随机切换品牌渐变: "Click to shuffle the brand gradient",
+
+  // 色盲模拟（值来自 lib/color.ts 的 CB_LABELS，key 是 CBMode 枚举，不能动）
+  红色盲: "Protanopia",
+  绿色盲: "Deuteranopia",
+  蓝色盲: "Tritanopia",
+  全色盲: "Achromatopsia",
+  // 「不模拟」不是 CB_LABELS 的成员，是个人菜单里对应 cbMode === "none" 的那一项
+  不模拟: "None",
+
+  // 配色规则（值来自 lib/color.ts 的 HARMONIES，key 是 HarmonyKey 枚举，不能动）
+  互补色: "Complementary",
+  类似色: "Analogous",
+  三色组: "Triadic",
+  四色组: "Tetradic",
+  分裂互补: "Split Complementary",
+  单色系: "Monochromatic",
+
+  // ─────────────────────────── 账户与设置面板 ───────────────────────────
+  浅色: "Light",
+  深色: "Dark",
+  语言: "Language",
+  主题: "Theme",
+  已登录: "Signed in",
+  登录: "Sign in",
+  注册: "Sign up",
+  注册并登录: "Sign up & sign in",
+  退出登录: "Sign out",
+  "登录 Colora": "Sign in to Colora",
+  "无需登录即可使用大部分工具，登录后才能保存和管理配色方案。":
+    "Most tools work without an account. Sign in to save and manage your palettes.",
+  邮箱地址: "Email",
+  密码: "Password",
+  确认密码: "Confirm password",
+  请输入邮箱地址: "Enter your email",
+  "至少 6 位密码": "At least 6 characters",
+  请再次输入密码: "Re-enter your password",
+  两次输入的密码不一致: "Passwords do not match",
+
+  // 登录/注册的校验与错误提示（由 colora-store 返回 errorKey，SignInDialog 渲染）
+  该邮箱尚未注册: "This email is not registered",
+  密码不正确: "Incorrect password",
+  请输入有效的邮箱地址: "Enter a valid email address",
+  "密码至少 6 位": "Password must be at least 6 characters",
+  "该邮箱已注册，请直接登录": "This email is already registered — sign in instead",
+  请先登录后再收藏: "Sign in to save favorites",
+  "登录后，收藏会跟随你的账号保存。": "Once signed in, your favorites follow your account.",
+
+  // ─────────────────────────── 首页 ───────────────────────────
+  "调配、混合、预览、导出，一站式完成配色工作":
+    "Tune, mix, preview and export — your whole color workflow in one place",
+  "Colora 是面向设计师与前端开发者的轻量级色彩工具。所见即所得，从选色到拿到代码不超过三步。":
+    "Colora is a lightweight color tool for designers and front-end developers. What you see is what you get — three steps from picking a color to shipping the code.",
+  随机生成一组配色: "Generate a random palette",
+  前往配色方案: "Open Palette",
+  最近收藏: "Recent saves",
+  颜色: "Colors",
+  渐变: "Gradients",
+  "应用颜色：{name}": "Apply color: {name}",
+
+  // 首页的工具卡片说明
+  "基于色彩理论自动生成方案，支持锁定与自由选配。":
+    "Auto-generate palettes from color theory, with locking and manual tuning.",
+  "线性 / 径向 / 锥形 / Mesh 渐变可视化编辑。":
+    "Visually edit linear, radial, conic and mesh gradients.",
+  "在画布上绘制线条与形状，颜色沿路径弧长分布。":
+    "Draw lines and shapes on a canvas, with color distributed along each path.",
+  "模拟颜料混合，带液体融合动画与三种混合模式。":
+    "Simulate paint mixing with fluid blending and three mix modes.",
+  "上传图片，拖动取色点实时提取主色。":
+    "Upload an image and drag sample points to pick colors live.",
+  "WCAG 对比度检测与智能替代色推荐。":
+    "WCAG contrast checking with smart alternative color suggestions.",
+  "把配色应用到真实组件与设备尺寸中对比。":
+    "Apply your palette to real components and device sizes for comparison.",
+
+  // ───────────────────── 实时预览：设备分组 ─────────────────────
+  手机: "Phone",
+  平板: "Tablet",
+  桌面: "Desktop",
+  演示文稿: "Presentation",
+  手表: "Watch",
+  纸张: "Paper",
+  社交媒体: "Social Media",
+
+  // ───────────────────── 实时预览：设备名 ─────────────────────
+  // 品牌名与纯数字尺寸在任何语言下都相同，做恒等映射。
+  // 保留这些条目而非省略，是为了让 `label: TKey` 的类型约束成立 ——
+  // 少一条就编译不过，也就不会出现「忘了翻译」的静默降级。
+  "iPhone 17 Pro Max (440×956)": "iPhone 17 Pro Max (440×956)",
+  "iPhone 17 Pro (402×874)": "iPhone 17 Pro (402×874)",
+  "iPhone 17 (402×874)": "iPhone 17 (402×874)",
+  "iPhone Air (420×912)": "iPhone Air (420×912)",
+  "iPhone 16 Pro Max (440×956)": "iPhone 16 Pro Max (440×956)",
+  "iPhone 16 Pro (402×874)": "iPhone 16 Pro (402×874)",
+  "iPhone 16 Plus (430×932)": "iPhone 16 Plus (430×932)",
+  "iPhone 16 (393×852)": "iPhone 16 (393×852)",
+  "iPhone 16e (390×844)": "iPhone 16e (390×844)",
+  "iPhone 15 Pro (393×852)": "iPhone 15 Pro (393×852)",
+  "iPhone 14 Pro Max (430×932)": "iPhone 14 Pro Max (430×932)",
+  "iPhone SE (375×667)": "iPhone SE (375×667)",
+  "Pixel 8 (412×915)": "Pixel 8 (412×915)",
+  "Pixel 8 Pro (448×998)": "Pixel 8 Pro (448×998)",
+  "Galaxy S24 (360×780)": "Galaxy S24 (360×780)",
+  "Galaxy S24 Ultra (384×824)": "Galaxy S24 Ultra (384×824)",
+  "Android 常用 (360×800)": "Android Common (360×800)",
+
+  'iPad Pro 13" M4 (1032×1376)': 'iPad Pro 13" M4 (1032×1376)',
+  'iPad Pro 13" M4 横屏 (1376×1032)': 'iPad Pro 13" M4 Landscape (1376×1032)',
+  'iPad Pro 11" M4 (834×1210)': 'iPad Pro 11" M4 (834×1210)',
+  'iPad Air 13" (1024×1366)': 'iPad Air 13" (1024×1366)',
+  'iPad Air 11" (820×1180)': 'iPad Air 11" (820×1180)',
+  "iPad 11 (820×1180)": "iPad 11 (820×1180)",
+  "iPad Mini (744×1133)": "iPad Mini (744×1133)",
+  'iPad Pro 12.9" (1024×1366)': 'iPad Pro 12.9" (1024×1366)',
+  'iPad Pro 11" (834×1194)': 'iPad Pro 11" (834×1194)',
+  "Surface Pro (912×1368)": "Surface Pro (912×1368)",
+  "Android 平板 (800×1280)": "Android Tablet (800×1280)",
+
+  "1280×720": "1280×720",
+  "1366×768": "1366×768",
+  "1440×900": "1440×900",
+  "1536×864": "1536×864",
+  "1920×1080": "1920×1080",
+  "2560×1440": "2560×1440",
+  'MacBook Air 13" (1470×956)': 'MacBook Air 13" (1470×956)',
+  'MacBook Air 15" (1710×1107)': 'MacBook Air 15" (1710×1107)',
+  'MacBook Pro 14" (1512×982)': 'MacBook Pro 14" (1512×982)',
+  'MacBook Pro 16" (1728×1117)': 'MacBook Pro 16" (1728×1117)',
+  "超宽屏 (3440×1440)": "Ultrawide (3440×1440)",
+
+  "16:10 (1920×1200)": "16:10 (1920×1200)",
+  "16:9 (1920×1080)": "16:9 (1920×1080)",
+  "16:9 (1280×720)": "16:9 (1280×720)",
+  "4:3 (1024×768)": "4:3 (1024×768)",
+  "4:3 (1600×1200)": "4:3 (1600×1200)",
+  "PowerPoint 宽屏 (960×540)": "PowerPoint Widescreen (960×540)",
+  "PowerPoint 4:3 (720×540)": "PowerPoint 4:3 (720×540)",
+  "A4 横版 (842×595)": "A4 Landscape (842×595)",
+  "社媒演示 (1080×1350)": "Social Presentation (1080×1350)",
+
+  "Apple Watch Ultra (205×251)": "Apple Watch Ultra (205×251)",
+  "Apple Watch 46mm (208×248)": "Apple Watch 46mm (208×248)",
+  "Apple Watch 45mm (198×242)": "Apple Watch 45mm (198×242)",
+  "Apple Watch 44mm (184×224)": "Apple Watch 44mm (184×224)",
+  "Apple Watch 41mm (176×215)": "Apple Watch 41mm (176×215)",
+  "Apple Watch 40mm (162×197)": "Apple Watch 40mm (162×197)",
+  "Wear OS 圆形 (192×192)": "Wear OS Round (192×192)",
+  "Galaxy Watch (450×450)": "Galaxy Watch (450×450)",
+
+  "A3 (842×1191)": "A3 (842×1191)",
+  "A4 (595×842)": "A4 (595×842)",
+  "A5 (420×595)": "A5 (420×595)",
+  "A6 (298×420)": "A6 (298×420)",
+  "Letter (612×792)": "Letter (612×792)",
+  "Legal (612×1008)": "Legal (612×1008)",
+  "名片 (252×144)": "Business Card (252×144)",
+  "海报 2:3 (800×1200)": "Poster 2:3 (800×1200)",
+
+  "Instagram 帖子 (1080×1080)": "Instagram Post (1080×1080)",
+  "Instagram 竖图 (1080×1350)": "Instagram Portrait (1080×1350)",
+  "Instagram 故事 (1080×1920)": "Instagram Story (1080×1920)",
+  "小红书封面 (1242×1660)": "Xiaohongshu Cover (1242×1660)",
+  "抖音 / TikTok (1080×1920)": "TikTok (1080×1920)",
+  "YouTube 缩略图 (1280×720)": "YouTube Thumbnail (1280×720)",
+  "Twitter/X 帖子 (1600×900)": "Twitter/X Post (1600×900)",
+  "Facebook 封面 (820×312)": "Facebook Cover (820×312)",
+  "LinkedIn 帖子 (1200×627)": "LinkedIn Post (1200×627)",
+
+  // ───────────────────── 实时预览：可添加的组件 ─────────────────────
+  "矩形色块 / 卡片": "Rectangle / Card",
+  标题文字: "Heading",
+  正文文字: "Body text",
+  按钮: "Button",
+  输入框: "Input",
+  圆形: "Circle",
+  分割线: "Divider",
+  图片占位框: "Image placeholder",
+
+  // ───────────────────── 实时预览：界面文案 ─────────────────────
+  // 注意：`圆角` 这个 key 已被画布工具占用（那里指"圆角 vs 方角"的样式，译 Rounded），
+  // 而这里指的是圆角半径滑块，语义不同。所以调用点改用 `圆角半径` 这个更具体的 key，
+  // 避免同一个中文 key 在两个语境下被强行映射成同一个译文。
+  "预览卡片 {n}": "Preview card {n}",
+  新建预览卡片: "New preview card",
+  导出当前预览: "Export preview",
+  卡片选项: "Card options",
+  // 卡片空态提示被 <br /> 拆成两段，所以拆成两个 key，保留换行位置。
+  "点击下方添加组件，": "Add components below",
+  预览配色效果: "to preview your palette",
+  点击添加组件: "Add component",
+  设置背景: "Background",
+  自定义颜色: "Custom color",
+  加入复用队列: "Add to reuse queue",
+  应用颜色: "Apply color",
+  加入复用列表: "Add to reuse list",
+  删除卡片: "Delete card",
+  删除组件: "Delete component",
+  圆角半径: "Corner radius",
+  "选择组件颜色 {hex}": "Select component color {hex}",
+  锁定颜色: "Lock color",
+  取消锁定: "Unlock",
+  删除颜色: "Delete color",
+  "选择颜色 {hex}": "Select color {hex}",
+  "选择已锁定颜色 {hex}": "Select locked color {hex}",
+  "选择自定义颜色 {hex}": "Select custom color {hex}",
+  "取消锁定 {hex}": "Unlock {hex}",
+  "锁定 {hex}": "Lock {hex}",
+  "删除 {hex}": "Delete {hex}",
+
+  // 预览卡片里渲染的示例组件文案
+  探索色彩的无限可能: "Explore the full spectrum",
+  "科学的配色方案，让设计更出彩。": "Scientific palettes that make designs shine.",
+  主要按钮: "Primary button",
+  请输入内容: "Enter text",
+  图片占位: "Image placeholder",
+
+  // ─────────────────────────── 配色方案工具 ───────────────────────────
+  自动生成: "Generate",
+  自由选配: "Manual",
+  "自由选配（3-10 个颜色）": "Manual (3–10 colors)",
+  基础颜色: "Base color",
+  选择基础颜色: "Pick a base color",
+  "基础色 HEX": "Base color HEX",
+  配色规则: "Harmony rule",
+  重新生成: "Regenerate",
+  随机微调: "Shuffle",
+  导出当前配色: "Export palette",
+  收藏当前配色: "Favorite this palette",
+  收藏这个颜色: "Favorite this color",
+  "收藏颜色 {hex}": "Favorite color {hex}",
+  收藏颜色: "Favorite colors",
+  添加颜色: "Add color",
+  已收藏的配色: "Saved palettes",
+  点击卡片即可恢复并继续调整: "Click a card to restore and keep editing",
+  "暂无收藏配色，点击「收藏当前配色」保存。":
+    "No saved palettes yet — click “Favorite this palette” to save one.",
+  "配色 {n}": "Palette {n}",
+  "应用方案：{name}": "Apply palette: {name}",
+  重命名方案: "Rename palette",
+  删除方案: "Delete palette",
+  "已锁定，点击解锁": "Locked — click to unlock",
+  "未锁定，点击锁定": "Unlocked — click to lock",
+  和谐度评分: "Harmony score",
+  优秀: "Excellent",
+  良好: "Good",
+  一般: "Fair",
+  待优化: "Needs work",
+
+  // ─────────────────────────── 渐变工具 ───────────────────────────
+  线性: "Linear",
+  径向: "Radial",
+  锥形: "Conic",
+  Mesh: "Mesh",
+  "渐变 {n}": "Gradient {n}",
+  显示圆点: "Show handles",
+  隐藏圆点: "Hide handles",
+  "调整团块 {n} 位置": "Adjust blob {n} position",
+  "团块 X": "Blob X",
+  "团块 Y": "Blob Y",
+  "中心 X": "Center X",
+  "中心 Y": "Center Y",
+  调整渐变中心位置: "Adjust gradient center",
+  "拖动调整渐变角度，当前 {angle}°": "Drag to adjust gradient angle — {angle}°",
+  "调整节点 {n} 位置": "Adjust stop {n} position",
+  "拖动调整起始角度，当前 {angle}°": "Drag to adjust start angle — {angle}°",
+  "节点 {n}": "Stop {n}",
+  "{n} 节点": "{n} stops",
+  线性位置: "Linear position",
+  位置: "Position",
+  删除节点: "Delete stop",
+  添加节点: "Add stop",
+  收藏当前渐变: "Favorite this gradient",
+  导出当前渐变: "Export gradient",
+  已收藏的渐变: "Saved gradients",
+  "暂无收藏渐变，点击「收藏当前渐变」保存。":
+    "No saved gradients yet — click “Favorite this gradient” to save one.",
+  "应用渐变：{name}": "Apply gradient: {name}",
+  重命名渐变: "Rename gradient",
+  删除渐变: "Delete gradient",
+  "渐变控制（角度 / 中心 / 插值方式）": "Gradient controls (angle / center / interpolation)",
+  "角度（Mesh 不适用）": "Angle (not applicable to mesh)",
+  "角度（径向不适用）": "Angle (not applicable to radial)",
+  "角度 {angle}°": "Angle {angle}°",
+  色彩空间插值: "Color space interpolation",
+  "CSS 代码": "CSS code",
+
+  // ─────────────────────────── 色彩混合工具 ───────────────────────────
+  减色混合: "Subtractive",
+  加色混合: "Additive",
+  平均混合: "Average",
+  "混合模式（减色 / 加色 / 平均）": "Mix mode (subtractive / additive / average)",
+  "当前：{mode}": "Current: {mode}",
+  导出当前混合: "Export mix",
+  "混合中…": "Mixing…",
+  "颜色 {n}": "Color {n}",
+
+  // ─────────────────────────── 图片取色工具 ───────────────────────────
+  用于取色的图片: "Image to sample colors from",
+  "拖拽上传 / 点击上传 / 粘贴图片": "Drag, click, or paste an image",
+  "支持 PNG、JPG、WEBP、SVG": "Supports PNG, JPG, WEBP and SVG",
+  选择图片: "Choose image",
+  更换图片: "Replace image",
+  保存为配色方案: "Save as palette",
+  导出当前图片: "Export image colors",
+  提取结果: "Extracted colors",
+  初始点位数量: "Initial points",
+  点位列表: "Point list",
+  取色点位: "Sample points",
+  删除取色点: "Remove sample point",
+  "取色点 {n}：{hex}": "Sample point {n}: {hex}",
+  "拖动取色点实时取色，点击图片空白处新增点位":
+    "Drag a point to sample its color live; click an empty area to add one.",
+  "最多 {n} 个取色点": "Up to {n} sample points",
+
+  // ─────────────────────────── 对比度工具 ───────────────────────────
+  前景色: "Foreground",
+  背景色: "Background",
+  颜色设置: "Color setup",
+  交换前景色与背景色: "Swap foreground and background",
+  "选择{label}": "Select {label}",
+  导出当前检查: "Export check",
+  "小号文字示例：12px 正文在此背景上的可读性表现。":
+    "Small text sample: how 12px body text reads on this background.",
+  设计让信息清晰可见: "Designed so information stays legible",
+  "良好的对比度让内容更易阅读，帮助用户快速获取关键信息，提升体验与可访问性。":
+    "Good contrast makes content easier to read, helps users find what matters quickly, and improves both usability and accessibility.",
+  对比度比率: "Contrast ratio",
+  "对比度比率表示前景色与背景色的亮度差异，范围为 1:1 到 21:1。普通正文建议至少 4.5:1，大号文字至少 3:1。":
+    "The contrast ratio measures the luminance difference between foreground and background, from 1:1 to 21:1. Body text should reach at least 4.5:1, and large text at least 3:1.",
+  查看对比度比率说明: "About the contrast ratio",
+  对比度详情: "Contrast details",
+  "正文（小字 < 18px）AA ≥ 4.5:1": "Body text (< 18px) — AA ≥ 4.5:1",
+  "正文（小字 < 18px）AAA ≥ 7:1": "Body text (< 18px) — AAA ≥ 7:1",
+  "大字（≥ 18px 粗体 / 24px）AA ≥ 3:1": "Large text (≥ 18px bold / 24px) — AA ≥ 3:1",
+  "大字 AAA ≥ 4.5:1": "Large text — AAA ≥ 4.5:1",
+  "非文本元素（图标 / 边框）≥ 3:1": "Non-text elements (icons / borders) ≥ 3:1",
+  智能推荐替代色: "Suggested alternatives",
+  "当前组合已满足 AA 标准，无需替换。": "This pair already meets AA — no replacement needed.",
+  "未找到同色相的合格替代色，建议更换背景色。":
+    "No passing alternative in the same hue — consider changing the background.",
+
+  // ───────────────── 收藏与色值（原「信息面板」分区，面板下线后由各工具的右栏承接） ─────────────────
+  收藏当前颜色: "Favorite current color",
+  取消收藏当前颜色: "Unfavorite current color",
+  当前色: "Current",
+  "拖动对比当前色和最接近的 {name}": "Drag to compare with the nearest {name}",
+  "最接近的 CSS 命名色": "Nearest named CSS color",
+  对比: "Compare",
+  关闭对比: "Close comparison",
+  "暂无收藏颜色。点击上方图标后可从这里一键应用继续调整。":
+    "No favorites yet. Use the heart above to save a color, then apply it here.",
+  重命名颜色: "Rename color",
+  更多色值: "More values",
+  "CSS 命名色": "Named CSS colors",
+  命名色色值: "Named color value",
+  白色文字: "White text",
+  黑色文字: "Black text",
+  色轮位置: "Color wheel position",
+  "色相 {hue}° · 饱和度 {sat}%": "Hue {hue}° · Saturation {sat}%",
+
+  // ─────────────────────────── 通用原语 ───────────────────────────
+  "复制 {value}": "Copy {value}",
+  "重命名 {value}": "Rename {value}",
+  色相: "Hue",
+  "HEX 色值": "HEX value",
+
+  // ─────────────────────────── 导出中心 ───────────────────────────
+  导出中心: "Export center",
+  导出当前模块: "Export current module",
+  当前颜色: "Current color",
+  "下载 JSON": "Download JSON",
+  "下载 CSS": "Download CSS",
+  "CSS 变量": "CSS variables",
+  "ASE 文本": "ASE text",
+  "复制 HEX": "Copy HEX",
+  颜色混合: "Color mixer",
+  模式: "Mode",
+  输入色: "Input colors",
+  结果: "Result",
+  复制结果: "Copy result",
+  前景: "Foreground",
+  背景: "Background",
+  建议色: "Suggested",
+  复制摘要: "Copy summary",
+  设备组: "Device group",
+  设备: "Device",
+  配色来源: "Palette source",
+  "复制 JSON": "Copy JSON",
+  收藏色板: "Saved swatches",
+  数量: "Count",
+  名称: "Name",
+  提取数量: "Extract count",
+  提取颜色: "Extract colors",
+  图片尺寸: "Image size",
+  导出合成图: "Export composite",
+  "导出中…": "Exporting…",
+  导出失败: "Export failed",
+  对比黑: "vs. Black",
+  对比白: "vs. White",
+  "最近 CSS 色": "Nearest CSS color",
+  项目: "Item",
+  值: "Value",
+  // 颜色格式缩写是语言中性的，做恒等映射（同设备名的处理）。
+  HEX: "HEX",
+  RGB: "RGB",
+  HSL: "HSL",
+  HSV: "HSV",
+  CMYK: "CMYK",
+  Lab: "Lab",
+  LCH: "LCH",
+
+  // ─────────────────────────── 路由 meta ───────────────────────────
+  "Colora — 色彩搭配平台": "Colora — Color Palette Platform",
+  "调配、混合、预览、导出，一站式完成配色工作。":
+    "Tune, mix, preview and export — your whole color workflow in one place.",
+  "Colora — 色彩搭配与配色方案工具": "Colora — Color Palette & Scheme Tool",
+  "配色方案、渐变、混色、取色、对比度与实时预览。":
+    "Palettes, gradients, mixing, color picking, contrast and live preview.",
+  "调配、混合、预览、导出，一站式完成配色工作。支持深浅色主题与色盲模拟。":
+    "Tune, mix, preview and export — your whole color workflow in one place. Supports light/dark themes and color blindness simulation.",
+  "Colora 是面向设计师与前端开发者的色彩工具：配色方案生成、渐变编辑、色彩混合、图片取色、对比度检查与实时预览，一键导出代码。":
+    "Colora is a color tool for designers and front-end developers: palette generation, gradient editing, color mixing, image color picking, contrast checking and live preview — all exportable as code.",
+  退出色盲模拟: "Exit color blindness simulation",
+  "当前处于 {mode} 模拟模式": "Currently simulating {mode}",
+};
+
+export const en = { ...core, ...canvas };

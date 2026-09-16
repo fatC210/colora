@@ -13,6 +13,7 @@ import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { hexToRgb, hsvToRgb, normalizeHex, rgbToHex, rgbToHsv } from "@/lib/color";
+import { useT } from "@/lib/i18n/use-t";
 
 /** 把多个同名事件处理器合并为一个，依次调用（用于 cloneElement 时不覆盖原 handler）。 */
 function composeEventHandlers<E>(...handlers: (((e: E) => void) | undefined)[]): (e: E) => void {
@@ -158,6 +159,7 @@ export function CopyButton({
   className?: string;
   label?: string;
 }) {
+  const t = useT();
   const [done, setDone] = useState(false);
   const copy = useCallback(async () => {
     try {
@@ -170,11 +172,11 @@ export function CopyButton({
   }, [value]);
 
   return (
-    <Tip label="复制">
+    <Tip label={t("复制")}>
       <button
         type="button"
         onClick={copy}
-        aria-label={label ?? `复制 ${value}`}
+        aria-label={label ?? t("复制 {value}", { value })}
         className={cn(
           "inline-flex shrink-0 items-center justify-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
           className,
@@ -201,6 +203,7 @@ export function CopyText({
   label?: string;
   children?: ReactNode;
 }) {
+  const t = useT();
   const [done, setDone] = useState(false);
   const copy = useCallback(async () => {
     try {
@@ -216,7 +219,7 @@ export function CopyText({
     <button
       type="button"
       onClick={copy}
-      aria-label={label ?? `复制 ${value}`}
+      aria-label={label ?? t("复制 {value}", { value })}
       className={cn(
         "inline-flex min-w-0 cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         className,
@@ -251,6 +254,7 @@ export function InlineRename({
   inputClassName?: string;
   ariaLabel?: string;
 }) {
+  const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState(value);
 
@@ -294,7 +298,7 @@ export function InlineRename({
             cancel();
           }
         }}
-        aria-label={ariaLabel ?? "重命名"}
+        aria-label={ariaLabel ?? t("重命名")}
         className={cn(
           "h-6 min-w-0 rounded-md border border-input bg-background px-1.5 text-xs outline-none focus:ring-2 focus:ring-ring",
           className,
@@ -308,7 +312,7 @@ export function InlineRename({
     <button
       type="button"
       onClick={() => onEditingChange(true)}
-      aria-label={ariaLabel ?? `重命名 ${value}`}
+      aria-label={ariaLabel ?? t("重命名 {value}", { value })}
       className={cn(
         "min-w-0 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         className,
@@ -367,6 +371,7 @@ export function ColorPicker({
   onChange: (hex: string) => void;
   compact?: boolean;
 }) {
+  const t = useT();
   const hsv = rgbToHsv(hexToRgb(value));
   const [hex, setHex] = useState(value);
   const areaRef = useRef<HTMLDivElement>(null);
@@ -427,7 +432,7 @@ export function ColorPicker({
         max={360}
         value={Math.round(hsv.h)}
         onChange={(e) => onChange(rgbToHex(hsvToRgb({ ...hsv, h: Number(e.target.value) })))}
-        aria-label="色相"
+        aria-label={t("色相")}
         className="h-3 w-full cursor-pointer appearance-none rounded-full [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:bg-transparent [&::-webkit-slider-thumb]:shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
         style={{
           background:
@@ -446,7 +451,7 @@ export function ColorPicker({
           }}
           onBlur={() => setHex(value)}
           className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 font-mono text-sm outline-none focus:ring-2 focus:ring-ring"
-          aria-label="HEX 色值"
+          aria-label={t("HEX 色值")}
         />
         <CopyButton value={value} className="self-stretch px-2" />
       </div>

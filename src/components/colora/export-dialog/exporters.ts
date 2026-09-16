@@ -126,3 +126,115 @@ export function gradientPng(
   ctx.restore();
   return canvas;
 }
+
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("image load failed"));
+    img.src = src;
+  });
+}
+
+/** 按可用宽度自动缩字号；连 8px 都塞不下就不标，避免文字溢出到相邻色块。 */
+function drawFittedLabel(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  cx: number,
+  cy: number,
+  maxWidth: number,
+  size: number,
+  color: string,
+) {
+  let s = Math.round(size);
+  while (s > 8) {
+    ctx.font = `600 ${s}px Inter, 'Noto Sans SC', system-ui, sans-serif`;
+    if (ctx.measureText(text).width <= maxWidth) break;
+    s -= 1;
+  }
+  if (s <= 8) return;
+  ctx.fillStyle = color;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, cx, cy);
+}
+
+export type ImageCompositeOptions = {
+  src: string;
+  /** 原图原始宽高，仅在 naturalWidth/Height 缺失时兜底。 */
+  imageWidth: number;
+  imageHeight: number;
+  colors: string[];
+  /** 输出图最长边上限，默认 2400。 */
+  maxSize?: number;
+  /** 原图与色带之间的间距，默认 0（紧贴）。 */
+  gap?: number;
+};
+
+/**
+ * 把原图与配色排布合成一张图（**不画点位标记**）。
+ * 横向图（w ≥ h）色带在下方；纵向图（w < h）色带在右侧。
+ * 图片需要异步解码，故返回 Promise。
+ */
+export async function imageCompositePng(
+  opts: ImageCompositeOptions,
+): Promise<HTMLCanvasElement | null> {
+  const img = await loadImageElement(opts.src);
+  const nw = img.naturalWidth || opts.imageWidth;
+  const nh = img.naturalHeight || opts.imageHeight;
+  if (!nw || !nh) return null;
+
+  const colors = opts.colors.length ? opts.colors : ["#FFFFFF"];
+  const n = colors.length;
+  const horizontal = nw >= nh;
+  const gap = opts.gap ?? 0;
+  // 色带厚度按原图短边取，夹在 [64, 240]
+  const band = Math.max(64, Math.min(240, Math.round(Math.min(nw, nh) * 0.18)));
+
+  // 先在原图像素空间算整体布局，再整体等比缩放：这样色带与原图的比例在不同尺寸的图上才一致，
+  // 同时也兜住超大图（8000×6000 直接合成约 220MB 显存，多数浏览器会直接失败）。
+  const maxSize = opts.maxSize ?? 2400;
+  const rawW = horizontal ? nw : nw + gap + band;
+  const rawH = horizontal ? nh + gap + band : nh;
+  const scale = Math.min(1, maxSize / Math.max(rawW, rawH));
+  const cw = Math.max(1, Math.round(rawW * scale));
+  const ch = Math.max(1, Math.round(rawH * scale));
+  const iw = Math.max(1, Math.round(nw * scale));
+  const ih = Math.max(1, Math.round(nh * scale));
+  const b = Math.max(1, Math.round(band * scale));
+  const g = Math.round(gap * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = cw;
+  canvas.height = ch;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.imageSmoothingQuality = "high";
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillRect(0, 0, cw, ch);
+  ctx.drawImage(img, 0, 0, iw, ih);
+
+  colors.forEach((color, i) => {
+    const isLast = i === n - 1;
+    const x = horizontal ? (cw * i) / n : iw + g;
+    const y = horizontal ? ih + g : (ch * i) / n;
+    // 最后一格收口到画布边缘：画布尺寸是 round 出来的，与逐格累加最多差 1~2px，
+    // 不收口会在底部（横向）或右侧（纵向）留下一条白边。
+    const w = horizontal ? (isLast ? cw - x : cw / n) : b;
+    const h = horizontal ? b : isLast ? ch - y : ch / n;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, Math.ceil(w), Math.ceil(h)); // ceil 消除相邻色块之间的 1px 缝
+    drawFittedLabel(
+      ctx,
+      color.toUpperCase(),
+      x + w / 2,
+      y + h / 2,
+      (horizontal ? w : b) - 12,
+      Math.min(horizontal ? b : Math.min(b, h), 28) * 0.42,
+      bestTextOn(color),
+    );
+  });
+
+  return canvas;
+}

@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
@@ -11,7 +12,8 @@ import {
 } from "react";
 import { toast } from "sonner";
 import type { CBMode, InterpSpace, MixMode } from "./color";
-import { randomHex } from "./color";
+import type { Lang, TKey } from "./i18n";
+import { detectBrowserLang, getStoredLang, translate } from "./i18n";
 
 export type SavedPalette = { id: string; name: string; colors: string[]; createdAt: number };
 export type SavedColor = { id: string; name: string; hex: string; createdAt: number };
@@ -37,10 +39,27 @@ export type SavedGradient = {
   createdAt: number;
 };
 
+/** 导出用的取色点位（不含显示用的临时状态）。 */
+export type ImageExportPoint = {
+  id: string;
+  /** 归一化坐标 0..1，相对原图左上角。 */
+  x: number;
+  y: number;
+  hex: string;
+  /** 仅 K-means 铺的初始点位有：该聚类像素占比。 */
+  share?: number;
+};
+
 export type ImageExportState = {
   count: number;
-  colors: { hex: string; share: number }[];
+  points: ImageExportPoint[];
   hasImage: boolean;
+  /** 原图 dataURL。导出「原图 + 配色」合成图需要，故不放进 JSON 导出。 */
+  src: string | null;
+  /** 原图像素宽，未加载完时为 0。 */
+  width: number;
+  /** 原图像素高，未加载完时为 0。 */
+  height: number;
 };
 
 export type MixerExportState = {
@@ -71,6 +90,8 @@ export type PreviewExportState = {
 type Store = {
   theme: "light" | "dark";
   toggleTheme: () => void;
+  lang: Lang;
+  setLang: (lang: Lang) => void;
   zenMode: boolean;
   toggleZen: () => void;
   color: string;
@@ -93,8 +114,8 @@ type Store = {
   removeGradient: (id: string) => void;
   renameGradient: (id: string, name: string) => void;
   user: string | null;
-  signIn: (email: string, password: string) => { ok: boolean; error?: string };
-  signUp: (email: string, password: string, confirm: string) => { ok: boolean; error?: string };
+  signIn: (email: string, password: string) => { ok: boolean; errorKey?: TKey };
+  signUp: (email: string, password: string, confirm: string) => { ok: boolean; errorKey?: TKey };
   signOut: () => void;
   gradientStops: GradientStop[];
   setGradientStops: Dispatch<SetStateAction<GradientStop[]>>;
@@ -108,13 +129,33 @@ type Store = {
   setContrastExport: Dispatch<SetStateAction<ContrastExportState>>;
   previewExport: PreviewExportState;
   setPreviewExport: Dispatch<SetStateAction<PreviewExportState>>;
-  logoGradient: [string, string];
+  logoGradient: string[];
   randomizeLogoGradient: () => void;
 };
 
 const Ctx = createContext<Store | null>(null);
 
 const DEFAULT_PALETTE = ["#6366F1", "#F97316", "#FACC15", "#14B8A6", "#8B5CF6"];
+
+/**
+ * 首页与侧栏两处品牌字 “COLORA” 共用的渐变色组。每次点击随机取一组。
+ *
+ * 刻意用手挑的固定色组、而不是 `randomHex()` 抽两个随机色：
+ * 随机色经常抽到相邻的两个低对比色（比如深蓝配深紫），
+ * 铺在细笔画字形上会糊成一片；固定色组保证每一组都足够鲜艳、明暗有对比。
+ */
+const LOGO_GRADIENTS: readonly (readonly string[])[] = [
+  ["#F97316", "#8B5CF6"],
+  ["#6366F1", "#EC4899"],
+  ["#14B8A6", "#FACC15"],
+  ["#8B5CF6", "#06B6D4"],
+  ["#F43F5E", "#FB923C"],
+  ["#22C55E", "#0EA5E9"],
+  ["#A855F7", "#F97316", "#FACC15"],
+  ["#3B82F6", "#8B5CF6", "#EC4899"],
+  ["#EF4444", "#F59E0B", "#10B981"],
+  ["#0891B2", "#7C3AED"],
+];
 
 const DEFAULT_GRADIENT_CONFIG: GradientConfig = {
   type: "linear",
@@ -165,8 +206,10 @@ function persistUserCollection<T>(user: string | null, key: string, value: T) {
 }
 
 function promptSignInForFavorite() {
-  toast.warning("请先登录后再收藏", {
-    description: "登录后，收藏会跟随你的账号保存。",
+  // 非组件环境（模块级函数），拿不到 useT，用 getStoredLang + translate。
+  const t = (key: TKey) => translate(getStoredLang(), key);
+  toast.warning(t("请先登录后再收藏"), {
+    description: t("登录后，收藏会跟随你的账号保存。"),
   });
 }
 
@@ -196,6 +239,7 @@ function migrateLegacyCollections(user: string) {
 
 export function ColoraProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [lang, setLang] = useState<Lang>("zh");
   const [zenMode, setZenMode] = useState(false);
   const [color, setColorState] = useState("#6366F1");
   const [prevColor, setPrevColor] = useState("#6366F1");
@@ -213,8 +257,11 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
   const [gradientConfig, setGradientConfig] = useState<GradientConfig>(DEFAULT_GRADIENT_CONFIG);
   const [imageExport, setImageExport] = useState<ImageExportState>({
     count: 6,
-    colors: [],
+    points: [],
     hasImage: false,
+    src: null,
+    width: 0,
+    height: 0,
   });
   const [mixerExport, setMixerExport] = useState<MixerExportState>({
     items: [
@@ -231,15 +278,19 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
     suggestions: [],
   });
   const [previewExport, setPreviewExport] = useState<PreviewExportState>({
-    group: "手机",
-    device: "iPhone 16 (393×852)",
+    group: "phone",
+    device: "iphone-17-pro-max",
     cards: [],
     colors: DEFAULT_PALETTE,
   });
-  const [logoGradient, setLogoGradient] = useState<[string, string]>(["#F97316", "#8B5CF6"]);
+  const [logoGradient, setLogoGradient] = useState<string[]>([...LOGO_GRADIENTS[0]]);
+  // 记住上一次抽中的下标，用于避免连续两次点到同一组（看不出“换过了”）。
+  const logoGradientIndex = useRef(0);
 
   useEffect(() => {
     setTheme(load<"light" | "dark">("colora.theme", "light"));
+    // 无已存偏好时跟随浏览器语言；用户一旦手动选过，就永远以 colora.lang 为准。
+    setLang(load<Lang>("colora.lang", detectBrowserLang()));
     setZenMode(load<boolean>("colora.zen", false));
     setUser(load<string | null>("colora.user", null));
     setAccounts(load<Record<string, string>>("colora.accounts", {}));
@@ -267,6 +318,13 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     localStorage.setItem("colora.zen", JSON.stringify(zenMode));
   }, [zenMode]);
+
+  // 界面文案已接入 i18n，同步 <html lang> 让屏幕阅读器拿到正确的内容语言。
+  // __root.tsx 里静态的 lang="zh-CN" 是 SSR 默认值，客户端由这里覆盖。
+  useEffect(() => {
+    document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+    localStorage.setItem("colora.lang", JSON.stringify(lang));
+  }, [lang]);
 
   const persistSaved = useCallback(
     (next: SavedPalette[]) => {
@@ -305,13 +363,19 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
   );
 
   const randomizeLogoGradient = useCallback(() => {
-    setLogoGradient([randomHex(), randomHex()]);
+    const last = logoGradientIndex.current;
+    let next = last;
+    while (next === last) next = Math.floor(Math.random() * LOGO_GRADIENTS.length);
+    logoGradientIndex.current = next;
+    setLogoGradient([...LOGO_GRADIENTS[next]]);
   }, []);
 
   const value = useMemo<Store>(
     () => ({
       theme,
       toggleTheme: () => setTheme((t) => (t === "light" ? "dark" : "light")),
+      lang,
+      setLang,
       zenMode,
       toggleZen: () => setZenMode((v) => !v),
       color,
@@ -366,8 +430,8 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
       user,
       signIn: (email, password) => {
         const key = email.trim().toLowerCase();
-        if (!accounts[key]) return { ok: false, error: "该邮箱尚未注册" };
-        if (accounts[key] !== password) return { ok: false, error: "密码不正确" };
+        if (!accounts[key]) return { ok: false, errorKey: "该邮箱尚未注册" };
+        if (accounts[key] !== password) return { ok: false, errorKey: "密码不正确" };
         setUser(key);
         localStorage.setItem("colora.user", JSON.stringify(key));
         return { ok: true };
@@ -375,10 +439,10 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
       signUp: (email, password, confirm) => {
         const key = email.trim().toLowerCase();
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(key))
-          return { ok: false, error: "请输入有效的邮箱地址" };
-        if (password.length < 6) return { ok: false, error: "密码至少 6 位" };
-        if (password !== confirm) return { ok: false, error: "两次输入的密码不一致" };
-        if (accounts[key]) return { ok: false, error: "该邮箱已注册，请直接登录" };
+          return { ok: false, errorKey: "请输入有效的邮箱地址" };
+        if (password.length < 6) return { ok: false, errorKey: "密码至少 6 位" };
+        if (password !== confirm) return { ok: false, errorKey: "两次输入的密码不一致" };
+        if (accounts[key]) return { ok: false, errorKey: "该邮箱已注册，请直接登录" };
         const next = { ...accounts, [key]: password };
         setAccounts(next);
         localStorage.setItem("colora.accounts", JSON.stringify(next));
@@ -410,6 +474,7 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
     }),
     [
       theme,
+      lang,
       zenMode,
       color,
       prevColor,

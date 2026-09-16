@@ -4,7 +4,6 @@ import { X } from "lucide-react";
 import { ColoraProvider, useColora } from "@/lib/colora-store";
 import { CB_LABELS, cbMatrixValues } from "@/lib/color";
 import { Sidebar, TOOLS, type ToolId } from "@/components/colora/Sidebar";
-import { InfoPanel } from "@/components/colora/InfoPanel";
 import { HomeTool } from "@/components/colora/HomeTool";
 import { PaletteTool } from "@/components/colora/PaletteTool";
 import { GradientTool } from "@/components/colora/GradientTool";
@@ -15,25 +14,33 @@ import { ContrastTool } from "@/components/colora/ContrastTool";
 import { PreviewTool } from "@/components/colora/PreviewTool";
 import { Tip } from "@/components/colora/primitives";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { getStoredLang, translate, type TKey } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/use-t";
 
 export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "Colora" },
-      {
-        name: "description",
-        content:
-          "Colora 是面向设计师与前端开发者的色彩工具：配色方案生成、渐变编辑、色彩混合、图片取色、对比度检查与实时预览，一键导出代码。",
-      },
-      { property: "og:title", content: "Colora — 色彩搭配与配色方案工具" },
-      {
-        property: "og:description",
-        content: "调配、混合、预览、导出，一站式完成配色工作。支持深浅色主题与色盲模拟。",
-      },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-    ],
-  }),
+  // head 不是 React 组件，拿不到 hook，所以直接读已存偏好 + 纯函数翻译。
+  // SSR 时 getStoredLang() 兜底返回 "zh"，客户端导航会用真实偏好重算。
+  head: () => {
+    const t = (key: TKey) => translate(getStoredLang(), key);
+    return {
+      meta: [
+        { title: "Colora" },
+        {
+          name: "description",
+          content: t(
+            "Colora 是面向设计师与前端开发者的色彩工具：配色方案生成、渐变编辑、色彩混合、图片取色、对比度检查与实时预览，一键导出代码。",
+          ),
+        },
+        { property: "og:title", content: t("Colora — 色彩搭配与配色方案工具") },
+        {
+          property: "og:description",
+          content: t("调配、混合、预览、导出，一站式完成配色工作。支持深浅色主题与色盲模拟。"),
+        },
+        { property: "og:type", content: "website" },
+        { name: "twitter:card", content: "summary_large_image" },
+      ],
+    };
+  },
   component: () => (
     <ColoraProvider>
       <ColoraApp />
@@ -57,9 +64,9 @@ function CbFilters() {
 
 function ColoraApp() {
   const [tool, setTool] = useState<ToolId>("palette");
-  const [collapsed, setCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const { cbMode, setCbMode, zenMode, toggleZen } = useColora();
+  const t = useT();
   const isMobile = useIsMobile();
 
   // 移动端不支持画布：入口已在侧栏/首页隐藏，这里再兜底两条绕过入口的路径——
@@ -79,7 +86,8 @@ function ColoraApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile, zenMode, tool]);
 
-  const title = TOOLS.find((t) => t.id === effectiveTool)?.label ?? "";
+  const activeTool = TOOLS.find((item) => item.id === effectiveTool);
+  const title = activeTool ? t(activeTool.label) : "";
 
   return (
     <div className="colora-app-shell">
@@ -103,13 +111,13 @@ function ColoraApp() {
         <div className="colora-content-scroller">
           {!effectiveZen && cbMode !== "none" && (
             <div className="flex items-center justify-between gap-3 border-b border-border bg-muted px-4 py-3 text-sm sm:px-6">
-              <span>当前处于 {CB_LABELS[cbMode]} 模拟模式</span>
-              <Tip label="退出色盲模拟">
+              <span>{t("当前处于 {mode} 模拟模式", { mode: t(CB_LABELS[cbMode]) })}</span>
+              <Tip label={t("退出色盲模拟")}>
                 <button
                   type="button"
                   onClick={() => setCbMode("none")}
                   className="text-muted-foreground hover:text-foreground"
-                  aria-label="退出色盲模拟"
+                  aria-label={t("退出色盲模拟")}
                 >
                   <X className="size-4" />
                 </button>
@@ -138,10 +146,7 @@ function ColoraApp() {
           )}
         </div>
 
-        {!effectiveZen && !showCanvas && (
-          <InfoPanel collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
-        )}
-      </main>
+        </main>
     </div>
   );
 }

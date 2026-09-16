@@ -79,6 +79,8 @@ import {
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import { useColora } from "@/lib/colora-store";
+import type { TKey } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/use-t";
 import {
   createStopId,
   nearestPercentOnPath,
@@ -195,6 +197,7 @@ if (import.meta.hot) {
 
 export function CanvasTool() {
   const { theme, zenMode, toggleZen } = useColora();
+  const t = useT();
   const isDark = theme === "dark";
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -330,7 +333,7 @@ export function CanvasTool() {
   // 当前已保存/已打开的 .colora 文件句柄：有值时"保存"直接覆写该文件，无值时弹"另存为"。
   const [coloraFileHandle, setColoraFileHandle] = useState<FileSystemFileHandle | null>(null);
   // 已打开文件的文件名（用于默认保存名 + UI 展示）。
-  const [coloraFileName, setColoraFileName] = useState<string>("画布");
+  const [coloraFileName, setColoraFileName] = useState<string>(() => t("画布"));
   // 导出弹窗：打开状态 + 导出选项（含背景、缩放倍率）。
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   // 快捷键速查弹窗开关。
@@ -874,7 +877,7 @@ export function CanvasTool() {
             ...strokes.map((s) => (s.id === containerId ? { ...s, boundTextId: textId } : s)),
             {
               id: textId,
-              name: `文本 ${strokes.length + 1}`,
+              name: t("文本 {n}", { n: strokes.length + 1 }),
               kind: "text" as const,
               points: [{ x: cx, y: cy }],
               width: 1,
@@ -897,7 +900,7 @@ export function CanvasTool() {
       } else {
         addStroke({
           id: createId("stroke"),
-          name: `文本 ${strokes.length + 1}`,
+          name: t("文本 {n}", { n: strokes.length + 1 }),
           kind: "text",
           points: [{ x: cx, y: cy }],
           width: 1,
@@ -1146,7 +1149,7 @@ export function CanvasTool() {
       if (draft.points.length > 2)
         addStroke({
           id: createId("stroke"),
-          name: `画笔 ${strokes.length + 1}`,
+          name: t("画笔 {n}", { n: strokes.length + 1 }),
           kind: "brush",
           points: [...draft.points, point],
           width: brushWidth,
@@ -1163,7 +1166,7 @@ export function CanvasTool() {
       if (distance(draft.start, point) > 8) {
         const isLine = draft.type === "line";
         const sh = isLine ? undefined : draft.shape;
-        const label = isLine
+        const label: TKey = isLine
           ? "直线"
           : sh === "rect"
             ? "矩形"
@@ -1196,7 +1199,7 @@ export function CanvasTool() {
         arrowDraftSnapRef.current = {};
         addStroke({
           id: createId("stroke"),
-          name: `${label} ${strokes.length + 1}`,
+          name: `${t(label)} ${strokes.length + 1}`,
           kind: isLine ? "line" : "shape",
           shape: sh,
           points:
@@ -1463,7 +1466,7 @@ export function CanvasTool() {
     const copies = selectedStrokes.map((stroke, index) => ({
       ...stroke,
       id: createId("stroke"),
-      name: `${stroke.name} 副本`,
+      name: t("{name} 副本", { name: stroke.name }),
       groupId: undefined,
       points: stroke.points.map((point) => ({
         x: point.x + 28 + index * 8,
@@ -1473,7 +1476,7 @@ export function CanvasTool() {
     }));
     commitStrokes([...strokes, ...copies]);
     setSelectedIds(copies.map((copyItem) => copyItem.id));
-  }, [commitStrokes, selectedIds.length, selectedStrokes, strokes]);
+  }, [commitStrokes, selectedIds.length, selectedStrokes, strokes, t]);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.target as HTMLElement | null)?.closest("input, textarea, select")) return;
@@ -1527,14 +1530,14 @@ export function CanvasTool() {
         ...groups,
         {
           id,
-          name: `组合 ${groups.length + 1}`,
+          name: t("组合 {n}", { n: groups.length + 1 }),
           strokeIds: [...selectedIds],
           stops: cloneStops(DEFAULT_STOPS),
           space: "rgb",
         },
       ],
     );
-    toast.success("已创建组合渐变");
+    toast.success(t("已创建组合渐变"));
   };
   const ungroup = () => {
     if (!selectedGroup) return;
@@ -1570,8 +1573,8 @@ export function CanvasTool() {
   // angle=设 stroke.angle。线性/形状缩放用 resizeTransform，image/容器文本设 w/h。
   const clearCanvas = () => {
     setConfirmDialog({
-      title: "清空画布",
-      description: "将清空所有线条与组合，可用撤销恢复。",
+      title: t("清空画布"),
+      description: t("将清空所有线条与组合，可用撤销恢复。"),
       action: () => {
         commitGroups([], []);
         setSelectedIds([]);
@@ -1582,8 +1585,8 @@ export function CanvasTool() {
   // 背景与重叠模式恢复默认，保留当前 .colora 文件关联（fileHandle 不动）。可撤销。
   const resetCanvas = () => {
     setConfirmDialog({
-      title: "重置画布",
-      description: "将清空所有线条并恢复默认背景，可用撤销恢复。",
+      title: t("重置画布"),
+      description: t("将清空所有线条并恢复默认背景，可用撤销恢复。"),
       action: () => {
         commitGroups([], []);
         setOverlapMode("mix");
@@ -1758,11 +1761,11 @@ export function CanvasTool() {
         setColoraFileName(nextName);
         void saveFileHandle(fileHandle, nextName).catch(() => {});
       }
-      toast.success(`已保存到 ${coloraFileName}.colora`);
+      toast.success(t("已保存到 {name}.colora", { name: coloraFileName }));
     } catch (err) {
       if ((err as DOMException)?.name === "AbortError") return;
       console.error(err);
-      toast.error("保存失败");
+      toast.error(t("保存失败"));
     }
   };
   // 另存为新文件：总是弹出"保存到..."对话框选位置，存完后当前文件切换为该新文件。
@@ -1782,12 +1785,12 @@ export function CanvasTool() {
         const nextName = fileHandle.name.replace(/\.[^.]+$/, "");
         setColoraFileName(nextName);
         void saveFileHandle(fileHandle, nextName).catch(() => {});
-        toast.success(`已另存为 ${nextName}.colora`);
+        toast.success(t("已另存为 {name}.colora", { name: nextName }));
       }
     } catch (err) {
       if ((err as DOMException)?.name === "AbortError") return;
       console.error(err);
-      toast.error("保存失败");
+      toast.error(t("保存失败"));
     }
   };
   // 从 .colora 文件载入画布。closeExisting=false 用于初次启动恢复（不先清场）。
@@ -1797,7 +1800,7 @@ export function CanvasTool() {
       try {
         parsed = JSON.parse(text);
       } catch {
-        toast.error("文件损坏或不是有效的 .colora 文件");
+        toast.error(t("文件损坏或不是有效的 .colora 文件"));
         return;
       }
       const fallback = {
@@ -1815,7 +1818,7 @@ export function CanvasTool() {
           fallback,
         );
       } catch {
-        toast.error("文件格式无效");
+        toast.error(t("文件格式无效"));
         return;
       }
       commitGroups(restored.strokes, restored.groups);
@@ -1833,17 +1836,17 @@ export function CanvasTool() {
         setColoraFileName(name);
       }
     },
-    [bgColor, bgLayout, commitGroups, groups, overlapMode, strokes, viewSize],
+    [bgColor, bgLayout, commitGroups, groups, overlapMode, strokes, viewSize, t],
   );
   const openLocal = async () => {
     try {
       const { text, handle, name } = await openColoraFile();
       await loadColora(text, handle, name);
-      toast.success("已打开画布");
+      toast.success(t("已打开画布"));
     } catch (err) {
       if ((err as DOMException)?.name === "AbortError") return;
       console.error(err);
-      toast.error("打开失败");
+      toast.error(t("打开失败"));
     }
   };
   const copyText = async (value: string, message: string) => {
@@ -1864,7 +1867,7 @@ export function CanvasTool() {
           resolve({ src, nw, nh });
         };
         probe.onerror = () => {
-          toast.error("无法读取图片");
+          toast.error(t("无法读取图片"));
           resolve(null);
         };
         probe.src = src;
@@ -1904,7 +1907,7 @@ export function CanvasTool() {
       const id = createId("stroke");
       addStroke({
         id,
-        name: `图片 ${strokes.length + 1}`,
+        name: t("图片 {n}", { n: strokes.length + 1 }),
         kind: "image",
         points: [{ x, y }],
         width: 0,
@@ -1920,7 +1923,7 @@ export function CanvasTool() {
       probe.onload = () => setStrokes((cur) => [...cur]);
       probe.src = meta.src;
     },
-    [addStroke, strokes.length, viewSize.h, viewSize.w],
+    [addStroke, strokes.length, viewSize.h, viewSize.w, t],
   );
 
   // 图片 file input 选中文件后：按 imageInsertTargetRef 的框插入（w/h=0 表示用自然尺寸在点居中）。
@@ -1959,7 +1962,7 @@ export function CanvasTool() {
     }
     addStroke({
       id: createId("stroke"),
-      name: `图片 ${strokes.length + 1}`,
+      name: t("图片 {n}", { n: strokes.length + 1 }),
       kind: "image",
       points: [{ x, y }],
       width: 0,
@@ -2070,8 +2073,8 @@ export function CanvasTool() {
   // 完整快捷键：撤销/重做、全选、复制/粘贴、组合/取消、图层、方向键微移、工具单键、缩放、Zen。
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      const inField = !!t?.closest('input, textarea, select, [contenteditable="true"]');
+      const el = e.target as HTMLElement | null;
+      const inField = !!el?.closest('input, textarea, select, [contenteditable="true"]');
       const mod = e.ctrlKey || e.metaKey;
       // 输入框内：只放行全局必要快捷键（undo/redo 仍交由原生）——这里一律跳过，交给字段自身。
       if (inField) return;
@@ -2115,7 +2118,7 @@ export function CanvasTool() {
           const copies = clipboardRef.current.map((s, i) => ({
             ...s,
             id: createId("stroke"),
-            name: `${s.name} 副本`,
+            name: t("{name} 副本", { name: s.name }),
             groupId: undefined,
             points: s.points.map((p) => ({ x: p.x + 28 + i * 8, y: p.y + 28 + i * 8 })),
             paint: clonePaint(s.paint),
@@ -2243,9 +2246,10 @@ export function CanvasTool() {
     shortcutHelpOpen,
     exportDialogOpen,
     confirmDialog,
+    t,
   ]);
 
-  const toolButtons: { id: Mode; label: string; icon: typeof MousePointer2 }[] = [
+  const toolButtons: { id: Mode; label: TKey; icon: typeof MousePointer2 }[] = [
     { id: "hand", label: "抓手", icon: Hand },
     { id: "select", label: "选择", icon: MousePointer2 },
     { id: "rectangle", label: "矩形", icon: Square },
@@ -2933,10 +2937,10 @@ export function CanvasTool() {
         try {
           const text = await file.text();
           await loadColora(text, null, file.name.replace(/\.[^.]+$/, ""));
-          toast.success("已打开画布");
+          toast.success(t("已打开画布"));
         } catch (err) {
           console.error(err);
-          toast.error("打开失败");
+          toast.error(t("打开失败"));
         }
       }}
     >
@@ -2953,7 +2957,7 @@ export function CanvasTool() {
           <canvas
             ref={canvasRef}
             role="img"
-            aria-label="Colora 画布工作区"
+            aria-label={t("Colora 画布工作区")}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
@@ -2989,15 +2993,15 @@ export function CanvasTool() {
           {selectedStrokes.length > 0 ? (
             <>
               <ContextMenuItem onSelect={duplicateSelected}>
-                <Copy className="mr-2 size-4" /> 复制
+                <Copy className="mr-2 size-4" /> {t("复制")}
                 <span className="ml-auto text-[11px] text-muted-foreground">Ctrl+D</span>
               </ContextMenuItem>
               <ContextMenuItem onSelect={() => moveLayer("front")}>
-                <BringToFront className="mr-2 size-4" /> 上移一层
+                <BringToFront className="mr-2 size-4" /> {t("上移一层")}
                 <span className="ml-auto text-[11px] text-muted-foreground">Ctrl+]</span>
               </ContextMenuItem>
               <ContextMenuItem onSelect={() => moveLayer("back")}>
-                <SendToBack className="mr-2 size-4" /> 下移一层
+                <SendToBack className="mr-2 size-4" /> {t("下移一层")}
                 <span className="ml-auto text-[11px] text-muted-foreground">Ctrl+[</span>
               </ContextMenuItem>
               {(selectedIds.length >= 2 || selectedGroup) && (
@@ -3005,13 +3009,13 @@ export function CanvasTool() {
                   <ContextMenuSeparator />
                   {selectedIds.length >= 2 && (
                     <ContextMenuItem onSelect={createGroup}>
-                      <Group className="mr-2 size-4" /> 组合
+                      <Group className="mr-2 size-4" /> {t("组合")}
                       <span className="ml-auto text-[11px] text-muted-foreground">Ctrl+G</span>
                     </ContextMenuItem>
                   )}
                   {selectedGroup && (
                     <ContextMenuItem onSelect={ungroup}>
-                      <Ungroup className="mr-2 size-4" /> 取消组合
+                      <Ungroup className="mr-2 size-4" /> {t("取消组合")}
                       <span className="ml-auto text-[11px] text-muted-foreground">
                         Ctrl+Shift+G
                       </span>
@@ -3024,30 +3028,22 @@ export function CanvasTool() {
                 onSelect={deleteSelected}
                 className="text-red-600 focus:bg-red-500/10 focus:text-red-600 dark:text-red-400"
               >
-                <Trash2 className="mr-2 size-4" /> 删除
+                <Trash2 className="mr-2 size-4" /> {t("删除")}
                 <span className="ml-auto text-[11px] opacity-70">Del</span>
               </ContextMenuItem>
             </>
           ) : (
             <>
               <ContextMenuItem onSelect={() => setSelectedIds(strokes.map((s) => s.id))}>
-                <MousePointer2 className="mr-2 size-4" /> 全选
+                <MousePointer2 className="mr-2 size-4" /> {t("全选")}
                 <span className="ml-auto text-[11px] text-muted-foreground">Ctrl+A</span>
               </ContextMenuItem>
-              <ContextMenuItem
-                onSelect={() => {
-                  setPan({ x: 0, y: 0 });
-                  zoomReset();
-                }}
-              >
-                <Maximize className="mr-2 size-4" /> 重置视图
-              </ContextMenuItem>
               <ContextMenuItem onSelect={zoomToFit}>
-                <Maximize className="mr-2 size-4" /> 适应内容
+                <Maximize className="mr-2 size-4" /> {t("适应内容")}
               </ContextMenuItem>
               <ContextMenuSeparator />
               <ContextMenuItem onSelect={resetCanvas}>
-                <Trash2 className="mr-2 size-4" /> 重置画布
+                <Trash2 className="mr-2 size-4" /> {t("重置画布")}
               </ContextMenuItem>
             </>
           )}
@@ -3061,7 +3057,7 @@ export function CanvasTool() {
             <button
               key={stop.id}
               type="button"
-              aria-label={`色标 ${Math.round(stop.pos)}%`}
+              aria-label={t("色标 {n}%", { n: Math.round(stop.pos) })}
               className={cn(
                 "pointer-events-auto absolute size-5 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-white shadow-[0_0_0_1px_var(--color-border),0_6px_18px_rgb(0_0_0/0.30)] outline-none transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring",
                 handleDragging ? "cursor-grabbing" : "cursor-grab",
@@ -3110,7 +3106,7 @@ export function CanvasTool() {
             <button
               key={handle}
               type="button"
-              aria-label={`缩放手柄 ${handle}`}
+              aria-label={t("缩放手柄 {handle}", { handle })}
               className="pointer-events-auto absolute size-2 -translate-x-1/2 -translate-y-1/2 touch-none rounded-[2px] border border-blue-500 bg-white shadow-[0_0_0_1px_rgb(255_255_255)] outline-none transition-transform hover:scale-125 focus-visible:ring-2 focus-visible:ring-ring"
               style={{ left: `${left}%`, top: `${top}%`, cursor }}
               onPointerDown={(event) => onResizeHandlePointerDown(event, handle)}
@@ -3132,7 +3128,7 @@ export function CanvasTool() {
             <button
               key={`rot-${i}`}
               type="button"
-              aria-label="旋转手柄"
+              aria-label={t("旋转手柄")}
               className={cn(
                 "pointer-events-auto absolute size-3 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border border-blue-500 bg-white shadow-[0_0_0_1px_rgb(255_255_255)] outline-none transition-transform hover:scale-125 focus-visible:ring-2 focus-visible:ring-ring",
                 handleDragging ? "cursor-grabbing" : "cursor-grab",
@@ -3151,7 +3147,7 @@ export function CanvasTool() {
             <button
               key={`${h.kind}-${h.pointIndex}-${i}`}
               type="button"
-              aria-label={h.kind === "mid" ? "中点（拖动变弯）" : "端点"}
+              aria-label={h.kind === "mid" ? t("中点（拖动变弯）") : t("端点")}
               className={
                 h.kind === "mid"
                   ? "pointer-events-auto absolute size-2.5 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border border-blue-500 bg-white/80 outline-none transition-transform hover:scale-125"
@@ -3175,12 +3171,12 @@ export function CanvasTool() {
       {/* 左上：属性面板触发按钮（打开/收起属性面板）。zen 时隐藏。
           用画布背景对比色作底，常态半透、hover 加深、展开时实心高亮，三态分明。 */}
       {!zenMode && (
-        <Tip label={canvasOpen ? "收起画布面板" : "展开画布面板"}>
+        <Tip label={canvasOpen ? t("收起画布面板") : t("展开画布面板")}>
           <button
             ref={canvasTriggerRef}
             type="button"
             onClick={() => setCanvasOpen((v) => !v)}
-            aria-label="画布面板"
+            aria-label={t("画布面板")}
             aria-expanded={canvasOpen}
             className="colora-inspector-trigger pointer-events-auto absolute left-3 top-3 z-30 inline-flex size-9 items-center justify-center overflow-hidden rounded-md shadow-md transition-all hover:scale-105"
             style={
@@ -3209,7 +3205,7 @@ export function CanvasTool() {
             >
               <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 py-2.5">
                 <div className="text-xs font-semibold text-foreground">
-                  {isImageSelection ? "图片" : "元素"}
+                  {isImageSelection ? t("图片") : t("元素")}
                 </div>
               </div>
 
@@ -3220,18 +3216,19 @@ export function CanvasTool() {
                     <>
                       {/* 圆角：图片可圆角（Excalidraw canChangeRoundness 含 image）。 */}
                       <div className="space-y-2">
-                        <div className="text-[11px] font-medium text-muted-foreground">圆角</div>
+                        <div className="text-[11px] font-medium text-muted-foreground">
+                          {t("圆角")}
+                        </div>
                         <div className="flex rounded-xl bg-muted/60 p-1">
                           {(["sharp", "round"] as const).map((r) => {
-                            const active =
-                              (selectedStrokes[0].roundness ?? "sharp") === r;
+                            const active = (selectedStrokes[0].roundness ?? "sharp") === r;
                             return (
                               <button
                                 key={r}
                                 type="button"
                                 aria-pressed={active}
-                                aria-label={r === "sharp" ? "方角" : "圆角"}
-                                title={r === "sharp" ? "方角" : "圆角"}
+                                aria-label={r === "sharp" ? t("方角") : t("圆角")}
+                                title={r === "sharp" ? t("方角") : t("圆角")}
                                 className={cn(
                                   "flex flex-1 items-center justify-center rounded-lg px-2 py-2.5 transition-colors",
                                   active
@@ -3267,7 +3264,9 @@ export function CanvasTool() {
                       {/* 透明度：元素级 0~100（对标 Excalidraw element.opacity）。 */}
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <div className="text-[11px] font-medium text-muted-foreground">透明度</div>
+                          <div className="text-[11px] font-medium text-muted-foreground">
+                            {t("透明度")}
+                          </div>
                           <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
                             {Math.round(selectedStrokes[0].opacity ?? 100)}%
                           </span>
@@ -3277,7 +3276,7 @@ export function CanvasTool() {
                           max={100}
                           step={1}
                           value={[selectedStrokes[0].opacity ?? 100]}
-                          aria-label="透明度"
+                          aria-label={t("透明度")}
                           onValueChange={([v]) =>
                             updateSelectedStrokes((stroke) => ({ ...stroke, opacity: v }))
                           }
@@ -3286,25 +3285,27 @@ export function CanvasTool() {
 
                       {/* 翻转：图片真正镜像（翻转 scaleX/scaleY 轴标志，非平移）。 */}
                       <div className="space-y-2">
-                        <div className="text-[11px] font-medium text-muted-foreground">翻转</div>
+                        <div className="text-[11px] font-medium text-muted-foreground">
+                          {t("翻转")}
+                        </div>
                         <div className="grid grid-cols-2 gap-1.5">
                           <Button
                             type="button"
                             variant="ghost"
                             className="h-8 w-full gap-1.5 text-xs"
                             onClick={() => flipSelected("horizontal")}
-                            aria-label="水平翻转"
+                            aria-label={t("水平翻转")}
                           >
-                            <FlipHorizontal2 className="size-4" /> 水平
+                            <FlipHorizontal2 className="size-4" /> {t("水平")}
                           </Button>
                           <Button
                             type="button"
                             variant="ghost"
                             className="h-8 w-full gap-1.5 text-xs"
                             onClick={() => flipSelected("vertical")}
-                            aria-label="垂直翻转"
+                            aria-label={t("垂直翻转")}
                           >
-                            <FlipVertical2 className="size-4" /> 垂直
+                            <FlipVertical2 className="size-4" /> {t("垂直")}
                           </Button>
                         </div>
                       </div>
@@ -3314,44 +3315,48 @@ export function CanvasTool() {
                   {/* 描边粗细：图片无描边，跳过。 */}
                   {!isImageSelection && (
                     <div className="space-y-2">
-                    <div className="text-[11px] font-medium text-muted-foreground">描边粗细</div>
-                    <div className="flex rounded-xl bg-muted/60 p-1">
-                      {STROKE_WIDTHS.map((w) => {
-                        const active = selectedStrokes.some((s) => s.width === w.value);
-                        return (
-                          <button
-                            key={w.id}
-                            type="button"
-                            aria-pressed={active}
-                            aria-label={w.label}
-                            title={w.label}
-                            className={cn(
-                              "flex flex-1 items-center justify-center rounded-lg px-2 py-2.5 transition-colors",
-                              active
-                                ? "bg-background text-foreground shadow-sm"
-                                : "text-muted-foreground hover:text-foreground",
-                            )}
-                            onClick={() => {
-                              updateSelectedStrokes((stroke) => ({ ...stroke, width: w.value }));
-                              setBrushWidth(w.value);
-                            }}
-                          >
-                            {/* 粗细横线图标：宽度随档位变化。 */}
-                            <span
-                              className="block w-5 rounded-full bg-current"
-                              style={{ height: w.value }}
-                            />
-                          </button>
-                        );
-                      })}
+                      <div className="text-[11px] font-medium text-muted-foreground">
+                        {t("描边粗细")}
+                      </div>
+                      <div className="flex rounded-xl bg-muted/60 p-1">
+                        {STROKE_WIDTHS.map((w) => {
+                          const active = selectedStrokes.some((s) => s.width === w.value);
+                          return (
+                            <button
+                              key={w.id}
+                              type="button"
+                              aria-pressed={active}
+                              aria-label={t(w.label)}
+                              title={t(w.label)}
+                              className={cn(
+                                "flex flex-1 items-center justify-center rounded-lg px-2 py-2.5 transition-colors",
+                                active
+                                  ? "bg-background text-foreground shadow-sm"
+                                  : "text-muted-foreground hover:text-foreground",
+                              )}
+                              onClick={() => {
+                                updateSelectedStrokes((stroke) => ({ ...stroke, width: w.value }));
+                                setBrushWidth(w.value);
+                              }}
+                            >
+                              {/* 粗细横线图标：宽度随档位变化。 */}
+                              <span
+                                className="block w-5 rounded-full bg-current"
+                                style={{ height: w.value }}
+                              />
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
                   )}
 
                   {/* 边角：仅线性元素可切换。 */}
                   {selectedStrokes.some(isLinearStroke) && (
                     <div className="space-y-2">
-                      <div className="text-[11px] font-medium text-muted-foreground">边角</div>
+                      <div className="text-[11px] font-medium text-muted-foreground">
+                        {t("边角")}
+                      </div>
                       <div className="flex rounded-xl bg-muted/60 p-1">
                         {(["sharp", "round"] as const).map((r) => {
                           const active = selectedStrokes.some(
@@ -3362,8 +3367,8 @@ export function CanvasTool() {
                               key={r}
                               type="button"
                               aria-pressed={active}
-                              aria-label={r === "sharp" ? "方角" : "圆角"}
-                              title={r === "sharp" ? "方角" : "圆角"}
+                              aria-label={r === "sharp" ? t("方角") : t("圆角")}
+                              title={r === "sharp" ? t("方角") : t("圆角")}
                               className={cn(
                                 "flex flex-1 items-center justify-center rounded-lg px-2 py-2.5 transition-colors",
                                 active
@@ -3403,90 +3408,111 @@ export function CanvasTool() {
                   {/* 边框样式 + 颜色：图片无描边/填充，跳过。 */}
                   {!isImageSelection && (
                     <>
-                  {/* 边框样式：实线/虚线/点线。 */}
-                  <div className="space-y-2">
-                    <div className="text-[11px] font-medium text-muted-foreground">边框样式</div>
-                    <div className="flex rounded-xl bg-muted/60 p-1">
-                      {(["solid", "dashed", "dotted"] as const).map((st) => {
-                        const active = selectedStrokes.some(
-                          (s) => (s.strokeStyle ?? "solid") === st,
-                        );
-                        return (
-                          <button
-                            key={st}
-                            type="button"
-                            aria-pressed={active}
-                            aria-label={st === "solid" ? "实线" : st === "dashed" ? "虚线" : "点线"}
-                            title={st === "solid" ? "实线" : st === "dashed" ? "虚线" : "点线"}
-                            className={cn(
-                              "flex flex-1 items-center justify-center rounded-lg px-2 py-2.5 transition-colors",
-                              active
-                                ? "bg-background text-foreground shadow-sm"
-                                : "text-muted-foreground hover:text-foreground",
-                            )}
-                            onClick={() => {
-                              updateSelectedStrokes((stroke) => ({ ...stroke, strokeStyle: st }));
-                              setBrushStrokeStyle(st);
-                            }}
-                          >
-                            {/* 线型图标：实线/虚线/点线。 */}
-                            <svg
-                              viewBox="0 0 20 4"
-                              className="h-1 w-5"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                            >
-                              <line
-                                x1="1"
-                                y1="2"
-                                x2="19"
-                                y2="2"
-                                strokeDasharray={
-                                  st === "solid" ? undefined : st === "dashed" ? "4 3" : "0.5 3"
+                      {/* 边框样式：实线/虚线/点线。 */}
+                      <div className="space-y-2">
+                        <div className="text-[11px] font-medium text-muted-foreground">
+                          {t("边框样式")}
+                        </div>
+                        <div className="flex rounded-xl bg-muted/60 p-1">
+                          {(["solid", "dashed", "dotted"] as const).map((st) => {
+                            const active = selectedStrokes.some(
+                              (s) => (s.strokeStyle ?? "solid") === st,
+                            );
+                            return (
+                              <button
+                                key={st}
+                                type="button"
+                                aria-pressed={active}
+                                aria-label={
+                                  st === "solid"
+                                    ? t("实线")
+                                    : st === "dashed"
+                                      ? t("虚线")
+                                      : t("点线")
                                 }
-                              />
-                            </svg>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                                title={
+                                  st === "solid"
+                                    ? t("实线")
+                                    : st === "dashed"
+                                      ? t("虚线")
+                                      : t("点线")
+                                }
+                                className={cn(
+                                  "flex flex-1 items-center justify-center rounded-lg px-2 py-2.5 transition-colors",
+                                  active
+                                    ? "bg-background text-foreground shadow-sm"
+                                    : "text-muted-foreground hover:text-foreground",
+                                )}
+                                onClick={() => {
+                                  updateSelectedStrokes((stroke) => ({
+                                    ...stroke,
+                                    strokeStyle: st,
+                                  }));
+                                  setBrushStrokeStyle(st);
+                                }}
+                              >
+                                {/* 线型图标：实线/虚线/点线。 */}
+                                <svg
+                                  viewBox="0 0 20 4"
+                                  className="h-1 w-5"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                >
+                                  <line
+                                    x1="1"
+                                    y1="2"
+                                    x2="19"
+                                    y2="2"
+                                    strokeDasharray={
+                                      st === "solid" ? undefined : st === "dashed" ? "4 3" : "0.5 3"
+                                    }
+                                  />
+                                </svg>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
 
-                  {selectionPaint && (
-                    <ColorEditor
-                      title={selectedGroup ? "组合渐变" : "颜色"}
-                      subtitle={selectedGroup ? "统一色阶沿组内每条线条分布" : undefined}
-                      paint={selectionPaint}
-                      onStopPos={setSelectionStopPos}
-                      onStopHex={setSelectionStopHex}
-                      onStopAlpha={setSelectionStopAlpha}
-                      onDuplicateStop={duplicateSelectionStop}
-                      onDeleteStop={removeSelectionStop}
-                      onDropStop={dropSelectionStop}
-                      onCopyHex={(stopId) => {
-                        const stop = selectionPaint.stops.find((s) => s.id === stopId);
-                        if (stop) copyText(stop.hex.toUpperCase(), "已复制 hex 值");
-                      }}
-                      onAddStopAt={addSelectionStopAt}
-                      onSetSpace={(space) => updateSelectionPaint((paint) => ({ ...paint, space }))}
-                      onSetMode={(paintMode) =>
-                        updateSelectionPaint((paint) => ({ ...paint, mode: paintMode }))
-                      }
-                      onSetSolid={(hex) =>
-                        updateSelectionPaint((paint) => ({ ...paint, solid: hex }))
-                      }
-                      onReverse={reverseSelectionStops}
-                      text={selectedStroke?.kind === "text" ? selectedStroke.text : undefined}
-                    />
-                  )}
+                      {selectionPaint && (
+                        <ColorEditor
+                          title={selectedGroup ? t("组合渐变") : t("颜色")}
+                          subtitle={selectedGroup ? t("统一色阶沿组内每条线条分布") : undefined}
+                          paint={selectionPaint}
+                          onStopPos={setSelectionStopPos}
+                          onStopHex={setSelectionStopHex}
+                          onStopAlpha={setSelectionStopAlpha}
+                          onDuplicateStop={duplicateSelectionStop}
+                          onDeleteStop={removeSelectionStop}
+                          onDropStop={dropSelectionStop}
+                          onCopyHex={(stopId) => {
+                            const stop = selectionPaint.stops.find((s) => s.id === stopId);
+                            if (stop) copyText(stop.hex.toUpperCase(), t("已复制 hex 值"));
+                          }}
+                          onAddStopAt={addSelectionStopAt}
+                          onSetSpace={(space) =>
+                            updateSelectionPaint((paint) => ({ ...paint, space }))
+                          }
+                          onSetMode={(paintMode) =>
+                            updateSelectionPaint((paint) => ({ ...paint, mode: paintMode }))
+                          }
+                          onSetSolid={(hex) =>
+                            updateSelectionPaint((paint) => ({ ...paint, solid: hex }))
+                          }
+                          onReverse={reverseSelectionStops}
+                          text={selectedStroke?.kind === "text" ? selectedStroke.text : undefined}
+                        />
+                      )}
                     </>
                   )}
 
                   {selectedGroup && (
                     <div className="space-y-2">
-                      <div className="text-[11px] font-medium text-muted-foreground">重叠处理</div>
+                      <div className="text-[11px] font-medium text-muted-foreground">
+                        {t("重叠处理")}
+                      </div>
                       <div className="flex rounded-xl bg-muted/60 p-1">
                         {(["mix", "cover"] as const).map((m) => (
                           <button
@@ -3502,7 +3528,7 @@ export function CanvasTool() {
                             )}
                             onClick={() => setOverlapMode(m)}
                           >
-                            {m === "mix" ? "自动混色" : "前层覆盖"}
+                            {m === "mix" ? t("自动混色") : t("前层覆盖")}
                           </button>
                         ))}
                       </div>
@@ -3511,21 +3537,21 @@ export function CanvasTool() {
 
                   {/* 操作：组合/取消 + 图层上移/下移 + 复制 + 删除（纯图标行，对标 Excalidraw actions）。 */}
                   <div className="space-y-2">
-                    <div className="text-[11px] font-medium text-muted-foreground">操作</div>
+                    <div className="text-[11px] font-medium text-muted-foreground">{t("操作")}</div>
                     <div className="grid grid-cols-6 gap-1.5">
-                      <Tip label="复制（Ctrl+D）">
+                      <Tip label={t("复制（Ctrl+D）")}>
                         <Button
                           type="button"
                           size="icon"
                           variant="ghost"
                           className="h-8 w-full"
                           onClick={duplicateSelected}
-                          aria-label="复制"
+                          aria-label={t("复制")}
                         >
                           <Copy className="size-4" />
                         </Button>
                       </Tip>
-                      <Tip label="组合（Ctrl+G）">
+                      <Tip label={t("组合（Ctrl+G）")}>
                         <Button
                           type="button"
                           size="icon"
@@ -3533,12 +3559,12 @@ export function CanvasTool() {
                           className="h-8 w-full"
                           onClick={createGroup}
                           disabled={selectedIds.length < 2}
-                          aria-label="组合"
+                          aria-label={t("组合")}
                         >
                           <Group className="size-4" />
                         </Button>
                       </Tip>
-                      <Tip label="取消组合（Ctrl+Shift+G）">
+                      <Tip label={t("取消组合（Ctrl+Shift+G）")}>
                         <Button
                           type="button"
                           size="icon"
@@ -3546,43 +3572,43 @@ export function CanvasTool() {
                           className="h-8 w-full"
                           onClick={ungroup}
                           disabled={!selectedGroup}
-                          aria-label="取消组合"
+                          aria-label={t("取消组合")}
                         >
                           <Ungroup className="size-4" />
                         </Button>
                       </Tip>
-                      <Tip label="上移一层（Ctrl+]）">
+                      <Tip label={t("上移一层（Ctrl+]）")}>
                         <Button
                           type="button"
                           size="icon"
                           variant="ghost"
                           className="h-8 w-full"
                           onClick={() => moveLayer("front")}
-                          aria-label="上移一层"
+                          aria-label={t("上移一层")}
                         >
                           <BringToFront className="size-4" />
                         </Button>
                       </Tip>
-                      <Tip label="下移一层（Ctrl+[）">
+                      <Tip label={t("下移一层（Ctrl+[）")}>
                         <Button
                           type="button"
                           size="icon"
                           variant="ghost"
                           className="h-8 w-full"
                           onClick={() => moveLayer("back")}
-                          aria-label="下移一层"
+                          aria-label={t("下移一层")}
                         >
                           <SendToBack className="size-4" />
                         </Button>
                       </Tip>
-                      <Tip label="删除选中">
+                      <Tip label={t("删除选中")}>
                         <Button
                           type="button"
                           size="icon"
                           variant="ghost"
                           className="h-8 w-full text-red-600 hover:bg-red-500/10 hover:text-red-600 dark:text-red-400"
                           onClick={deleteSelected}
-                          aria-label="删除选中"
+                          aria-label={t("删除选中")}
                         >
                           <Trash2 className="size-4" />
                         </Button>
@@ -3592,7 +3618,9 @@ export function CanvasTool() {
 
                   {/* 导出选中：长选项 + 二级菜单选格式。 */}
                   <div className="space-y-2">
-                    <div className="text-[11px] font-medium text-muted-foreground">导出选中</div>
+                    <div className="text-[11px] font-medium text-muted-foreground">
+                      {t("导出选中")}
+                    </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
@@ -3602,7 +3630,7 @@ export function CanvasTool() {
                           className="h-8 w-full justify-start gap-1.5 px-2 text-xs"
                         >
                           <Download className="size-3.5" />
-                          <span className="flex-1 text-left">导出选中元素...</span>
+                          <span className="flex-1 text-left">{t("导出选中元素...")}</span>
                           <ChevronRight className="size-3.5 text-muted-foreground" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -3613,16 +3641,16 @@ export function CanvasTool() {
                         className="w-44"
                       >
                         <DropdownMenuItem onSelect={() => exportSelectedPng(false)}>
-                          透明 PNG
+                          {t("透明 PNG")}
                         </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => exportSelectedPng(true)}>
-                          带背景 PNG
+                          {t("带背景 PNG")}
                         </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => exportSelectedSvg(false)}>
-                          透明 SVG
+                          {t("透明 SVG")}
                         </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => exportSelectedSvg(true)}>
-                          带背景 SVG
+                          {t("带背景 SVG")}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -3638,7 +3666,7 @@ export function CanvasTool() {
               onPointerDown={(event) => event.stopPropagation()}
             >
               <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 py-2.5">
-                <div className="text-xs font-semibold text-foreground">画布</div>
+                <div className="text-xs font-semibold text-foreground">{t("画布")}</div>
               </div>
               <div className="max-h-[min(70dvh,560px)] overflow-y-auto overflow-x-hidden p-3">
                 <div className="space-y-3">
@@ -3651,7 +3679,7 @@ export function CanvasTool() {
                       className="h-8 w-full justify-start gap-1.5 text-xs"
                       onClick={openLocal}
                     >
-                      <FolderOpen className="size-3.5" /> 打开
+                      <FolderOpen className="size-3.5" /> {t("打开")}
                     </Button>
                     {coloraFileHandle && (
                       <Button
@@ -3661,7 +3689,7 @@ export function CanvasTool() {
                         className="h-8 w-full justify-start gap-1.5 text-xs"
                         onClick={saveToActiveFile}
                       >
-                        <Save className="size-3.5" /> 保存至当前文件
+                        <Save className="size-3.5" /> {t("保存至当前文件")}
                       </Button>
                     )}
                     <Button
@@ -3671,7 +3699,7 @@ export function CanvasTool() {
                       className="h-8 w-full justify-start gap-1.5 text-xs"
                       onClick={saveFileToDisk}
                     >
-                      <FileOutput className="size-3.5" /> 保存到...
+                      <FileOutput className="size-3.5" /> {t("保存到...")}
                     </Button>
                     <Button
                       type="button"
@@ -3679,9 +3707,9 @@ export function CanvasTool() {
                       variant="ghost"
                       className="h-8 w-full justify-start gap-1.5 text-xs"
                       onClick={resetCanvas}
-                      aria-label="重置画布"
+                      aria-label={t("重置画布")}
                     >
-                      <Trash2 className="size-3.5" /> 重置画布
+                      <Trash2 className="size-3.5" /> {t("重置画布")}
                     </Button>
                     <Button
                       type="button"
@@ -3690,16 +3718,18 @@ export function CanvasTool() {
                       className="h-8 w-full justify-start gap-1.5 text-xs"
                       onClick={() => setExportDialogOpen(true)}
                     >
-                      <Download className="size-3.5" /> 导出画布...
+                      <Download className="size-3.5" /> {t("导出画布...")}
                     </Button>
                     <p className="text-[10px] leading-relaxed text-muted-foreground">
-                      可把 .colora 文件直接拖入画布导入，跨设备打开继续编辑。
+                      {t("可把 .colora 文件直接拖入画布导入，跨设备打开继续编辑。")}
                     </p>
                   </div>
 
                   {/* 画布背景。 */}
                   <div className="space-y-2">
-                    <div className="text-[11px] font-medium text-muted-foreground">画布背景</div>
+                    <div className="text-[11px] font-medium text-muted-foreground">
+                      {t("画布背景")}
+                    </div>
                     <div className="flex rounded-xl bg-muted/60 p-1">
                       {CANVAS_LAYOUTS.map((item) => (
                         <button
@@ -3714,7 +3744,7 @@ export function CanvasTool() {
                           )}
                           onClick={() => setBgLayout(item.value)}
                         >
-                          {item.label}
+                          {t(item.label)}
                         </button>
                       ))}
                     </div>
@@ -3722,7 +3752,9 @@ export function CanvasTool() {
 
                   {/* 画板尺寸。 */}
                   <div className="space-y-2">
-                    <div className="text-[11px] font-medium text-muted-foreground">画板尺寸</div>
+                    <div className="text-[11px] font-medium text-muted-foreground">
+                      {t("画板尺寸")}
+                    </div>
                     <div className="flex rounded-xl bg-muted/60 p-1">
                       {CANVAS_PRESETS.map((p) => (
                         <button
@@ -3737,7 +3769,7 @@ export function CanvasTool() {
                           )}
                           onClick={() => setCanvasPreset(p.id)}
                         >
-                          {p.label}
+                          {t(p.label)}
                         </button>
                       ))}
                     </div>
@@ -3745,15 +3777,17 @@ export function CanvasTool() {
 
                   {/* 画布颜色。 */}
                   <div className="space-y-2">
-                    <div className="text-[11px] font-medium text-muted-foreground">画布颜色</div>
+                    <div className="text-[11px] font-medium text-muted-foreground">
+                      {t("画布颜色")}
+                    </div>
                     <div className="grid grid-cols-9 gap-1.5">
                       {CANVAS_BG_PRESETS.map((item) => {
                         const active = bgColor.toUpperCase() === item.hex;
                         return (
-                          <Tip key={item.hex} label={`${item.label} ${item.hex}`}>
+                          <Tip key={item.hex} label={`${t(item.label)} ${item.hex}`}>
                             <button
                               type="button"
-                              aria-label={`${item.label} ${item.hex}`}
+                              aria-label={`${t(item.label)} ${item.hex}`}
                               onClick={() => {
                                 bgColorAutoRef.current = false;
                                 setBgColor(item.hex);
@@ -3782,14 +3816,14 @@ export function CanvasTool() {
           zenMode && "hidden",
         )}
       >
-        <Tip label={lockedTool ? "解锁工具" : "锁定工具（画完不切回选择）"}>
+        <Tip label={lockedTool ? t("解锁工具") : t("锁定工具（画完不切回选择）")}>
           <Button
             type="button"
             variant={lockedTool ? "default" : "ghost"}
             size="icon"
             className="size-8"
             onClick={() => setLockedTool((v) => !v)}
-            aria-label="锁定工具"
+            aria-label={t("锁定工具")}
             aria-pressed={lockedTool}
           >
             <Lock className="size-4" />
@@ -3799,7 +3833,7 @@ export function CanvasTool() {
         {toolButtons.map((item) => {
           const Icon = item.icon;
           return (
-            <Tip key={item.id} label={item.label}>
+            <Tip key={item.id} label={t(item.label)}>
               <Button
                 type="button"
                 variant={mode === item.id ? "default" : "ghost"}
@@ -3814,7 +3848,7 @@ export function CanvasTool() {
                   }
                   setMode(item.id);
                 }}
-                aria-label={item.label}
+                aria-label={t(item.label)}
               >
                 <Icon className="size-4" />
               </Button>
@@ -3822,7 +3856,7 @@ export function CanvasTool() {
           );
         })}
         <div className="mx-0.5 h-5 w-px bg-border" />
-        <Tip label="撤销">
+        <Tip label={t("撤销")}>
           <Button
             type="button"
             variant="ghost"
@@ -3830,12 +3864,12 @@ export function CanvasTool() {
             className="size-8"
             onClick={undo}
             disabled={!undoStack.length}
-            aria-label="撤销"
+            aria-label={t("撤销")}
           >
             <Undo2 className="size-4" />
           </Button>
         </Tip>
-        <Tip label="重做">
+        <Tip label={t("重做")}>
           <Button
             type="button"
             variant="ghost"
@@ -3843,20 +3877,20 @@ export function CanvasTool() {
             className="size-8"
             onClick={redo}
             disabled={!redoStack.length}
-            aria-label="重做"
+            aria-label={t("重做")}
           >
             <Redo2 className="size-4" />
           </Button>
         </Tip>
         <div className="mx-0.5 h-5 w-px bg-border" />
-        <Tip label={gridSnap ? "关闭网格吸附" : "开启网格吸附"}>
+        <Tip label={gridSnap ? t("关闭网格吸附") : t("开启网格吸附")}>
           <Button
             type="button"
             variant={gridSnap ? "default" : "ghost"}
             size="icon"
             className="size-8"
             onClick={() => setGridSnap((v) => !v)}
-            aria-label="网格吸附"
+            aria-label={t("网格吸附")}
             aria-pressed={gridSnap}
           >
             <Magnet className="size-4" />
@@ -3877,7 +3911,7 @@ export function CanvasTool() {
               onClick={() => setBrushType(b.id)}
               aria-pressed={brushType === b.id}
             >
-              {b.label}
+              {t(b.label)}
             </Button>
           ))}
         </div>
@@ -3886,81 +3920,81 @@ export function CanvasTool() {
       {/* 多选：对齐 / 分布 / 翻转条（工具栏下方悬浮，≥2 选中时显示）。 */}
       {selectedStrokes.length >= 2 && !zenMode && (
         <div className="absolute left-1/2 top-14 z-30 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-xl border border-border/60 bg-background/80 p-1 shadow-lg backdrop-blur-md">
-          <Tip label="左对齐">
+          <Tip label={t("左对齐")}>
             <Button
               type="button"
               variant="ghost"
               size="icon"
               className="size-7"
               onClick={() => alignSelected("left")}
-              aria-label="左对齐"
+              aria-label={t("左对齐")}
             >
               <AlignLeft className="size-4" />
             </Button>
           </Tip>
-          <Tip label="水平居中">
+          <Tip label={t("水平居中")}>
             <Button
               type="button"
               variant="ghost"
               size="icon"
               className="size-7"
               onClick={() => alignSelected("center-h")}
-              aria-label="水平居中"
+              aria-label={t("水平居中")}
             >
               <AlignCenter className="size-4" />
             </Button>
           </Tip>
-          <Tip label="右对齐">
+          <Tip label={t("右对齐")}>
             <Button
               type="button"
               variant="ghost"
               size="icon"
               className="size-7"
               onClick={() => alignSelected("right")}
-              aria-label="右对齐"
+              aria-label={t("右对齐")}
             >
               <AlignRight className="size-4" />
             </Button>
           </Tip>
           <div className="mx-0.5 h-5 w-px bg-border" />
-          <Tip label="顶对齐">
+          <Tip label={t("顶对齐")}>
             <Button
               type="button"
               variant="ghost"
               size="icon"
               className="size-7"
               onClick={() => alignSelected("top")}
-              aria-label="顶对齐"
+              aria-label={t("顶对齐")}
             >
               <AlignStartVertical className="size-4" />
             </Button>
           </Tip>
-          <Tip label="垂直居中">
+          <Tip label={t("垂直居中")}>
             <Button
               type="button"
               variant="ghost"
               size="icon"
               className="size-7"
               onClick={() => alignSelected("middle-v")}
-              aria-label="垂直居中"
+              aria-label={t("垂直居中")}
             >
               <AlignCenterVertical className="size-4" />
             </Button>
           </Tip>
-          <Tip label="底对齐">
+          <Tip label={t("底对齐")}>
             <Button
               type="button"
               variant="ghost"
               size="icon"
               className="size-7"
               onClick={() => alignSelected("bottom")}
-              aria-label="底对齐"
+              aria-label={t("底对齐")}
             >
               <AlignEndVertical className="size-4" />
             </Button>
           </Tip>
           <div className="mx-0.5 h-5 w-px bg-border" />
-          <Tip label="水平等距分布">
+          <Tip label={t("水平等距分布")}>
             <Button
               type="button"
               variant="ghost"
@@ -3968,12 +4002,12 @@ export function CanvasTool() {
               className="size-7"
               onClick={() => distributeSelected("horizontal")}
               disabled={selectedStrokes.length < 3}
-              aria-label="水平等距分布"
+              aria-label={t("水平等距分布")}
             >
               <AlignHorizontalDistributeCenter className="size-4" />
             </Button>
           </Tip>
-          <Tip label="垂直等距分布">
+          <Tip label={t("垂直等距分布")}>
             <Button
               type="button"
               variant="ghost"
@@ -3981,32 +4015,32 @@ export function CanvasTool() {
               className="size-7"
               onClick={() => distributeSelected("vertical")}
               disabled={selectedStrokes.length < 3}
-              aria-label="垂直等距分布"
+              aria-label={t("垂直等距分布")}
             >
               <AlignVerticalDistributeCenter className="size-4" />
             </Button>
           </Tip>
           <div className="mx-0.5 h-5 w-px bg-border" />
-          <Tip label="水平翻转">
+          <Tip label={t("水平翻转")}>
             <Button
               type="button"
               variant="ghost"
               size="icon"
               className="size-7"
               onClick={() => flipSelected("horizontal")}
-              aria-label="水平翻转"
+              aria-label={t("水平翻转")}
             >
               <FlipHorizontal2 className="size-4" />
             </Button>
           </Tip>
-          <Tip label="垂直翻转">
+          <Tip label={t("垂直翻转")}>
             <Button
               type="button"
               variant="ghost"
               size="icon"
               className="size-7"
               onClick={() => flipSelected("vertical")}
-              aria-label="垂直翻转"
+              aria-label={t("垂直翻转")}
             >
               <FlipVertical2 className="size-4" />
             </Button>
@@ -4037,7 +4071,7 @@ export function CanvasTool() {
           <div className="absolute left-1/2 top-14 z-30 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 rounded-xl border border-border/60 bg-background/80 p-1 shadow-lg backdrop-blur-md">
             <Select value={curFont} onValueChange={(v) => apply(v, curSize)}>
               <SelectTrigger
-                aria-label="字体"
+                aria-label={t("字体")}
                 className="h-7 w-auto max-w-[9rem] gap-1 rounded-md border-border/60 bg-background px-1.5 text-xs"
                 style={{ fontFamily: curFont }}
               >
@@ -4045,12 +4079,8 @@ export function CanvasTool() {
               </SelectTrigger>
               <SelectContent>
                 {CANVAS_FONTS.map((f) => (
-                  <SelectItem
-                    key={f.value}
-                    value={f.value}
-                    style={{ fontFamily: f.value }}
-                  >
-                    {f.label}
+                  <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>
+                    {t(f.label)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -4063,7 +4093,7 @@ export function CanvasTool() {
               step={1}
               value={curSize}
               onChange={(e) => apply(curFont, Number(e.target.value))}
-              aria-label="字号"
+              aria-label={t("字号")}
               className="w-24 accent-foreground"
             />
             <span className="min-w-[3rem] text-center font-mono text-xs tabular-nums text-muted-foreground">
@@ -4080,7 +4110,7 @@ export function CanvasTool() {
           onClick={zoomToFit}
           className="absolute bottom-6 left-1/2 z-30 -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/90 px-3.5 py-1.5 text-xs font-medium text-foreground shadow-lg backdrop-blur-md transition-colors hover:bg-accent"
         >
-          <Maximize className="size-3.5" /> 返回当前内容
+          <Maximize className="size-3.5" /> {t("返回当前内容")}
         </button>
       )}
 
@@ -4092,14 +4122,14 @@ export function CanvasTool() {
           zenMode && "opacity-90",
         )}
         role="group"
-        aria-label="缩放"
+        aria-label={t("缩放")}
       >
-        <Tip label="缩小（Ctrl+-）">
+        <Tip label={t("缩小（Ctrl+-）")}>
           <button
             type="button"
             onClick={zoomOut}
             disabled={zoom <= ZOOM_MIN + 1e-6}
-            aria-label="缩小"
+            aria-label={t("缩小")}
             className="inline-flex size-8 items-center justify-center rounded-l-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
           >
             <Minus className="size-3.5" />
@@ -4110,7 +4140,7 @@ export function CanvasTool() {
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              aria-label={`缩放 ${Math.round(zoom * 100)}%，点开更多选项`}
+              aria-label={t("缩放 {n}%，点开更多选项", { n: Math.round(zoom * 100) })}
               className="inline-flex h-8 w-[4.5rem] items-center justify-center gap-0.5 font-mono text-xs tabular-nums text-foreground transition-colors hover:bg-accent"
             >
               {Math.round(zoom * 100)}%
@@ -4119,34 +4149,30 @@ export function CanvasTool() {
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="center" sideOffset={6} className="w-52">
             <DropdownMenuItem onSelect={zoomIn} className="text-xs">
-              放大
+              {t("放大")}
               <span className="ml-auto font-mono text-[10px] text-muted-foreground">Ctrl+=</span>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={zoomOut} className="text-xs">
-              缩小
+              {t("缩小")}
               <span className="ml-auto font-mono text-[10px] text-muted-foreground">Ctrl+-</span>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={zoomReset} className="text-xs">
-              缩放至 100%
+              {t("缩放至 100%")}
               <span className="ml-auto font-mono text-[10px] text-muted-foreground">Ctrl+0</span>
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={zoomToFit}
-              className="text-xs"
-              disabled={!strokes.length}
-            >
-              适应内容
+            <DropdownMenuItem onSelect={zoomToFit} className="text-xs" disabled={!strokes.length}>
+              {t("适应内容")}
               <span className="ml-auto font-mono text-[10px] text-muted-foreground">1</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <div className="h-4 w-px bg-border" />
-        <Tip label="放大（Ctrl+=）">
+        <Tip label={t("放大（Ctrl+=）")}>
           <button
             type="button"
             onClick={zoomIn}
             disabled={zoom >= ZOOM_MAX - 1e-6}
-            aria-label="放大"
+            aria-label={t("放大")}
             className="inline-flex size-8 items-center justify-center rounded-r-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
           >
             <Plus className="size-3.5" />
@@ -4161,11 +4187,11 @@ export function CanvasTool() {
         style={cornerStyle}
       >
         {/* 快捷键速查：右上角常驻入口，Zen 模式下也可用。 */}
-        <Tip label="键盘快捷键（?）">
+        <Tip label={t("键盘快捷键（?）")}>
           <button
             type="button"
             onClick={() => setShortcutHelpOpen(true)}
-            aria-label="键盘快捷键"
+            aria-label={t("键盘快捷键")}
             className="pointer-events-auto inline-flex size-9 items-center justify-center rounded-md border border-border/60 bg-background/80 shadow-lg backdrop-blur-md transition-colors hover:bg-accent"
           >
             <Keyboard className="size-4" />
@@ -4177,17 +4203,17 @@ export function CanvasTool() {
             type="button"
             onClick={toggleZen}
             className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background shadow-lg hover:bg-foreground/90"
-            aria-label="退出 Zen 模式"
+            aria-label={t("退出 Zen 模式")}
           >
             <EyeOff className="size-4" />
-            退出 Zen
+            {t("退出 Zen")}
           </button>
         ) : (
-          <Tip label="进入 Zen 模式（隐藏侧栏与工具栏）">
+          <Tip label={t("进入 Zen 模式（隐藏侧栏与工具栏）")}>
             <button
               type="button"
               onClick={toggleZen}
-              aria-label="进入 Zen 模式"
+              aria-label={t("进入 Zen 模式")}
               className="colora-inspector-trigger pointer-events-auto inline-flex size-9 items-center justify-center overflow-hidden rounded-md border border-border/60 bg-background/80 shadow-lg backdrop-blur-md"
             >
               <EyeOff className="size-4" />
@@ -4312,14 +4338,14 @@ export function CanvasTool() {
             <AlertDialogDescription>{confirmDialog?.description}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogCancel>{t("取消")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 confirmDialog?.action();
                 setConfirmDialog(null);
               }}
             >
-              确定
+              {t("确定")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

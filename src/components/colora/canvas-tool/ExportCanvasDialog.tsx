@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/use-t";
 
 /**
  * 画布导出弹窗。参考 Excalidraw ImageExportDialog：
@@ -41,13 +42,16 @@ export function ExportCanvasDialog({
   onExportJson: () => void;
 }) {
   const { withBackground, scale } = options;
+  const t = useT();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md gap-0 p-0 sm:rounded-xl">
         <DialogHeader className="px-5 pt-5">
-          <DialogTitle className="text-base">导出画布</DialogTitle>
-          <DialogDescription className="text-xs">选择格式与选项，导出整张画布。</DialogDescription>
+          <DialogTitle className="text-base">{t("导出画布")}</DialogTitle>
+          <DialogDescription className="text-xs">
+            {t("选择格式与选项，导出整张画布。")}
+          </DialogDescription>
         </DialogHeader>
 
         {/* 预览区 */}
@@ -59,13 +63,13 @@ export function ExportCanvasDialog({
 
         {/* 设置项：每项一行，左标签 + 右控件，参考 Excalidraw ExportSetting */}
         <div className="mx-5 mt-4 space-y-3">
-          <SettingRow label="含背景">
+          <SettingRow label={t("含背景")}>
             <Switch
               checked={withBackground}
               onCheckedChange={(checked) => onOptionsChange({ withBackground: checked })}
             />
           </SettingRow>
-          <SettingRow label="缩放">
+          <SettingRow label={t("缩放")}>
             <div className="flex gap-1.5">
               {[1, 2, 3].map((s) => (
                 <button
@@ -88,7 +92,7 @@ export function ExportCanvasDialog({
 
         <DialogFooter className="gap-2 px-5 pb-5 pt-5 sm:flex-col sm:space-x-0">
           <Button type="button" className="h-9 w-full gap-1.5 text-xs" onClick={onExportPng}>
-            <Download className="size-4" /> 导出 PNG ({scale}×)
+            <Download className="size-4" /> {t("导出 PNG ({scale}×)", { scale })}
           </Button>
           <div className="grid grid-cols-2 gap-2">
             <Button

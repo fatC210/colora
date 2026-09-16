@@ -13,6 +13,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
+import { getStoredLang, translate, type TKey } from "@/lib/i18n";
 
 const SCROLLBAR_AREA_HOVER_CLASS = "scrollbar-area-hover";
 
@@ -186,31 +187,38 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  head: () => ({
-    meta: [
-      { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Colora" },
-      { name: "description", content: "配色方案、渐变、混色、取色、对比度与实时预览。" },
-      { property: "og:title", content: "Colora — 色彩搭配平台" },
-      { property: "og:description", content: "调配、混合、预览、导出，一站式完成配色工作。" },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-    ],
-    links: [
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap",
-      },
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
-      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
-    ],
-  }),
+  // head 不是 React 组件，拿不到 hook，所以直接读已存偏好 + 纯函数翻译。
+  head: () => {
+    const t = (key: TKey) => translate(getStoredLang(), key);
+    return {
+      meta: [
+        { charSet: "utf-8" },
+        { name: "viewport", content: "width=device-width, initial-scale=1" },
+        { title: "Colora" },
+        { name: "description", content: t("配色方案、渐变、混色、取色、对比度与实时预览。") },
+        { property: "og:title", content: t("Colora — 色彩搭配平台") },
+        {
+          property: "og:description",
+          content: t("调配、混合、预览、导出，一站式完成配色工作。"),
+        },
+        { property: "og:type", content: "website" },
+        { name: "twitter:card", content: "summary_large_image" },
+      ],
+      links: [
+        { rel: "preconnect", href: "https://fonts.googleapis.com" },
+        { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+        {
+          rel: "stylesheet",
+          href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap",
+        },
+        {
+          rel: "stylesheet",
+          href: appCss,
+        },
+        { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      ],
+    };
+  },
 
   shellComponent: RootShell,
   component: RootComponent,

@@ -4,6 +4,7 @@ import {
   supported as nativeFileSystemSupported,
 } from "browser-fs-access";
 
+import { getStoredLang, translate } from "@/lib/i18n";
 import type {
   BindingAnchor,
   BrushType,
@@ -333,7 +334,7 @@ export function restoreCanvas(
           s,
           fallback.strokes[i] ?? {
             id: `loaded-${i}`,
-            name: `线条 ${i + 1}`,
+            name: translate(getStoredLang(), "线条 {n}", { n: i + 1 }),
             kind: "brush",
             points: [{ x: 0, y: 0 }],
             width: 18,
@@ -348,7 +349,7 @@ export function restoreCanvas(
           g,
           fallback.groups[i] ?? {
             id: `loaded-group-${i}`,
-            name: `组合 ${i + 1}`,
+            name: translate(getStoredLang(), "组合 {n}", { n: i + 1 }),
             strokeIds: [],
             stops: [],
             space: "rgb",

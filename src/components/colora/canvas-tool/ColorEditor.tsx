@@ -12,6 +12,7 @@ import { INTERP_SPACES } from "./constants";
 import { clamp } from "./utils";
 import { ColorSlider } from "./ColorSlider";
 import { Tip } from "../primitives";
+import { useT } from "@/lib/i18n/use-t";
 import type { InterpSpace, PaintMode, StrokePaint } from "./types";
 
 /** 极简单色风颜色编辑器：HSL 拾色 + 色标行（圆点连线 / 位置% / 颜色方块 / 透明度%）+ 插值空间分段 */
@@ -55,6 +56,7 @@ export function ColorEditor({
   // 文本笔画专属：传入 text（非 undefined）时显示提示，字体/字号在顶部工具栏悬浮条调整。
   text?: string;
 }) {
+  const t = useT();
   const [activeStopId, setActiveStopId] = useState<string | null>(null);
   const [editingPosId, setEditingPosId] = useState<string | null>(null);
   const [editingAlphaId, setEditingAlphaId] = useState<string | null>(null);
@@ -91,7 +93,7 @@ export function ColorEditor({
         "flex h-6 min-w-0 items-center gap-0.5 rounded px-1 font-mono text-xs font-semibold text-neutral-200 hover:bg-neutral-900",
         align === "right" ? "justify-end" : "justify-start",
       )}
-      aria-label="编辑百分比"
+      aria-label={t("编辑百分比")}
     >
       {editing ? (
         <span
@@ -225,11 +227,11 @@ export function ColorEditor({
             {subtitle && <div className="mt-1 text-[11px] text-neutral-500">{subtitle}</div>}
           </div>
           {onReverse && (
-            <Tip label="翻转颜色顺序">
+            <Tip label={t("翻转颜色顺序")}>
               <button
                 type="button"
                 onClick={onReverse}
-                aria-label="翻转颜色顺序"
+                aria-label={t("翻转颜色顺序")}
                 className="inline-flex size-7 items-center justify-center rounded-md border border-neutral-700/70 bg-neutral-900 text-neutral-400 transition-colors hover:border-neutral-600 hover:text-neutral-100"
               >
                 <ArrowUpDown className="size-3.5" />
@@ -240,7 +242,7 @@ export function ColorEditor({
 
         {text !== undefined && (
           <div className="mb-2 text-[11px] text-neutral-500">
-            字体、字号请在画布顶部工具栏下方的悬浮条调整。
+            {t("字体、字号请在画布顶部工具栏下方的悬浮条调整。")}
           </div>
         )}
 
@@ -258,7 +260,7 @@ export function ColorEditor({
                     : "text-neutral-500 hover:text-neutral-200",
                 )}
               >
-                {modeOption === "solid" ? "纯色" : "沿路径"}
+                {modeOption === "solid" ? t("纯色") : t("沿路径")}
               </button>
             ))}
           </div>
@@ -322,7 +324,7 @@ export function ColorEditor({
         {paint.mode === "gradient" ? (
           <>
             <div className="mt-4 flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-neutral-600">
-              <span>混合</span>
+              <span>{t("混合")}</span>
               <div className="flex rounded-md bg-black/50 p-0.5 tracking-normal">
                 {INTERP_SPACES.map((space) => (
                   <button
@@ -364,7 +366,7 @@ export function ColorEditor({
                       key={`gap-${stop.id}`}
                       role="button"
                       tabIndex={0}
-                      aria-label="在两色之间添加色标"
+                      aria-label={t("在两色之间添加色标")}
                       onClick={() => {
                         // 点击两行之间整条带状区域即在两色标中点插入新色标，
                         // 颜色取该位置插值色，并自动选中以便立即微调。
@@ -573,7 +575,7 @@ export function ColorEditor({
                                 ? "size-3.5 border-white bg-white shadow-[0_0_0_2px_rgb(0_0_0/0.75)]"
                                 : "size-3 border-neutral-400 bg-neutral-950 shadow-[0_0_0_1px_rgb(0_0_0/0.75)]",
                             )}
-                            aria-label="选择色标"
+                            aria-label={t("选择色标")}
                           />
                         </div>
 
@@ -582,7 +584,7 @@ export function ColorEditor({
                         {dragId === stop.id ? (
                           <span
                             className="flex h-6 items-center justify-end gap-0.5 rounded px-1 font-mono text-xs font-semibold text-neutral-200"
-                            aria-label="位置百分比"
+                            aria-label={t("位置百分比")}
                           >
                             <span className="tabular-nums">{Math.round(stop.pos)}</span>
                             <span className="text-[9px] text-neutral-500">%</span>
@@ -610,7 +612,7 @@ export function ColorEditor({
                             "relative size-6 shrink-0 rounded-[5px] border-2 bg-transparent",
                             isActive ? "border-white" : "border-transparent",
                           )}
-                          aria-label="选择色标"
+                          aria-label={t("选择色标")}
                         >
                           <span
                             className="absolute inset-[3px] rounded-[2px]"
@@ -639,16 +641,16 @@ export function ColorEditor({
                     </ContextMenuTrigger>
                     <ContextMenuContent>
                       <ContextMenuItem onSelect={() => onDuplicateStop(stop.id)}>
-                        复制
+                        {t("复制")}
                       </ContextMenuItem>
                       <ContextMenuItem onSelect={() => onCopyHex(stop.id)}>
-                        复制 hex 值
+                        {t("复制 hex 值")}
                       </ContextMenuItem>
                       <ContextMenuItem
                         disabled={sortedStops.length <= 2}
                         onSelect={() => onDeleteStop(stop.id)}
                       >
-                        删除
+                        {t("删除")}
                       </ContextMenuItem>
                     </ContextMenuContent>
                   </ContextMenu>,
@@ -670,7 +672,7 @@ export function ColorEditor({
                   if (normalized) onSetSolid(normalized);
                 }}
                 className="h-8 min-w-0 flex-1 rounded-md border border-neutral-800 bg-black/30 px-2 font-mono text-xs text-neutral-100 outline-none focus:border-neutral-500"
-                aria-label="HEX 颜色值"
+                aria-label={t("HEX 颜色值")}
               />
             </div>
           )

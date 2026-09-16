@@ -1,31 +1,32 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Blend,
   Contrast,
+  Download,
   Droplets,
-  Eye,
   Home,
   Image as ImageIcon,
   Menu,
-  Moon,
   Palette,
   Paintbrush,
+  PanelLeftClose,
+  PanelLeftOpen,
   Smartphone,
-  Sun,
   User,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { Logo } from "@/components/colora/Logo";
 import { useColora } from "@/lib/colora-store";
-import { CB_LABELS, type CBMode } from "@/lib/color";
+import type { TKey } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/use-t";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tip } from "./primitives";
+import { ExportDialog } from "./ExportDialog";
+import { AccountMenu } from "./account/AccountMenu";
+import { SignInDialog } from "./account/SignInDialog";
+import { getUserInitial } from "./account/utils";
 
 export type ToolId =
   "home" | "palette" | "gradient" | "canvas" | "mixer" | "image" | "contrast" | "preview";
@@ -46,7 +47,17 @@ export function isToolSupportedOnMobile(id: ToolId) {
   return !MOBILE_UNSUPPORTED.has(id);
 }
 
-export const TOOLS: { id: ToolId; label: string; icon: typeof Home; badge?: string }[] = [
+/** 读侧栏收起偏好。SSR 无 window 时返回 false（默认展开）。 */
+function loadNavCollapsed() {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem("colora.navCollapsed") === "true";
+  } catch {
+    return false;
+  }
+}
+
+export const TOOLS: { id: ToolId; label: TKey; icon: typeof Home; badge?: string }[] = [
   { id: "home", label: "首页", icon: Home },
   { id: "palette", label: "配色方案", icon: Palette },
   { id: "gradient", label: "渐变编辑", icon: Droplets },
@@ -57,65 +68,58 @@ export const TOOLS: { id: ToolId; label: string; icon: typeof Home; badge?: stri
   { id: "preview", label: "实时预览", icon: Smartphone },
 ];
 
-const CB_ICON_COLORS: Record<Exclude<CBMode, "none">, string> = {
-  protanopia: "#ef4444",
-  deuteranopia: "#22c55e",
-  tritanopia: "#3b82f6",
-  achromatopsia: "#737373",
-};
-
 type ActionVariant = "sidebar" | "topbar";
 
-function getUserInitial(user: string) {
-  return user.trim().charAt(0).toUpperCase() || "U";
-}
-
 function NavItem({
+  toolId,
   label,
   icon: Icon,
   badge,
   active,
+  tip,
   onClick,
-  buttonRef,
 }: {
+  toolId: ToolId;
   label: string;
   icon: typeof Home;
   badge?: string;
   active?: boolean;
+  /** 仅桌面收起态传入：此时按钮只剩图标，tooltip 是唯一的文字提示。 */
+  tip?: string;
   onClick?: () => void;
-  buttonRef?: (node: HTMLButtonElement | null) => void;
 }) {
-  return (
+  const button = (
     <button
-      ref={buttonRef}
       type="button"
       onClick={onClick}
-      data-label={label}
+      // 用工具 id 而非 label：label 会随语言变，而 styles.css 按 `[data-label]` 做 per-tool 微调。
+      data-label={toolId}
       data-active={active ? "true" : undefined}
       className={cn(
-        "colora-sidebar-button relative flex w-full flex-col items-center rounded-lg text-[11px]",
+        "colora-sidebar-button relative flex w-full items-center rounded-lg",
         active
           ? "bg-sidebar-accent font-medium text-sidebar-foreground"
           : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
       )}
     >
-      <Icon className="size-5" strokeWidth={1.6} />
-      <span className="colora-sidebar-label leading-none">
-        {label === "对比度检查" ? (
-          <>
-            <span className="colora-sidebar-label-line">对比度</span>
-            <span className="colora-sidebar-label-line">检查</span>
-          </>
-        ) : (
-          label
-        )}
-      </span>
+      <Icon className="size-5 shrink-0" strokeWidth={1.6} />
+      <span className="colora-sidebar-label truncate">{label}</span>
       {badge && (
         <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] leading-none text-primary">
           {badge}
         </span>
       )}
     </button>
+  );
+
+  // Tip 走 cloneElement 把事件注入到直接子元素上（见 primitives.tsx），所以必须在这里
+  // 包住真正的 <button>。调用点用 <Tip> 包 <NavItem/> 是不行的 —— 注入不到 DOM 上。
+  return tip ? (
+    <Tip label={tip} side="right">
+      {button}
+    </Tip>
+  ) : (
+    button
   );
 }
 
@@ -136,251 +140,102 @@ function ActionTip({
   return <Tip label={label}>{children}</Tip>;
 }
 
-/** 色盲模拟按钮：sidebar 为纵向（桌面侧边栏），topbar 为横向小图标（移动端右上角）。 */
-function ColorBlindAction({ variant }: { variant: ActionVariant }) {
-  const { cbMode, setCbMode } = useColora();
-  const active = cbMode !== "none";
+/**
+ * 导出中心入口。`ExportDialog` 不传 module 即为 "all"，含「当前颜色」「收藏色板」两个 tab ——
+ * 这个入口原先只存在于 InfoPanel，随它下线后必须在这里补上，否则那两个 tab 无从进入。
+ */
+function ExportCenterAction({ variant }: { variant: ActionVariant }) {
+  const t = useT();
   return (
-    <Popover>
-      <ActionTip variant={variant} label="色盲模拟">
-        <PopoverTrigger asChild>
+    <ExportDialog
+      trigger={
+        <ActionTip variant={variant} label={t("导出中心")}>
           <button
             type="button"
-            aria-label="色盲模拟"
-            data-active={active ? "true" : undefined}
+            aria-label={t("导出中心")}
             className={cn(
-              "colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px]",
+              "colora-sidebar-button flex w-full items-center rounded-lg",
               variant === "topbar" && "colora-action-button-topbar",
-              active
-                ? "bg-sidebar-accent font-medium text-sidebar-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+              "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
             )}
           >
-            <Eye
-              className="size-5"
-              strokeWidth={1.6}
-              style={{
-                color: active ? CB_ICON_COLORS[cbMode as Exclude<CBMode, "none">] : undefined,
-              }}
-            />
+            <Download className="size-5" strokeWidth={1.6} />
             {variant === "sidebar" && (
-              <span className="colora-sidebar-label leading-none">色盲模拟</span>
+              <span className="colora-sidebar-label leading-none">{t("导出中心")}</span>
             )}
           </button>
-        </PopoverTrigger>
-      </ActionTip>
-      <PopoverContent
-        side={variant === "topbar" ? "bottom" : "right"}
-        align="end"
-        className="w-44 p-1"
-      >
-        {(Object.keys(CB_LABELS) as Exclude<CBMode, "none">[]).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setCbMode(cbMode === m ? "none" : m)}
-            className={cn(
-              "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-sm hover:bg-accent",
-              cbMode === m && "bg-accent font-medium",
-            )}
-          >
-            <span className="flex items-center gap-2">
-              <Eye className="size-4" strokeWidth={1.6} style={{ color: CB_ICON_COLORS[m] }} />
-              {CB_LABELS[m]}
-            </span>
-            {cbMode === m && <span>✓</span>}
-          </button>
-        ))}
-      </PopoverContent>
-    </Popover>
+        </ActionTip>
+      }
+    />
   );
 }
 
-/** 主题切换按钮。 */
-function ThemeAction({ variant }: { variant: ActionVariant }) {
-  const { theme, toggleTheme } = useColora();
-  return (
-    <ActionTip variant={variant} label="深浅色切换">
-      <button
-        type="button"
-        onClick={toggleTheme}
-        aria-label="深浅色切换"
-        className={cn(
-          "colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px]",
-          variant === "topbar" && "colora-action-button-topbar",
-          "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-        )}
-      >
-        {theme === "dark" ? (
-          <Sun className="size-5" strokeWidth={1.6} />
-        ) : (
-          <Moon className="size-5" strokeWidth={1.6} />
-        )}
-        {variant === "sidebar" && (
-          <span className="colora-sidebar-label leading-none">
-            {theme === "dark" ? "浅色" : "深色"}
-          </span>
-        )}
-      </button>
-    </ActionTip>
-  );
-}
-
-/** 登录/账户按钮 + 弹出表单。 */
+/** 账户与设置入口：点击展开面板（语言 / 主题 / 登录），面板里再点「登录」才弹居中弹窗。 */
 function AccountAction({ variant }: { variant: ActionVariant }) {
-  const { user, signIn, signUp, signOut } = useColora();
-  const [mode, setMode] = useState("login");
-  const [email, setEmail] = useState("");
-  const [pw, setPw] = useState("");
-  const [pw2, setPw2] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  const canSubmit = emailOk && pw.length >= 6 && (mode === "login" || pw2.length >= 6);
+  const { user } = useColora();
+  const t = useT();
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
+  // 标记「这次关面板是为了转场到登录弹窗」，供 onCloseAutoFocus 判断。
+  const toAuthRef = useRef(false);
   const avatarInitial = user ? getUserInitial(user) : null;
+  const label = user ? t("账户与设置（已登录：{email}）", { email: user }) : t("账户与设置");
 
-  const reset = () => {
-    setPw("");
-    setPw2("");
-    setError(null);
-  };
-
-  const submit = () => {
-    const res = mode === "login" ? signIn(email, pw) : signUp(email, pw, pw2);
-    if (!res.ok) setError(res.error ?? "操作失败");
-    else reset();
+  const requestSignIn = () => {
+    // Popover 关闭时默认把焦点还给触发按钮，会和 Dialog 的自动聚焦相争，
+    // 导致弹窗内的键盘操作失效。置位标记让 onCloseAutoFocus 放弃归还焦点。
+    toAuthRef.current = true;
+    setPanelOpen(false);
+    setAuthOpen(true);
   };
 
   return (
-    <Popover>
-      <ActionTip variant={variant} label={user ? `已登录：${user}` : "登录"}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            aria-label={user ? `已登录：${user}` : "登录"}
-            data-signed-in={user ? "true" : undefined}
-            className={cn(
-              "colora-sidebar-button flex w-full flex-col items-center rounded-lg text-[11px]",
-              variant === "topbar" && "colora-action-button-topbar",
-              user ? "text-sidebar-foreground" : "text-muted-foreground",
-              "hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-            )}
-          >
-            {avatarInitial ? (
-              <Avatar className="colora-sidebar-avatar size-6 border border-sidebar-border bg-sidebar-primary text-sidebar-primary-foreground">
-                <AvatarFallback className="bg-sidebar-primary text-[11px] font-semibold text-sidebar-primary-foreground">
-                  {avatarInitial}
-                </AvatarFallback>
-              </Avatar>
-            ) : (
-              <User className="size-5" strokeWidth={1.6} />
-            )}
-            {variant === "sidebar" && (
-              <span className="colora-sidebar-label leading-none">{user ? "已登录" : "登录"}</span>
-            )}
-          </button>
-        </PopoverTrigger>
-      </ActionTip>
-      <PopoverContent
-        side={variant === "topbar" ? "bottom" : "right"}
-        align="end"
-        className="colora-login-popover w-72"
-      >
-        {user ? (
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <Avatar className="size-10 border border-border bg-primary text-primary-foreground">
-                <AvatarFallback className="bg-primary text-sm font-semibold text-primary-foreground">
-                  {avatarInitial}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0">
-                <p className="text-xs text-muted-foreground">已登录</p>
-                <p className="truncate text-sm font-medium">{user}</p>
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground">配色方案将保存到此账户。</p>
-            <Button variant="outline" className="w-full" onClick={signOut}>
-              退出登录
-            </Button>
-          </div>
-        ) : (
-          <div className="flex min-h-[336px] flex-col gap-3">
-            <Tabs
-              value={mode}
-              onValueChange={(v) => {
-                setMode(v);
-                reset();
-              }}
-            >
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="login" className="w-full">
-                  登录
-                </TabsTrigger>
-                <TabsTrigger value="register" className="w-full">
-                  注册
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-            <form
-              className="space-y-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                submit();
-              }}
-            >
-              <label className="text-xs text-muted-foreground">邮箱地址</label>
-              <Input
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  setError(null);
-                }}
-                placeholder="请输入邮箱地址"
-                type="email"
-                autoComplete="email"
-              />
-              <label className="text-xs text-muted-foreground">密码</label>
-              <Input
-                value={pw}
-                onChange={(e) => {
-                  setPw(e.target.value);
-                  setError(null);
-                }}
-                placeholder="至少 6 位密码"
-                type="password"
-                autoComplete={mode === "login" ? "current-password" : "new-password"}
-              />
-              {mode === "register" && (
-                <>
-                  <label className="text-xs text-muted-foreground">确认密码</label>
-                  <Input
-                    value={pw2}
-                    onChange={(e) => {
-                      setPw2(e.target.value);
-                      setError(null);
-                    }}
-                    placeholder="请再次输入密码"
-                    type="password"
-                    autoComplete="new-password"
-                  />
-                  {pw2.length > 0 && pw !== pw2 && (
-                    <p className="text-[11px] text-muted-foreground">两次输入的密码不一致</p>
-                  )}
-                </>
+    <>
+      <Popover open={panelOpen} onOpenChange={setPanelOpen}>
+        <ActionTip variant={variant} label={label}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label={label}
+              data-signed-in={user ? "true" : undefined}
+              className={cn(
+                "colora-sidebar-button flex w-full items-center rounded-lg",
+                variant === "topbar" && "colora-action-button-topbar",
+                user ? "text-sidebar-foreground" : "text-muted-foreground",
+                "hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
               )}
-              {error && <p className="text-[11px] font-medium">{error}</p>}
-              <Button className="w-full" type="submit" disabled={!canSubmit}>
-                {mode === "login" ? "登录" : "注册并登录"}
-              </Button>
-            </form>
-            <p className="mt-auto text-[11px] leading-relaxed text-muted-foreground">
-              无需登录即可使用大部分工具，但登录后才能保存和管理配色方案。
-            </p>
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
+            >
+              {avatarInitial ? (
+                <Avatar className="colora-sidebar-avatar size-6 border border-sidebar-border bg-sidebar-primary text-sidebar-primary-foreground">
+                  <AvatarFallback className="bg-sidebar-primary text-[11px] font-semibold text-sidebar-primary-foreground">
+                    {avatarInitial}
+                  </AvatarFallback>
+                </Avatar>
+              ) : (
+                <User className="size-5" strokeWidth={1.6} />
+              )}
+              {variant === "sidebar" && (
+                <span className="colora-sidebar-label leading-none">{t("账户")}</span>
+              )}
+            </button>
+          </PopoverTrigger>
+        </ActionTip>
+        <PopoverContent
+          side={variant === "topbar" ? "bottom" : "right"}
+          align="end"
+          className="colora-account-menu w-72"
+          onCloseAutoFocus={(e) => {
+            if (!toAuthRef.current) return;
+            toAuthRef.current = false;
+            e.preventDefault();
+          }}
+        >
+          <AccountMenu onRequestSignIn={requestSignIn} onClose={() => setPanelOpen(false)} />
+        </PopoverContent>
+      </Popover>
+
+      <SignInDialog open={authOpen} onOpenChange={setAuthOpen} />
+    </>
   );
 }
 
@@ -396,72 +251,30 @@ export function Sidebar({
   onOpenChange?: (open: boolean) => void;
 }) {
   const { logoGradient, randomizeLogoGradient } = useColora();
+  const t = useT();
   const isMobile = useIsMobile();
-  // 移动端隐藏暂不支持的工具入口（画布）；index 与下方 TOOLS.map 共用同一列表，保证指示器对齐。
+  // 移动端隐藏暂不支持的工具入口（画布）；index 的标题与这里共用同一列表。
   const navTools = visibleTools(isMobile);
-  const navRef = useRef<HTMLElement | null>(null);
-  const navItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const activeIndicatorRef = useRef<HTMLSpanElement | null>(null);
-  const activeToolIndex = Math.max(
-    navTools.findIndex((toolConfig) => toolConfig.id === tool),
-    0,
-  );
+  // 桌面侧栏的展开/收起偏好。放在组件内而非 store：store 的 value 是单个 useMemo，
+  // 加字段会让全应用（含常驻挂载的 CanvasTool）跟着重渲染。
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    setCollapsed(loadNavCollapsed());
+  }, []);
 
-  useLayoutEffect(() => {
-    let frameId = 0;
-    let settleTimeoutId = 0;
-
-    const updateActiveIndicator = () => {
-      const navNode = navRef.current;
-      const activeButton = navItemRefs.current[activeToolIndex];
-      const indicator = activeIndicatorRef.current;
-
-      if (!navNode || !activeButton || !indicator) return;
-
-      const navRect = navNode.getBoundingClientRect();
-      const buttonRect = activeButton.getBoundingClientRect();
-      const top = buttonRect.top - navRect.top + buttonRect.height / 2;
-
-      indicator.style.opacity = "1";
-      indicator.style.transform = `translate3d(0, ${top}px, 0) translateY(-50%)`;
-    };
-
-    const scheduleActiveIndicatorUpdate = () => {
-      window.cancelAnimationFrame(frameId);
-      window.clearTimeout(settleTimeoutId);
-
-      frameId = window.requestAnimationFrame(updateActiveIndicator);
-      settleTimeoutId = window.setTimeout(updateActiveIndicator, 180);
-    };
-
-    const resizeObserver =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(scheduleActiveIndicatorUpdate);
-
-    const navNode = navRef.current;
-
-    scheduleActiveIndicatorUpdate();
-
-    if (resizeObserver) {
-      if (navNode) resizeObserver.observe(navNode);
+  // 持久化。用 ref 跳过挂载后的首跑，否则会用默认的 false 覆盖掉上面刚读出来的偏好。
+  const skipPersistRef = useRef(true);
+  useEffect(() => {
+    if (skipPersistRef.current) {
+      skipPersistRef.current = false;
+      return;
     }
-
-    window.addEventListener("resize", scheduleActiveIndicatorUpdate);
-    navNode?.addEventListener("pointerover", scheduleActiveIndicatorUpdate);
-    navNode?.addEventListener("pointerout", scheduleActiveIndicatorUpdate);
-    navNode?.addEventListener("transitionend", scheduleActiveIndicatorUpdate);
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-      window.clearTimeout(settleTimeoutId);
-      window.removeEventListener("resize", scheduleActiveIndicatorUpdate);
-      navNode?.removeEventListener("pointerover", scheduleActiveIndicatorUpdate);
-      navNode?.removeEventListener("pointerout", scheduleActiveIndicatorUpdate);
-      navNode?.removeEventListener("transitionend", scheduleActiveIndicatorUpdate);
-      resizeObserver?.disconnect();
-    };
-  }, [activeToolIndex]);
+    try {
+      localStorage.setItem("colora.navCollapsed", JSON.stringify(collapsed));
+    } catch {
+      // 隐私模式等场景下 localStorage 可能抛错；偏好丢失不影响功能。
+    }
+  }, [collapsed]);
 
   const asideRef = useRef<HTMLElement | null>(null);
   const dragState = useRef({ startX: 0, dx: 0, width: 0, dragging: false });
@@ -500,7 +313,7 @@ export function Sidebar({
       onOpenChange?.(false);
 
       // 过渡结束后清掉内联 transform，下次打开从干净状态开始。
-      // 过滤 propertyName：子元素（active-indicator 等）的 transitionend 会冒泡，
+      // 过滤 propertyName：子元素的 transitionend 会冒泡上来，
       // 提前触发会让内联被清时 React 状态尚未更新而闪回。
       let finished = false;
       const done = () => {
@@ -558,16 +371,14 @@ export function Sidebar({
       <button
         type="button"
         onClick={() => onOpenChange?.(true)}
-        aria-label="打开侧边栏"
+        aria-label={t("打开侧边栏")}
         className="colora-mobile-nav-toggle"
       >
         <Menu className="size-5" strokeWidth={1.8} />
       </button>
 
-      {/* 移动端：右上角动作栏（色盲 / 主题 / 登录） */}
-      <div className="colora-mobile-actions" role="toolbar" aria-label="操作">
-        <ColorBlindAction variant="topbar" />
-        <ThemeAction variant="topbar" />
+      {/* 移动端：右上角动作栏（账户与设置） */}
+      <div className="colora-mobile-actions" role="toolbar" aria-label={t("操作")}>
         <AccountAction variant="topbar" />
       </div>
 
@@ -586,50 +397,74 @@ export function Sidebar({
         ref={asideRef}
         className="colora-sidebar"
         data-open={open ? "true" : undefined}
+        data-collapsed={collapsed ? "true" : undefined}
         onPointerDown={onDragPointerDown}
       >
         <div className="colora-sidebar-header">
-          <Tip label="试试点击！" side="right">
+          <Tip label={t("试试点击！")} side="right">
             <button
               type="button"
               onClick={randomizeLogoGradient}
-              aria-label="点击随机切换笑脸颜色"
+              aria-label={t("点击随机切换品牌渐变")}
               className="colora-sidebar-logo transition-opacity hover:opacity-90 active:scale-95 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
             >
-              <Logo className="size-8 text-foreground" gradient={logoGradient} />
-              <span className="sr-only">Colora</span>
+              {/*
+                渐变色挂在紧贴文字的这层 span 上，而不是按钮上：background-clip:text
+                的渐变按元素自身盒子铺开，挂在按钮上时窄 rail 里那个单字母 “C” 只会取到
+                整条渐变中间的一小段，几乎看不出颜色；挂在 span 上整条渐变才落在字上。
+                两个 span 由 CSS 按断点互斥显示（窄 rail 只留 “C”，抽屉里才是全称）。
+              */}
+              <span
+                className="colora-sidebar-logo-text font-brand bg-clip-text text-transparent"
+                style={{ backgroundImage: `linear-gradient(135deg, ${logoGradient.join(", ")})` }}
+              >
+                <span className="colora-sidebar-logo-mark">C</span>
+                <span className="colora-sidebar-logo-word">COLORA</span>
+              </span>
             </button>
           </Tip>
+          {/* 桌面端展开/收起。与下面的关闭按钮互斥：这个桌面显示、那个移动端显示。 */}
+          <button
+            type="button"
+            onClick={() => setCollapsed((c) => !c)}
+            aria-label={collapsed ? t("展开侧边栏") : t("收起侧边栏")}
+            aria-expanded={!collapsed}
+            className="colora-sidebar-collapse"
+          >
+            {collapsed ? (
+              <PanelLeftOpen className="size-4" strokeWidth={1.8} />
+            ) : (
+              <PanelLeftClose className="size-4" strokeWidth={1.8} />
+            )}
+          </button>
           <button
             type="button"
             onClick={close}
-            aria-label="收起侧边栏"
+            aria-label={t("收起侧边栏")}
             className="colora-sidebar-close"
           >
             <X className="size-5" strokeWidth={1.8} />
           </button>
         </div>
 
-        <nav ref={navRef} className="colora-sidebar-nav">
-          <span ref={activeIndicatorRef} aria-hidden className="colora-sidebar-active-indicator" />
-          {navTools.map((toolConfig, index) => (
+        <nav className="colora-sidebar-nav">
+          {navTools.map((toolConfig) => (
             <NavItem
               key={toolConfig.id}
-              label={toolConfig.label}
+              toolId={toolConfig.id}
+              label={t(toolConfig.label)}
               icon={toolConfig.icon}
               badge={toolConfig.badge}
               active={tool === toolConfig.id}
-              buttonRef={(node) => {
-                navItemRefs.current[index] = node;
-              }}
+              // 只在桌面收起态给 tooltip：移动端抽屉里按钮本就带文字，且 Tip 带长按逻辑。
+              tip={!isMobile && collapsed ? t(toolConfig.label) : undefined}
               onClick={() => onTool(toolConfig.id)}
             />
           ))}
         </nav>
 
         <div className="colora-sidebar-actions">
-          <ColorBlindAction variant="sidebar" />
-          <ThemeAction variant="sidebar" />
+          <ExportCenterAction variant="sidebar" />
           <AccountAction variant="sidebar" />
         </div>
       </aside>

@@ -14,11 +14,12 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useColora, type GradientConfig, type GradientStop } from "@/lib/colora-store";
 import { interpolate, randomHex, simulateCB, type CBMode, type InterpSpace } from "@/lib/color";
+import { useT } from "@/lib/i18n/use-t";
 import { ColorPicker, CopyButton, InlineRename, Tip } from "../primitives";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ExportDialog } from "../ExportDialog";
-import { GRADIENT_LINE_RADIUS, MESH_POINTS, TYPES } from "./constants";
+import { GRADIENT_LINE_RADIUS, GRAD_TYPE_LABELS, MESH_POINTS, TYPES } from "./constants";
 import type { GradType, MeshPoint } from "./constants";
 import {
   clampPercent,
@@ -54,6 +55,7 @@ export function GradientTool() {
   const [showStops, setShowStops] = useState(true);
   const [editingGradientId, setEditingGradientId] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const t = useT();
 
   const stops = [...gradientStops].sort((a, b) => a.pos - b.pos);
 
@@ -249,7 +251,7 @@ export function GradientTool() {
   const angleMathRad = ((angle - 90) * Math.PI) / 180;
 
   const favoriteCurrentGradient = () => {
-    saveGradient(`渐变 ${favoriteGradients.length + 1}`, stops, currentConfig);
+    saveGradient(t("渐变 {n}", { n: favoriteGradients.length + 1 }), stops, currentConfig);
   };
 
   const applyGradient = (stopsToApply: GradientStop[], configToApply: GradientConfig) => {
@@ -266,9 +268,9 @@ export function GradientTool() {
     <div className="space-y-4">
       <Tabs value={type} onValueChange={(v) => setType(v as GradType)}>
         <TabsList>
-          {TYPES.map((t) => (
-            <TabsTrigger key={t.key} value={t.key}>
-              {t.label}
+          {TYPES.map((item) => (
+            <TabsTrigger key={item.key} value={item.key}>
+              {t(item.label)}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -283,7 +285,7 @@ export function GradientTool() {
           <button
             type="button"
             onClick={() => setShowStops((s) => !s)}
-            aria-label={showStops ? "隐藏圆点" : "显示圆点"}
+            aria-label={showStops ? t("隐藏圆点") : t("显示圆点")}
             aria-pressed={!showStops}
             className="absolute right-3 top-3 z-40 grid size-8 place-items-center rounded-full bg-background/85 text-muted-foreground shadow-sm ring-1 ring-inset ring-foreground/25 backdrop-blur transition-colors hover:bg-background hover:text-foreground"
           >
@@ -342,7 +344,7 @@ export function GradientTool() {
                     setDraggingStopId(null);
                     dragInfoRef.current = null;
                   }}
-                  aria-label={`调整团块 ${stopIndex + 1} 位置`}
+                  aria-label={t("调整团块 {n} 位置", { n: stopIndex + 1 })}
                 />
               );
             })}
@@ -367,7 +369,7 @@ export function GradientTool() {
               onPointerCancel={() => {
                 dragInfoRef.current = null;
               }}
-              aria-label="调整渐变中心位置"
+              aria-label={t("调整渐变中心位置")}
             />
           )}
           {showStops && type === "linear" && (
@@ -396,7 +398,7 @@ export function GradientTool() {
                 onPointerCancel={() => {
                   dragInfoRef.current = null;
                 }}
-                aria-label={`拖动调整渐变角度，当前 ${angle}°`}
+                aria-label={t("拖动调整渐变角度，当前 {angle}°", { angle })}
               >
                 <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-foreground/30" />
                 <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-background/85 px-1.5 py-0.5 text-[10px] font-medium text-foreground shadow-sm">
@@ -405,9 +407,9 @@ export function GradientTool() {
               </div>
               {stops.map((stop, stopIndex) => {
                 // 停止点沿渐变方向线分布：pos 0→-R，pos 100→+R
-                const t = (stop.pos - 50) / 50;
-                const dx = t * GRADIENT_LINE_RADIUS * Math.cos(angleMathRad);
-                const dy = t * GRADIENT_LINE_RADIUS * Math.sin(angleMathRad);
+                const along = (stop.pos - 50) / 50;
+                const dx = along * GRADIENT_LINE_RADIUS * Math.cos(angleMathRad);
+                const dy = along * GRADIENT_LINE_RADIUS * Math.sin(angleMathRad);
                 return (
                   <button
                     key={stop.id}
@@ -454,7 +456,7 @@ export function GradientTool() {
                       setDraggingStopId(null);
                       dragInfoRef.current = null;
                     }}
-                    aria-label={`调整节点 ${stopIndex + 1} 位置`}
+                    aria-label={t("调整节点 {n} 位置", { n: stopIndex + 1 })}
                   />
                 );
               })}
@@ -475,9 +477,9 @@ export function GradientTool() {
               />
               {stops.map((stop, stopIndex) => {
                 // 停止点沿径向线分布：pos 0→center，pos 100→R
-                const t = stop.pos / 100;
-                const dx = t * GRADIENT_LINE_RADIUS * Math.cos(-Math.PI / 4);
-                const dy = t * GRADIENT_LINE_RADIUS * Math.sin(-Math.PI / 4);
+                const along = stop.pos / 100;
+                const dx = along * GRADIENT_LINE_RADIUS * Math.cos(-Math.PI / 4);
+                const dy = along * GRADIENT_LINE_RADIUS * Math.sin(-Math.PI / 4);
                 return (
                   <button
                     key={stop.id}
@@ -524,7 +526,7 @@ export function GradientTool() {
                       setDraggingStopId(null);
                       dragInfoRef.current = null;
                     }}
-                    aria-label={`调整节点 ${stopIndex + 1} 位置`}
+                    aria-label={t("调整节点 {n} 位置", { n: stopIndex + 1 })}
                   />
                 );
               })}
@@ -570,7 +572,7 @@ export function GradientTool() {
                 onPointerCancel={() => {
                   dragInfoRef.current = null;
                 }}
-                aria-label={`拖动调整起始角度，当前 ${angle}°`}
+                aria-label={t("拖动调整起始角度，当前 {angle}°", { angle })}
               >
                 <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-foreground/30" />
                 <span className="pointer-events-none absolute left-full top-1/2 ml-1 -translate-y-1/2 whitespace-nowrap rounded bg-background/85 px-1.5 py-0.5 text-[10px] font-medium text-foreground shadow-sm">
@@ -628,7 +630,7 @@ export function GradientTool() {
                       setDraggingStopId(null);
                       dragInfoRef.current = null;
                     }}
-                    aria-label={`调整节点 ${stopIndex + 1} 位置`}
+                    aria-label={t("调整节点 {n} 位置", { n: stopIndex + 1 })}
                   />
                 );
               })}
@@ -643,14 +645,14 @@ export function GradientTool() {
               return (
                 <div key={stop.id} className="flex items-center gap-1">
                   <Popover>
-                    <Tip label={`节点 ${stopIndex + 1}`}>
+                    <Tip label={t("节点 {n}", { n: stopIndex + 1 })}>
                       <PopoverTrigger asChild>
                         <button
                           type="button"
                           className="size-7 rounded-full border-2 border-background shadow-[0_0_0_1px_var(--color-border)]"
                           style={{ backgroundColor: simulateCB(stop.hex, cbMode) }}
                           onDoubleClick={() => setColor(stop.hex)}
-                          aria-label={`节点 ${stopIndex + 1}`}
+                          aria-label={t("节点 {n}", { n: stopIndex + 1 })}
                         />
                       </PopoverTrigger>
                     </Tip>
@@ -658,7 +660,7 @@ export function GradientTool() {
                       <ColorPicker value={stop.hex} onChange={(hex) => setStop(stop.id, { hex })} />
                       <div>
                         <label className="text-xs text-muted-foreground">
-                          {type === "mesh" ? "线性位置" : "位置"} {Math.round(stop.pos)}%
+                          {type === "mesh" ? t("线性位置") : t("位置")} {Math.round(stop.pos)}%
                         </label>
                         <input
                           type="range"
@@ -677,7 +679,7 @@ export function GradientTool() {
                         <div className="grid gap-3">
                           <div>
                             <label className="text-xs text-muted-foreground">
-                              团块 X {Math.round(meshPoint.x)}%
+                              {t("团块 X")} {Math.round(meshPoint.x)}%
                             </label>
                             <input
                               type="range"
@@ -696,7 +698,7 @@ export function GradientTool() {
                           </div>
                           <div>
                             <label className="text-xs text-muted-foreground">
-                              团块 Y {Math.round(meshPoint.y)}%
+                              {t("团块 Y")} {Math.round(meshPoint.y)}%
                             </label>
                             <input
                               type="range"
@@ -725,7 +727,7 @@ export function GradientTool() {
                             )
                           }
                         >
-                          <Trash2 className="size-4" /> 删除节点
+                          <Trash2 className="size-4" /> {t("删除节点")}
                         </Button>
                       )}
                     </PopoverContent>
@@ -738,7 +740,7 @@ export function GradientTool() {
 
           {user && (
             <Button className="gap-2" onClick={favoriteCurrentGradient}>
-              <Heart className="size-4" /> 收藏当前渐变
+              <Heart className="size-4" /> {t("收藏当前渐变")}
             </Button>
           )}
           <Button
@@ -756,13 +758,13 @@ export function GradientTool() {
               ])
             }
           >
-            <Plus className="size-4" /> 添加节点
+            <Plus className="size-4" /> {t("添加节点")}
           </Button>
           <ExportDialog
             module="gradient"
             trigger={
               <Button variant="outline" className="gap-2">
-                <Code2 className="size-4" /> 导出当前渐变
+                <Code2 className="size-4" /> {t("导出当前渐变")}
               </Button>
             }
           />
@@ -772,12 +774,12 @@ export function GradientTool() {
       {user && (
         <section className="panel p-5">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-medium">已收藏的渐变</h3>
-            <span className="text-xs text-muted-foreground">点击卡片即可恢复并继续调整</span>
+            <h3 className="text-sm font-medium">{t("已收藏的渐变")}</h3>
+            <span className="text-xs text-muted-foreground">{t("点击卡片即可恢复并继续调整")}</span>
           </div>
           {favoriteGradients.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              暂无收藏渐变，点击「收藏当前渐变」保存。
+              {t("暂无收藏渐变，点击「收藏当前渐变」保存。")}
             </p>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -791,7 +793,7 @@ export function GradientTool() {
                     onClick={() => applyGradient(savedGradient.stops, savedGradient.config)}
                     className="h-20 w-full rounded-lg border border-border/60 transition-transform hover:scale-[1.01]"
                     style={gradientPreviewStyle(savedGradient.config, savedGradient.stops, cbMode)}
-                    aria-label={`应用渐变：${savedGradient.name}`}
+                    aria-label={t("应用渐变：{name}", { name: savedGradient.name })}
                   />
                   <div className="flex items-center justify-between gap-1">
                     <div className="min-w-0 flex-1 text-left">
@@ -804,28 +806,28 @@ export function GradientTool() {
                         onSave={(nextName) => renameGradient(savedGradient.id, nextName)}
                         className="w-full"
                         textClassName="text-xs font-medium"
-                        ariaLabel="重命名渐变"
+                        ariaLabel={t("重命名渐变")}
                       />
                       <span className="block text-[11px] text-muted-foreground">
-                        {TYPES.find((item) => item.key === savedGradient.config.type)?.label} ·{" "}
-                        {savedGradient.stops.length} 节点
+                        {t(GRAD_TYPE_LABELS[savedGradient.config.type])} ·{" "}
+                        {t("{n} 节点", { n: savedGradient.stops.length })}
                       </span>
                     </div>
-                    <Tip label="重命名渐变">
+                    <Tip label={t("重命名渐变")}>
                       <button
                         type="button"
                         className="rounded p-1 text-muted-foreground hover:text-foreground"
-                        aria-label="重命名渐变"
+                        aria-label={t("重命名渐变")}
                         onClick={() => setEditingGradientId(savedGradient.id)}
                       >
                         <Pencil className="size-3.5" />
                       </button>
                     </Tip>
-                    <Tip label="删除渐变">
+                    <Tip label={t("删除渐变")}>
                       <button
                         type="button"
                         className="rounded p-1 text-muted-foreground hover:text-foreground"
-                        aria-label="删除渐变"
+                        aria-label={t("删除渐变")}
                         onClick={() => removeGradient(savedGradient.id)}
                       >
                         <Trash2 className="size-3.5" />
@@ -847,7 +849,7 @@ export function GradientTool() {
         >
           <span className="flex items-center gap-2">
             <Settings2 className="size-4 text-muted-foreground" strokeWidth={1.6} />
-            渐变控制（角度 / 中心 / 插值方式）
+            {t("渐变控制（角度 / 中心 / 插值方式）")}
           </span>
           <ChevronDown className={cn("size-4 transition-transform", showCtrl && "rotate-180")} />
         </button>
@@ -856,10 +858,10 @@ export function GradientTool() {
             <div>
               <label className="text-xs text-muted-foreground">
                 {type === "mesh"
-                  ? "角度（Mesh 不适用）"
+                  ? t("角度（Mesh 不适用）")
                   : type === "radial"
-                    ? "角度（径向不适用）"
-                    : `角度 ${angle}°`}
+                    ? t("角度（径向不适用）")
+                    : t("角度 {angle}°", { angle })}
               </label>
               <input
                 type="range"
@@ -879,7 +881,7 @@ export function GradientTool() {
               <div className="grid gap-3">
                 <div>
                   <label className="text-xs text-muted-foreground">
-                    中心 X {Math.round(gradientCenter.x)}%
+                    {t("中心 X")} {Math.round(gradientCenter.x)}%
                   </label>
                   <input
                     type="range"
@@ -898,7 +900,7 @@ export function GradientTool() {
                 </div>
                 <div>
                   <label className="text-xs text-muted-foreground">
-                    中心 Y {Math.round(gradientCenter.y)}%
+                    {t("中心 Y")} {Math.round(gradientCenter.y)}%
                   </label>
                   <input
                     type="range"
@@ -918,7 +920,7 @@ export function GradientTool() {
               </div>
             )}
             <div>
-              <label className="text-xs text-muted-foreground">色彩空间插值</label>
+              <label className="text-xs text-muted-foreground">{t("色彩空间插值")}</label>
               <div className="mt-2 flex gap-1">
                 {(["rgb", "lab", "lch"] as InterpSpace[]).map((s) => (
                   <button
@@ -949,7 +951,7 @@ export function GradientTool() {
         >
           <span className="flex items-center gap-2">
             <Code2 className="size-4 text-muted-foreground" strokeWidth={1.6} />
-            CSS 代码
+            {t("CSS 代码")}
           </span>
           <ChevronDown className={cn("size-4 transition-transform", showCode && "rotate-180")} />
         </button>
