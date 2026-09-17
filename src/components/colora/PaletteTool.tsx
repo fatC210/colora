@@ -4,22 +4,18 @@ import {
   Heart,
   Lock,
   LockOpen,
+  Palette,
   Plus,
   RefreshCw,
   Shuffle,
+  Sparkles,
   Trash2,
   Pencil,
+  Wand2,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useColora } from "@/lib/colora-store";
 import {
   HARMONIES,
@@ -37,6 +33,7 @@ import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ExportDialog } from "./ExportDialog";
 import { FavoriteColorsPanel } from "./FavoriteColorsPanel";
+import { ToolLayout } from "./ToolLayout";
 
 function SavedPalettes() {
   const { saved, removePalette, renamePalette, setPalette, user } = useColora();
@@ -144,7 +141,109 @@ export function PaletteTool() {
   };
 
   return (
-    <div className="space-y-4">
+    <ToolLayout
+      title={t("配色方案")}
+      rail={[
+        {
+          id: "base",
+          icon: Palette,
+          title: t("基础颜色"),
+          content: (
+            <div className="flex items-center gap-3">
+              <Popover>
+                <Tip label={t("选择基础颜色")}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="size-10 shrink-0 rounded-lg border border-border"
+                      style={{ backgroundColor: simulateCB(base, cbMode) }}
+                      aria-label={t("选择基础颜色")}
+                    />
+                  </PopoverTrigger>
+                </Tip>
+                <PopoverContent className="w-64">
+                  <ColorPicker value={base} onChange={updateBase} />
+                </PopoverContent>
+              </Popover>
+              <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-input px-3">
+                <input
+                  value={base}
+                  onChange={(e) => {
+                    const n = normalizeHex(e.target.value);
+                    if (n) updateBase(n);
+                    else setBase(e.target.value.toUpperCase());
+                  }}
+                  className="w-full min-w-0 bg-transparent font-mono text-sm outline-none"
+                  aria-label={t("基础色 HEX")}
+                />
+                <Pencil className="size-3.5 shrink-0 text-muted-foreground" />
+              </div>
+            </div>
+          ),
+        },
+        {
+          id: "harmony",
+          icon: Sparkles,
+          title: t("配色规则"),
+          content: (
+            <div className="space-y-1">
+              {HARMONIES.map((h) => (
+                <button
+                  key={h.key}
+                  type="button"
+                  onClick={() => updateRule(h.key)}
+                  className={cn(
+                    "flex w-full items-center rounded-md px-2.5 py-1.5 text-sm transition-colors",
+                    rule === h.key
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
+                >
+                  {t(h.label)}
+                </button>
+              ))}
+            </div>
+          ),
+        },
+        {
+          id: "actions",
+          icon: Wand2,
+          title: t("配色操作"),
+          content: (
+            <div className="flex flex-col gap-2">
+              {user && (
+                <Button className="w-full gap-2" onClick={favoriteCurrentPalette}>
+                  <Heart className="size-4" /> {t("收藏当前配色")}
+                </Button>
+              )}
+              <Button variant="outline" className="w-full gap-2" onClick={regenerate}>
+                <RefreshCw className="size-4" /> {t("重新生成")}
+              </Button>
+              <Button variant="outline" className="w-full gap-2" onClick={fineTune}>
+                <Shuffle className="size-4" /> {t("随机微调")}
+              </Button>
+              <ExportDialog
+                module="palette"
+                trigger={
+                  <Button variant="outline" className="w-full gap-2">
+                    <Download className="size-4" /> {t("导出当前配色")}
+                  </Button>
+                }
+              />
+            </div>
+          ),
+        },
+        {
+          // 收藏颜色的重命名/删除此前只有 InfoPanel 有入口，随它下线迁到这里。
+          // 未登录时整项不出现（面板与图标栏都不出现），所以不用让组件自己返回 null。
+          id: "favorites",
+          icon: Heart,
+          title: t("收藏颜色"),
+          visible: !!user,
+          content: <FavoriteColorsPanel />,
+        },
+      ]}
+    >
       <Tabs defaultValue="auto">
         <TabsList>
           <TabsTrigger value="auto">{t("自动生成")}</TabsTrigger>
@@ -153,73 +252,6 @@ export function PaletteTool() {
 
         <TabsContent value="auto" className="mt-4 space-y-4">
           <section className="panel p-5">
-            <div className="flex flex-wrap items-center justify-between gap-4 sm:justify-start">
-              <span className="text-sm font-medium">{t("基础颜色")}</span>
-              <div className="flex items-center gap-3">
-                <Popover>
-                  <Tip label={t("选择基础颜色")}>
-                    <PopoverTrigger asChild>
-                      <button
-                        type="button"
-                        className="size-10 rounded-lg border border-border"
-                        style={{ backgroundColor: simulateCB(base, cbMode) }}
-                        aria-label={t("选择基础颜色")}
-                      />
-                    </PopoverTrigger>
-                  </Tip>
-                  <PopoverContent className="w-64">
-                    <ColorPicker value={base} onChange={updateBase} />
-                  </PopoverContent>
-                </Popover>
-                <div className="flex h-10 items-center gap-2 rounded-lg border border-input px-3">
-                  <input
-                    value={base}
-                    onChange={(e) => {
-                      const n = normalizeHex(e.target.value);
-                      if (n) updateBase(n);
-                      else setBase(e.target.value.toUpperCase());
-                    }}
-                    className="w-24 bg-transparent font-mono text-sm outline-none"
-                    aria-label={t("基础色 HEX")}
-                  />
-                  <Pencil className="size-3.5 text-muted-foreground" />
-                </div>
-              </div>
-
-              {/* 移动端：下拉框，避免 6 个规则按钮换行成两行 */}
-              <Select value={rule} onValueChange={(v) => updateRule(v as HarmonyKey)}>
-                <SelectTrigger className="w-full sm:hidden" aria-label={t("配色规则")}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {HARMONIES.map((h) => (
-                    <SelectItem key={h.key} value={h.key}>
-                      {t(h.label)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {/* 桌面端：按钮组 */}
-              <div className="hidden flex-wrap gap-1 sm:flex sm:ml-auto">
-                {HARMONIES.map((h) => (
-                  <button
-                    key={h.key}
-                    type="button"
-                    onClick={() => updateRule(h.key)}
-                    className={cn(
-                      "rounded-full px-3.5 py-1.5 text-sm transition-colors",
-                      rule === h.key
-                        ? "bg-foreground text-background"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                    )}
-                  >
-                    {t(h.label)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               {palette.map((c, i) => (
                 <div key={i} className="space-y-2">
@@ -276,28 +308,6 @@ export function PaletteTool() {
                 </div>
               ))}
             </div>
-
-            <div className="mt-5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-2">
-              {user && (
-                <Button className="w-full gap-2 sm:w-auto" onClick={favoriteCurrentPalette}>
-                  <Heart className="size-4" /> {t("收藏当前配色")}
-                </Button>
-              )}
-              <Button variant="outline" className="w-full gap-2 sm:w-auto" onClick={regenerate}>
-                <RefreshCw className="size-4" /> {t("重新生成")}
-              </Button>
-              <Button variant="outline" className="w-full gap-2 sm:w-auto" onClick={fineTune}>
-                <Shuffle className="size-4" /> {t("随机微调")}
-              </Button>
-              <ExportDialog
-                module="palette"
-                trigger={
-                  <Button variant="outline" className="w-full gap-2 sm:w-auto">
-                    <Download className="size-4" /> {t("导出当前配色")}
-                  </Button>
-                }
-              />
-            </div>
           </section>
 
           <SavedPalettes />
@@ -308,10 +318,7 @@ export function PaletteTool() {
           <SavedPalettes />
         </TabsContent>
       </Tabs>
-
-      {/* 收藏颜色的重命名/删除此前只有 InfoPanel 有入口，随它下线迁到这里。 */}
-      <FavoriteColorsPanel />
-    </div>
+    </ToolLayout>
   );
 }
 

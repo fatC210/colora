@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Plus, Sliders, Trash2, ChevronDown, Blend } from "lucide-react";
+import { Blend, Download, Plus, Sliders, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useColora } from "@/lib/colora-store";
 import { bestTextOn, formatAll, mixColors, randomHex, simulateCB, type MixMode } from "@/lib/color";
@@ -9,15 +9,13 @@ import { ColorPicker, CopyText, Tip } from "./primitives";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { ExportDialog } from "./ExportDialog";
+import { ToolLayout } from "./ToolLayout";
 
 const MODES: { key: MixMode; label: TKey }[] = [
   { key: "subtractive", label: "减色混合" },
   { key: "additive", label: "加色混合" },
   { key: "average", label: "平均混合" },
 ];
-
-/** 按 MixMode 直接取 label，避免调用点写 `find(...)?.label` 再处理 undefined。 */
-const MODE_LABELS = Object.fromEntries(MODES.map((m) => [m.key, m.label])) as Record<MixMode, TKey>;
 
 type MixItem = { hex: string; weight: number };
 
@@ -32,7 +30,6 @@ export function MixerTool() {
   const [result, setResult] = useState<string | null>(null);
   const [mixing, setMixing] = useState(false);
   const [mixKey, setMixKey] = useState(0);
-  const [showModes, setShowModes] = useState(false);
   const mixTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const t = useT();
 
@@ -83,96 +80,129 @@ export function MixerTool() {
   const f = result ? formatAll(result) : null;
 
   return (
-    <div className="space-y-4">
-      <section className="panel grid grid-cols-1 items-center gap-4 p-4 md:grid-cols-2 lg:grid-cols-3">
-        {items.map((it, i) => (
-          <div key={i} className="flex min-w-0 items-center gap-3">
-            <Popover>
-              <Tip label={t("颜色 {n}", { n: i + 1 })}>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="size-11 rounded-lg border border-border"
-                    style={{ backgroundColor: simulateCB(it.hex, cbMode) }}
-                    aria-label={t("颜色 {n}", { n: i + 1 })}
-                  />
-                </PopoverTrigger>
-              </Tip>
-              <PopoverContent className="w-64">
-                <ColorPicker
-                  value={it.hex}
-                  onChange={(hex) =>
-                    updateItems(items.map((x, xi) => (xi === i ? { ...x, hex } : x)))
-                  }
-                />
-              </PopoverContent>
-            </Popover>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between">
-                <CopyText value={it.hex} className="font-mono text-xs" />
-                <span className="text-xs text-muted-foreground">{it.weight}%</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={it.weight}
-                onChange={(e) =>
-                  updateItems(
-                    items.map((x, xi) => (xi === i ? { ...x, weight: Number(e.target.value) } : x)),
-                  )
-                }
-                className="w-full accent-foreground"
-              />
-            </div>
-            {items.length > 2 && (
-              <Tip label={t("删除颜色")}>
-                <button
-                  type="button"
-                  onClick={() => updateItems(items.filter((_, xi) => xi !== i))}
-                  className="text-muted-foreground hover:text-foreground"
-                  aria-label={t("删除颜色")}
-                >
-                  <Trash2 className="size-4" />
-                </button>
-              </Tip>
-            )}
-            {i < items.length - 1 && (
-              <span
-                aria-hidden="true"
-                className="pointer-events-none hidden w-7 select-none items-center justify-center md:inline-flex"
+    <ToolLayout
+      title={t("色彩混合")}
+      rail={[
+        {
+          id: "colors",
+          icon: Blend,
+          title: t("混合颜色"),
+          content: (
+            <div className="space-y-4">
+              {items.map((it, i) => (
+                <div key={i} className="flex min-w-0 items-center gap-3">
+                  <Popover>
+                    <Tip label={t("颜色 {n}", { n: i + 1 })}>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="size-11 shrink-0 rounded-lg border border-border"
+                          style={{ backgroundColor: simulateCB(it.hex, cbMode) }}
+                          aria-label={t("颜色 {n}", { n: i + 1 })}
+                        />
+                      </PopoverTrigger>
+                    </Tip>
+                    <PopoverContent className="w-64">
+                      <ColorPicker
+                        value={it.hex}
+                        onChange={(hex) =>
+                          updateItems(items.map((x, xi) => (xi === i ? { ...x, hex } : x)))
+                        }
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between">
+                      <CopyText value={it.hex} className="font-mono text-xs" />
+                      <span className="text-xs text-muted-foreground">{it.weight}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={it.weight}
+                      onChange={(e) =>
+                        updateItems(
+                          items.map((x, xi) =>
+                            xi === i ? { ...x, weight: Number(e.target.value) } : x,
+                          ),
+                        )
+                      }
+                      className="w-full accent-foreground"
+                    />
+                  </div>
+                  {items.length > 2 && (
+                    <Tip label={t("删除颜色")}>
+                      <button
+                        type="button"
+                        onClick={() => updateItems(items.filter((_, xi) => xi !== i))}
+                        className="text-muted-foreground hover:text-foreground"
+                        aria-label={t("删除颜色")}
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </Tip>
+                  )}
+                </div>
+              ))}
+              <Button
+                variant="ghost"
+                className="h-10 w-full gap-2 rounded-md border border-border/80 bg-muted/5 px-4 hover:border-foreground/40 hover:bg-muted/15"
+                onClick={() => updateItems([...items, { hex: randomHex(), weight: 20 }])}
               >
-                <span className="font-mono text-2xl font-semibold leading-none text-foreground">
-                  +
-                </span>
-              </span>
-            )}
-          </div>
-        ))}
-        <Button
-          variant="ghost"
-          className="h-10 w-fit justify-self-end gap-2 rounded-md border border-border/80 bg-muted/5 px-4 hover:border-foreground/40 hover:bg-muted/15 md:justify-self-start"
-          onClick={() => updateItems([...items, { hex: randomHex(), weight: 20 }])}
-        >
-          <Plus className="size-4" /> {t("添加颜色")}
-        </Button>
-      </section>
-
+                <Plus className="size-4" /> {t("添加颜色")}
+              </Button>
+            </div>
+          ),
+        },
+        {
+          id: "mode",
+          icon: Sliders,
+          title: t("混合模式（减色 / 加色 / 平均）"),
+          content: (
+            <div className="flex flex-wrap gap-2">
+              {MODES.map((m) => (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => {
+                    setMode(m.key);
+                    resetMix();
+                  }}
+                  className={cn(
+                    "rounded-full px-3 py-1.5 text-xs",
+                    mode === m.key
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:bg-accent",
+                  )}
+                >
+                  {t(m.label)}
+                </button>
+              ))}
+            </div>
+          ),
+        },
+        {
+          id: "export",
+          icon: Download,
+          title: t("导出"),
+          content: (
+            <ExportDialog
+              module="mixer"
+              trigger={
+                <Button variant="outline" className="w-full gap-2">
+                  <Blend className="size-4" /> {t("导出当前混合")}
+                </Button>
+              }
+            />
+          ),
+        },
+      ]}
+    >
       <section
         className="relative flex h-[420px] flex-col items-center justify-center overflow-hidden rounded-xl border border-border bg-muted/20 transition-[background-color] duration-700 ease-in-out"
         style={{ backgroundColor: result && !mixing ? simulateCB(result, cbMode) : undefined }}
       >
-        <ExportDialog
-          module="mixer"
-          trigger={
-            <Button
-              variant="outline"
-              className="absolute right-4 top-4 z-20 gap-2 bg-background/80 backdrop-blur-sm"
-            >
-              <Blend className="size-4" /> {t("导出当前混合")}
-            </Button>
-          }
-        />
         {!result && !mixing && (
           <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_12%,rgba(255,255,255,0.16),transparent_36%)]" />
         )}
@@ -262,45 +292,6 @@ export function MixerTool() {
           </Button>
         )}
       </section>
-
-      <section className="panel">
-        <button
-          type="button"
-          onClick={() => setShowModes((s) => !s)}
-          className="flex w-full items-center justify-between px-5 py-4 text-sm"
-        >
-          <span className="flex items-center gap-2">
-            <Sliders className="size-4 text-muted-foreground" strokeWidth={1.6} />
-            {t("混合模式（减色 / 加色 / 平均）")}
-          </span>
-          <span className="flex items-center gap-3 text-muted-foreground">
-            {t("当前：{mode}", { mode: t(MODE_LABELS[mode]) })}
-            <ChevronDown className={cn("size-4 transition-transform", showModes && "rotate-180")} />
-          </span>
-        </button>
-        {showModes && (
-          <div className="flex flex-wrap gap-2 border-t border-border px-5 py-4">
-            {MODES.map((m) => (
-              <button
-                key={m.key}
-                type="button"
-                onClick={() => {
-                  setMode(m.key);
-                  resetMix();
-                }}
-                className={cn(
-                  "rounded-full px-4 py-1.5 text-sm",
-                  mode === m.key
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground hover:bg-accent",
-                )}
-              >
-                {t(m.label)}
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
-    </div>
+    </ToolLayout>
   );
 }

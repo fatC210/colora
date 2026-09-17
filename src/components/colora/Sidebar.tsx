@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Blend,
   Contrast,
-  Download,
   Droplets,
   Home,
   Image as ImageIcon,
@@ -22,8 +21,8 @@ import type { TKey } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/use-t";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { BrandMark } from "./BrandMark";
 import { Tip } from "./primitives";
-import { ExportDialog } from "./ExportDialog";
 import { AccountMenu } from "./account/AccountMenu";
 import { SignInDialog } from "./account/SignInDialog";
 import { getUserInitial } from "./account/utils";
@@ -114,12 +113,14 @@ function NavItem({
 
   // Tip 走 cloneElement 把事件注入到直接子元素上（见 primitives.tsx），所以必须在这里
   // 包住真正的 <button>。调用点用 <Tip> 包 <NavItem/> 是不行的 —— 注入不到 DOM 上。
-  return tip ? (
+  //
+  // 始终包 <Tip>、由 label 决定要不要显示（空 label 即不显示）。别写成
+  // `tip ? <Tip>…</Tip> : button` —— 那会在侧栏收起/展开的瞬间换掉返回结构，
+  // React 随之重建整棵子树，新 DOM 节点不跑 CSS 过渡，标签就变成瞬变而非收没。
+  return (
     <Tip label={tip} side="right">
       {button}
     </Tip>
-  ) : (
-    button
   );
 }
 
@@ -140,35 +141,12 @@ function ActionTip({
   return <Tip label={label}>{children}</Tip>;
 }
 
-/**
- * 导出中心入口。`ExportDialog` 不传 module 即为 "all"，含「当前颜色」「收藏色板」两个 tab ——
- * 这个入口原先只存在于 InfoPanel，随它下线后必须在这里补上，否则那两个 tab 无从进入。
+/*
+ * 这里原先还有一个「导出中心」入口（ExportDialog 不传 module 即 "all"，含全部 tab）。
+ * 已去掉：导出改为各工具自己提供（各自传自己的 module），侧栏底部只留账户。
+ * 注意去掉后 ExportDialog 的 "color"（当前颜色）与 "saved"（收藏色板）两个 tab
+ * 暂时没有入口 —— 它们不在任何工具的 module 里。
  */
-function ExportCenterAction({ variant }: { variant: ActionVariant }) {
-  const t = useT();
-  return (
-    <ExportDialog
-      trigger={
-        <ActionTip variant={variant} label={t("导出中心")}>
-          <button
-            type="button"
-            aria-label={t("导出中心")}
-            className={cn(
-              "colora-sidebar-button flex w-full items-center rounded-lg",
-              variant === "topbar" && "colora-action-button-topbar",
-              "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-            )}
-          >
-            <Download className="size-5" strokeWidth={1.6} />
-            {variant === "sidebar" && (
-              <span className="colora-sidebar-label leading-none">{t("导出中心")}</span>
-            )}
-          </button>
-        </ActionTip>
-      }
-    />
-  );
-}
 
 /** 账户与设置入口：点击展开面板（语言 / 主题 / 登录），面板里再点「登录」才弹居中弹窗。 */
 function AccountAction({ variant }: { variant: ActionVariant }) {
@@ -212,7 +190,7 @@ function AccountAction({ variant }: { variant: ActionVariant }) {
                   </AvatarFallback>
                 </Avatar>
               ) : (
-                <User className="size-5" strokeWidth={1.6} />
+                <User className="size-5 shrink-0" strokeWidth={1.6} />
               )}
               {variant === "sidebar" && (
                 <span className="colora-sidebar-label leading-none">{t("账户")}</span>
@@ -401,42 +379,54 @@ export function Sidebar({
         onPointerDown={onDragPointerDown}
       >
         <div className="colora-sidebar-header">
-          <Tip label={t("试试点击！")} side="right">
-            <button
-              type="button"
-              onClick={randomizeLogoGradient}
-              aria-label={t("点击随机切换品牌渐变")}
-              className="colora-sidebar-logo transition-opacity hover:opacity-90 active:scale-95 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
-            >
-              {/*
-                渐变色挂在紧贴文字的这层 span 上，而不是按钮上：background-clip:text
-                的渐变按元素自身盒子铺开，挂在按钮上时窄 rail 里那个单字母 “C” 只会取到
-                整条渐变中间的一小段，几乎看不出颜色；挂在 span 上整条渐变才落在字上。
-                两个 span 由 CSS 按断点互斥显示（窄 rail 只留 “C”，抽屉里才是全称）。
-              */}
-              <span
-                className="colora-sidebar-logo-text font-brand bg-clip-text text-transparent"
-                style={{ backgroundImage: `linear-gradient(135deg, ${logoGradient.join(", ")})` }}
-              >
-                <span className="colora-sidebar-logo-mark">C</span>
-                <span className="colora-sidebar-logo-word">COLORA</span>
-              </span>
-            </button>
-          </Tip>
-          {/* 桌面端展开/收起。与下面的关闭按钮互斥：这个桌面显示、那个移动端显示。 */}
+          {/*
+            桌面端展开/收起。收起态这个按钮本身就是品牌 logo —— hover 时 logo 淡出、
+            展开箭头淡入，所以两种形态下按钮都在 header 左侧的同一位置，用户来回切换
+            时鼠标不用移动（旧版把展开按钮单独排一行，收起态是竖排的 header）。
+            移动端整块隐藏，抽屉里用右上角的关闭按钮。
+          */}
           <button
             type="button"
             onClick={() => setCollapsed((c) => !c)}
             aria-label={collapsed ? t("展开侧边栏") : t("收起侧边栏")}
             aria-expanded={!collapsed}
-            className="colora-sidebar-collapse"
+            className="colora-sidebar-toggle"
           >
-            {collapsed ? (
-              <PanelLeftOpen className="size-4" strokeWidth={1.8} />
-            ) : (
-              <PanelLeftClose className="size-4" strokeWidth={1.8} />
-            )}
+            {/*
+              三层始终都在，靠 CSS 的 opacity 交叉淡入淡出（见 styles.css）。
+              不要按 collapsed 条件渲染图标：换图标 = 换 DOM 节点 = 新节点不跑过渡，
+              收起瞬间箭头会硬切成品牌图形。
+            */}
+            <BrandMark gradient={logoGradient} className="colora-sidebar-toggle-logo" />
+            <PanelLeftOpen
+              className="colora-sidebar-toggle-icon colora-sidebar-toggle-icon-open size-4"
+              strokeWidth={1.8}
+            />
+            <PanelLeftClose
+              className="colora-sidebar-toggle-icon colora-sidebar-toggle-icon-close size-4"
+              strokeWidth={1.8}
+            />
           </button>
+          <Tip label={t("试试点击！")} side="right">
+            <button
+              type="button"
+              onClick={randomizeLogoGradient}
+              aria-label={t("点击随机切换品牌渐变")}
+              className="colora-sidebar-logo hover:opacity-90 active:scale-95 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+            >
+              {/*
+                渐变色挂在紧贴文字的这层 span 上，而不是按钮上：background-clip:text
+                的渐变按元素自身盒子铺开，挂在按钮上时渐变会被按钮的内边距摊薄。
+                收起态整个按钮由 CSS 隐藏，位置让给上面的 logo 按钮。
+              */}
+              <span
+                className="colora-sidebar-logo-text font-brand bg-clip-text text-transparent"
+                style={{ backgroundImage: `linear-gradient(135deg, ${logoGradient.join(", ")})` }}
+              >
+                COLORA
+              </span>
+            </button>
+          </Tip>
           <button
             type="button"
             onClick={close}
@@ -464,7 +454,6 @@ export function Sidebar({
         </nav>
 
         <div className="colora-sidebar-actions">
-          <ExportCenterAction variant="sidebar" />
           <AccountAction variant="sidebar" />
         </div>
       </aside>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, MoreVertical, Plus } from "lucide-react";
+import { Download, Monitor, MoreVertical, Plus } from "lucide-react";
 import { useColora } from "@/lib/colora-store";
 import { bestTextOn, normalizeHex, simulateCB } from "@/lib/color";
 import { useT } from "@/lib/i18n/use-t";
@@ -32,6 +32,7 @@ import {
   renderComp,
 } from "./components";
 import type { Card, CardColorSelection, ColorQueueItem } from "./types";
+import { ToolLayout } from "../ToolLayout";
 
 export function PreviewTool() {
   const {
@@ -307,74 +308,89 @@ export function PreviewTool() {
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col flex-wrap items-start gap-3 sm:flex-row sm:items-center">
-        <Select
-          value={group}
-          onValueChange={(g) => {
-            const next = g as DeviceGroupId;
-            setGroup(next);
-            setDevice(defaultDeviceId(next));
-          }}
-        >
-          <SelectTrigger className="w-full gap-2 sm:w-40">
-            <CompactDeviceGroupPreview group={group} />
-            <span className="min-w-0 flex-1 truncate text-left">{t(devGroup.label)}</span>
-          </SelectTrigger>
-          <SelectContent className="max-h-[360px]">
-            {DEVICE_GROUPS.map((g) => (
-              <SelectItem key={g.id} value={g.id} textValue={t(g.label)} className="py-2">
-                <span className="flex items-center gap-3">
-                  <DeviceGroupPreview group={g.id} />
-                  <span>{t(g.label)}</span>
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+    <ToolLayout
+      title={t("实时预览")}
+      rail={[
+        {
+          id: "device",
+          icon: Monitor,
+          title: t("设备"),
+          content: (
+            <div className="space-y-4">
+              <Select
+                value={group}
+                onValueChange={(g) => {
+                  const next = g as DeviceGroupId;
+                  setGroup(next);
+                  setDevice(defaultDeviceId(next));
+                }}
+              >
+                <SelectTrigger className="w-full gap-2">
+                  <CompactDeviceGroupPreview group={group} />
+                  <span className="min-w-0 flex-1 truncate text-left">{t(devGroup.label)}</span>
+                </SelectTrigger>
+                <SelectContent className="max-h-[360px]">
+                  {DEVICE_GROUPS.map((g) => (
+                    <SelectItem key={g.id} value={g.id} textValue={t(g.label)} className="py-2">
+                      <span className="flex items-center gap-3">
+                        <DeviceGroupPreview group={g.id} />
+                        <span>{t(g.label)}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-        <Select value={device} onValueChange={setDevice}>
-          <SelectTrigger className="w-full sm:w-64">
-            <span className="min-w-0 flex-1 truncate text-left">{t(dev.label)}</span>
-          </SelectTrigger>
-          <SelectContent className="max-h-[360px]">
-            {devGroup.devices.map((d) => (
-              <SelectItem key={d.id} value={d.id} textValue={t(d.label)}>
-                {t(d.label)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <div className="flex w-full gap-3 sm:contents">
-          <Button
-            variant="outline"
-            className="flex-1 border-transparent bg-primary text-primary-foreground shadow hover:bg-primary/90 hover:text-primary-foreground sm:flex-none sm:border-input sm:bg-background sm:text-foreground sm:shadow-sm sm:hover:bg-accent sm:hover:text-accent-foreground"
-            onClick={() =>
-              setCards([
-                ...cards,
-                {
-                  id: crypto.randomUUID(),
-                  name: t("预览卡片 {n}", { n: String(cards.length + 1).padStart(2, "0") }),
-                  bg: palette[cards.length % palette.length] ?? "#EDEDED",
-                  comps: [],
-                },
-              ])
-            }
-          >
-            <Plus className="size-4" /> {t("新建预览卡片")}
-          </Button>
-          <ExportDialog
-            module="preview"
-            trigger={
-              <Button variant="outline" className="flex-1 gap-2 sm:flex-none">
-                <Download className="size-4" /> {t("导出当前预览")}
+              <Select value={device} onValueChange={setDevice}>
+                <SelectTrigger className="w-full">
+                  <span className="min-w-0 flex-1 truncate text-left">{t(dev.label)}</span>
+                </SelectTrigger>
+                <SelectContent className="max-h-[360px]">
+                  {devGroup.devices.map((d) => (
+                    <SelectItem key={d.id} value={d.id} textValue={t(d.label)}>
+                      {t(d.label)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ),
+        },
+        {
+          id: "actions",
+          icon: Plus,
+          title: t("操作"),
+          content: (
+            <div className="flex flex-col gap-2">
+              <Button
+                className="w-full gap-2"
+                onClick={() =>
+                  setCards([
+                    ...cards,
+                    {
+                      id: crypto.randomUUID(),
+                      name: t("预览卡片 {n}", { n: String(cards.length + 1).padStart(2, "0") }),
+                      bg: palette[cards.length % palette.length] ?? "#EDEDED",
+                      comps: [],
+                    },
+                  ])
+                }
+              >
+                <Plus className="size-4" /> {t("新建预览卡片")}
               </Button>
-            }
-          />
-        </div>
-      </div>
-
+              <ExportDialog
+                module="preview"
+                trigger={
+                  <Button variant="outline" className="w-full gap-2">
+                    <Download className="size-4" /> {t("导出当前预览")}
+                  </Button>
+                }
+              />
+            </div>
+          ),
+        },
+      ]}
+    >
       <div className="flex flex-wrap items-start gap-5">
         {cards.map((card) => (
           <div key={card.id} className="panel w-full p-4 sm:w-[360px]">
@@ -588,6 +604,6 @@ export function PreviewTool() {
           </div>
         ))}
       </div>
-    </div>
+    </ToolLayout>
   );
 }

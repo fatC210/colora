@@ -75,7 +75,7 @@ export function HomeTool({ onTool }: { onTool: (t: ToolId) => void }) {
   } = useColora();
 
   return (
-    <div className="space-y-5">
+    <div className="colora-surface-card space-y-5">
       <section className="panel p-5 sm:p-8">
         <div className="mb-5 flex items-center">
           {/*

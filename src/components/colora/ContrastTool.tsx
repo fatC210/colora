@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeftRight, ChevronDown, HelpCircle, List, Sparkles, Check } from "lucide-react";
+import { ArrowLeftRight, Check, Gauge, HelpCircle, List, Palette, Sparkles } from "lucide-react";
 import { useColora } from "@/lib/colora-store";
 import { contrastRatio, hexToRgb, rgbToHex, rgbToHsl, hslToRgb, simulateCB } from "@/lib/color";
 import { useT } from "@/lib/i18n/use-t";
@@ -7,6 +7,7 @@ import { CopyText, ColorPicker, Tip } from "./primitives";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { ExportDialog } from "./ExportDialog";
+import { ToolLayout } from "./ToolLayout";
 import { Button } from "@/components/ui/button";
 
 function Field({
@@ -23,14 +24,14 @@ function Field({
   const t = useT();
 
   return (
-    <div className="flex w-full items-center gap-3 sm:w-auto">
+    <div className="flex w-full items-center gap-3">
       <span className="text-sm font-medium">{label}</span>
       <Popover>
         <Tip label={t("选择{label}", { label })}>
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="size-10 ml-auto shrink-0 rounded-lg border border-border sm:ml-0"
+              className="size-10 ml-auto shrink-0 rounded-lg border border-border"
               style={{ backgroundColor: simulateCB(value, cbMode) }}
               aria-label={t("选择{label}", { label })}
             />
@@ -69,8 +70,6 @@ export function ContrastTool() {
   const { cbMode, setContrastExport } = useColora();
   const [fg, setFg] = useState("#0F172A");
   const [bg, setBg] = useState("#F1F1F1");
-  const [openSuggest, setOpenSuggest] = useState(false);
-  const [openDetail, setOpenDetail] = useState(false);
   const t = useT();
 
   const ratio = useMemo(() => contrastRatio(fg, bg), [fg, bg]);
@@ -99,38 +98,136 @@ export function ContrastTool() {
   );
 
   return (
-    <div className="space-y-4">
-      <section className="panel flex flex-col gap-4 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-6">
-        <div className="flex items-center justify-between sm:hidden">
-          <span className="text-xs font-medium text-muted-foreground">{t("颜色设置")}</span>
-          <Tip label={t("交换前景色与背景色")}>
-            <button
-              type="button"
-              onClick={() => {
-                setFg(bg);
-                setBg(fg);
-              }}
-              className="grid size-8 place-items-center rounded-lg border border-border text-muted-foreground hover:text-foreground"
-              aria-label={t("交换前景色与背景色")}
-            >
-              <ArrowLeftRight className="size-3.5 rotate-90" />
-            </button>
-          </Tip>
-        </div>
-        <Field label={t("前景色")} value={fg} onChange={setFg} cbMode={cbMode} />
-        <div className="border-t border-border sm:hidden" />
-        <div className="hidden sm:contents">{swapButton}</div>
-        <Field label={t("背景色")} value={bg} onChange={setBg} cbMode={cbMode} />
-        <ExportDialog
-          module="contrast"
-          trigger={
-            <Button variant="outline" className="w-full gap-2 sm:w-auto">
-              <List className="size-4" /> {t("导出当前检查")}
-            </Button>
-          }
-        />
-      </section>
-
+    <ToolLayout
+      title={t("对比度检查")}
+      rail={[
+        {
+          id: "colors",
+          icon: Palette,
+          title: t("颜色设置"),
+          content: (
+            <div className="space-y-4">
+              {swapButton}
+              <Field label={t("前景色")} value={fg} onChange={setFg} cbMode={cbMode} />
+              <Field label={t("背景色")} value={bg} onChange={setBg} cbMode={cbMode} />
+              <ExportDialog
+                module="contrast"
+                trigger={
+                  <Button variant="outline" className="w-full gap-2">
+                    <List className="size-4" /> {t("导出当前检查")}
+                  </Button>
+                }
+              />
+            </div>
+          ),
+        },
+        {
+          id: "result",
+          icon: Gauge,
+          title: t("对比结果"),
+          content: (
+            <div className="flex flex-wrap items-center justify-between gap-6 sm:gap-8">
+              <div>
+                <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  {t("对比度比率")}
+                  <Tip
+                    label={
+                      <span className="block max-w-60 whitespace-normal leading-relaxed">
+                        {t(
+                          "对比度比率表示前景色与背景色的亮度差异，范围为 1:1 到 21:1。普通正文建议至少 4.5:1，大号文字至少 3:1。",
+                        )}
+                      </span>
+                    }
+                  >
+                    <button
+                      type="button"
+                      className="inline-grid size-5 place-items-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={t("查看对比度比率说明")}
+                    >
+                      <HelpCircle className="size-3.5" />
+                    </button>
+                  </Tip>
+                </p>
+                <p className="mt-1 font-mono text-5xl font-bold tracking-tight sm:text-6xl">
+                  {ratio.toFixed(1)} : 1
+                </p>
+              </div>
+              <div className="flex w-full gap-2 sm:w-auto sm:flex-col">
+                {[
+                  { label: "AAA", pass: aaa },
+                  { label: "AA", pass: aa },
+                ].map((r) => (
+                  <div
+                    key={r.label}
+                    className={cn(
+                      "flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium sm:w-40 sm:flex-none sm:justify-start sm:px-4",
+                      r.pass ? "bg-accent text-foreground" : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {r.pass ? <Check className="size-4" /> : <span className="text-xs">✕</span>}
+                    {r.label} {r.pass ? t("通过") : t("不通过")}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ),
+        },
+        {
+          id: "suggest",
+          icon: Sparkles,
+          title: t("智能推荐替代色"),
+          content: aa ? (
+            <p className="text-sm text-muted-foreground">{t("当前组合已满足 AA 标准，无需替换。")}</p>
+          ) : (
+            <div className="flex flex-wrap gap-3">
+              {suggestions.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setFg(s)}
+                  className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-accent"
+                >
+                  <span
+                    className="size-5 rounded border border-border/60"
+                    style={{ backgroundColor: s }}
+                  />
+                  <span className="font-mono text-xs">{s}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {contrastRatio(s, bg).toFixed(1)}:1
+                  </span>
+                </button>
+              ))}
+              {suggestions.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  {t("未找到同色相的合格替代色，建议更换背景色。")}
+                </p>
+              )}
+            </div>
+          ),
+        },
+        {
+          id: "details",
+          icon: List,
+          title: t("对比度详情"),
+          content: (
+            <div className="space-y-2 text-sm">
+              {[
+                { label: t("正文（小字 < 18px）AA ≥ 4.5:1"), pass: ratio >= 4.5 },
+                { label: t("正文（小字 < 18px）AAA ≥ 7:1"), pass: ratio >= 7 },
+                { label: t("大字（≥ 18px 粗体 / 24px）AA ≥ 3:1"), pass: ratio >= 3 },
+                { label: t("大字 AAA ≥ 4.5:1"), pass: ratio >= 4.5 },
+                { label: t("非文本元素（图标 / 边框）≥ 3:1"), pass: ratio >= 3 },
+              ].map((r) => (
+                <div key={r.label} className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{r.label}</span>
+                  <span className="font-medium">{r.pass ? t("通过") : t("不通过")}</span>
+                </div>
+              ))}
+            </div>
+          ),
+        },
+      ]}
+    >
       <section
         className="rounded-xl border border-border p-6 sm:p-10"
         style={{ backgroundColor: simulateCB(bg, cbMode), color: simulateCB(fg, cbMode) }}
@@ -150,128 +247,6 @@ export function ContrastTool() {
           {t("小号文字示例：12px 正文在此背景上的可读性表现。")}
         </p>
       </section>
-
-      <section className="panel flex flex-wrap items-center justify-between gap-6 p-5 sm:gap-8 sm:p-6">
-        <div>
-          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            {t("对比度比率")}
-            <Tip
-              label={
-                <span className="block max-w-60 whitespace-normal leading-relaxed">
-                  {t(
-                    "对比度比率表示前景色与背景色的亮度差异，范围为 1:1 到 21:1。普通正文建议至少 4.5:1，大号文字至少 3:1。",
-                  )}
-                </span>
-              }
-            >
-              <button
-                type="button"
-                className="inline-grid size-5 place-items-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={t("查看对比度比率说明")}
-              >
-                <HelpCircle className="size-3.5" />
-              </button>
-            </Tip>
-          </p>
-          <p className="mt-1 font-mono text-5xl font-bold tracking-tight sm:text-6xl">
-            {ratio.toFixed(1)} : 1
-          </p>
-        </div>
-        <div className="flex w-full gap-2 sm:w-auto sm:flex-col">
-          {[
-            { label: "AAA", pass: aaa },
-            { label: "AA", pass: aa },
-          ].map((r) => (
-            <div
-              key={r.label}
-              className={cn(
-                "flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium sm:w-40 sm:flex-none sm:justify-start sm:px-4",
-                r.pass ? "bg-accent text-foreground" : "bg-muted text-muted-foreground",
-              )}
-            >
-              {r.pass ? <Check className="size-4" /> : <span className="text-xs">✕</span>}
-              {r.label} {r.pass ? t("通过") : t("不通过")}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel">
-        <button
-          type="button"
-          onClick={() => setOpenSuggest((s) => !s)}
-          className="flex w-full items-center justify-between px-5 py-4 text-sm"
-        >
-          <span className="flex items-center gap-2">
-            <Sparkles className="size-4 text-muted-foreground" strokeWidth={1.6} />{" "}
-            {t("智能推荐替代色")}
-          </span>
-          <ChevronDown className={cn("size-4 transition-transform", openSuggest && "rotate-180")} />
-        </button>
-        {openSuggest && (
-          <div className="border-t border-border px-5 py-4">
-            {aa ? (
-              <p className="text-sm text-muted-foreground">
-                {t("当前组合已满足 AA 标准，无需替换。")}
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-3">
-                {suggestions.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setFg(s)}
-                    className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-accent"
-                  >
-                    <span
-                      className="size-5 rounded border border-border/60"
-                      style={{ backgroundColor: s }}
-                    />
-                    <span className="font-mono text-xs">{s}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {contrastRatio(s, bg).toFixed(1)}:1
-                    </span>
-                  </button>
-                ))}
-                {suggestions.length === 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    {t("未找到同色相的合格替代色，建议更换背景色。")}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-
-      <section className="panel">
-        <button
-          type="button"
-          onClick={() => setOpenDetail((s) => !s)}
-          className="flex w-full items-center justify-between px-5 py-4 text-sm"
-        >
-          <span className="flex items-center gap-2">
-            <List className="size-4 text-muted-foreground" strokeWidth={1.6} /> {t("对比度详情")}
-          </span>
-          <ChevronDown className={cn("size-4 transition-transform", openDetail && "rotate-180")} />
-        </button>
-        {openDetail && (
-          <div className="space-y-2 border-t border-border px-5 py-4 text-sm">
-            {[
-              { label: t("正文（小字 < 18px）AA ≥ 4.5:1"), pass: ratio >= 4.5 },
-              { label: t("正文（小字 < 18px）AAA ≥ 7:1"), pass: ratio >= 7 },
-              { label: t("大字（≥ 18px 粗体 / 24px）AA ≥ 3:1"), pass: ratio >= 3 },
-              { label: t("大字 AAA ≥ 4.5:1"), pass: ratio >= 4.5 },
-              { label: t("非文本元素（图标 / 边框）≥ 3:1"), pass: ratio >= 3 },
-            ].map((r) => (
-              <div key={r.label} className="flex items-center justify-between">
-                <span className="text-muted-foreground">{r.label}</span>
-                <span className="font-medium">{r.pass ? t("通过") : t("不通过")}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-    </div>
+    </ToolLayout>
   );
 }

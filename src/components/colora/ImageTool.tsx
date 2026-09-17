@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ImagePlus, Save, X } from "lucide-react";
+import { Image, ImagePlus, List, Save, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useColora } from "@/lib/colora-store";
@@ -16,6 +16,7 @@ import {
 import { useT } from "@/lib/i18n/use-t";
 import { cn } from "@/lib/utils";
 import { ExportDialog } from "./ExportDialog";
+import { ToolLayout } from "./ToolLayout";
 import { PointList } from "./image-tool/PointList";
 
 /** 点位数量上限，与滑块 max 一致。 */
@@ -259,9 +260,81 @@ export function ImageTool() {
   };
 
   return (
-    <div className="space-y-4">
+    <ToolLayout
+      title={t("图片取色")}
+      rail={[
+        {
+          id: "source",
+          icon: Image,
+          title: t("图片与点位"),
+          content: (
+            <div className="space-y-4">
+              <Button variant="outline" className="w-full" onClick={() => inputRef.current?.click()}>
+                {src ? t("更换图片") : t("选择图片")}
+              </Button>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {t("初始点位数量")}
+                  </span>
+                  <span className="font-mono text-xs">{count}</span>
+                </div>
+                <input
+                  type="range"
+                  min={3}
+                  max={MAX_POINTS}
+                  value={count}
+                  onChange={(e) => onCountChange(Number(e.target.value))}
+                  className="w-full accent-foreground"
+                />
+              </div>
+
+              {src && (
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  {t("拖动取色点实时取色，点击图片空白处新增点位")}
+                </p>
+              )}
+            </div>
+          ),
+        },
+        {
+          id: "actions",
+          icon: Save,
+          title: t("操作"),
+          visible: points.length > 0,
+          content: (
+            <div className="flex flex-col gap-2">
+              <Button
+                className="w-full gap-2"
+                onClick={() => setPalette(points.slice(0, 10).map((p) => p.hex))}
+              >
+                <Save className="size-4" /> {t("保存为配色方案")}
+              </Button>
+              <ExportDialog
+                module="image"
+                trigger={
+                  <Button variant="outline" className="w-full gap-2">
+                    <ImagePlus className="size-4" /> {t("导出当前图片")}
+                  </Button>
+                }
+              />
+            </div>
+          ),
+        },
+        {
+          id: "points",
+          icon: List,
+          title: t("点位列表"),
+          visible: points.length > 0,
+          content: (
+            <PointList points={points} cbMode={cbMode} onPick={pickColor} onRemove={removePoint} />
+          ),
+        },
+      ]}
+    >
       <section
-        className="panel p-5"
+        className="flex h-full flex-col items-center justify-center"
         onPaste={(e) => onFile(e.clipboardData.files?.[0])}
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
@@ -337,60 +410,15 @@ export function ImageTool() {
             <span className="text-xs">{t("支持 PNG、JPG、WEBP、SVG")}</span>
           </button>
         )}
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => onFile(e.target.files?.[0])}
-        />
-
-        <div className="mt-5 flex flex-wrap items-center gap-4">
-          <Button variant="outline" onClick={() => inputRef.current?.click()}>
-            {src ? t("更换图片") : t("选择图片")}
-          </Button>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground">
-              {t("初始点位数量")} {count}
-            </span>
-            <input
-              type="range"
-              min={3}
-              max={MAX_POINTS}
-              value={count}
-              onChange={(e) => onCountChange(Number(e.target.value))}
-              className="w-40 accent-foreground"
-            />
-          </div>
-          {src && (
-            <span className="text-xs text-muted-foreground">
-              {t("拖动取色点实时取色，点击图片空白处新增点位")}
-            </span>
-          )}
-          {points.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                className="gap-2"
-                onClick={() => setPalette(points.slice(0, 10).map((p) => p.hex))}
-              >
-                <Save className="size-4" /> {t("保存为配色方案")}
-              </Button>
-              <ExportDialog
-                module="image"
-                trigger={
-                  <Button variant="outline" className="gap-2">
-                    <ImagePlus className="size-4" /> {t("导出当前图片")}
-                  </Button>
-                }
-              />
-            </div>
-          )}
-        </div>
       </section>
 
-      {points.length > 0 && (
-        <PointList points={points} cbMode={cbMode} onPick={pickColor} onRemove={removePoint} />
-      )}
-    </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => onFile(e.target.files?.[0])}
+      />
+    </ToolLayout>
   );
 }

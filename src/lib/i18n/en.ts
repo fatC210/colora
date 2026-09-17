@@ -274,6 +274,7 @@ const core = {
   图片占位: "Image placeholder",
 
   // ─────────────────────────── 配色方案工具 ───────────────────────────
+  配色操作: "Palette actions",
   自动生成: "Generate",
   自由选配: "Manual",
   "自由选配（3-10 个颜色）": "Manual (3–10 colors)",
@@ -306,6 +307,7 @@ const core = {
   待优化: "Needs work",
 
   // ─────────────────────────── 渐变工具 ───────────────────────────
+  渐变操作: "Gradient actions",
   线性: "Linear",
   径向: "Radial",
   锥形: "Conic",
@@ -344,16 +346,17 @@ const core = {
   "CSS 代码": "CSS code",
 
   // ─────────────────────────── 色彩混合工具 ───────────────────────────
+  混合颜色: "Colors to mix",
   减色混合: "Subtractive",
   加色混合: "Additive",
   平均混合: "Average",
   "混合模式（减色 / 加色 / 平均）": "Mix mode (subtractive / additive / average)",
-  "当前：{mode}": "Current: {mode}",
   导出当前混合: "Export mix",
   "混合中…": "Mixing…",
   "颜色 {n}": "Color {n}",
 
   // ─────────────────────────── 图片取色工具 ───────────────────────────
+  图片与点位: "Image & points",
   用于取色的图片: "Image to sample colors from",
   "拖拽上传 / 点击上传 / 粘贴图片": "Drag, click, or paste an image",
   "支持 PNG、JPG、WEBP、SVG": "Supports PNG, JPG, WEBP and SVG",
@@ -361,7 +364,6 @@ const core = {
   更换图片: "Replace image",
   保存为配色方案: "Save as palette",
   导出当前图片: "Export image colors",
-  提取结果: "Extracted colors",
   初始点位数量: "Initial points",
   点位列表: "Point list",
   取色点位: "Sample points",
@@ -372,6 +374,7 @@ const core = {
   "最多 {n} 个取色点": "Up to {n} sample points",
 
   // ─────────────────────────── 对比度工具 ───────────────────────────
+  对比结果: "Result",
   前景色: "Foreground",
   背景色: "Background",
   颜色设置: "Color setup",
@@ -398,24 +401,11 @@ const core = {
   "未找到同色相的合格替代色，建议更换背景色。":
     "No passing alternative in the same hue — consider changing the background.",
 
-  // ───────────────── 收藏与色值（原「信息面板」分区，面板下线后由各工具的右栏承接） ─────────────────
-  收藏当前颜色: "Favorite current color",
-  取消收藏当前颜色: "Unfavorite current color",
-  当前色: "Current",
-  "拖动对比当前色和最接近的 {name}": "Drag to compare with the nearest {name}",
-  "最接近的 CSS 命名色": "Nearest named CSS color",
+  // 收藏颜色（由 FavoriteColorsPanel 使用，原属 InfoPanel，随其下线迁移）
   对比: "Compare",
-  关闭对比: "Close comparison",
   "暂无收藏颜色。点击上方图标后可从这里一键应用继续调整。":
     "No favorites yet. Use the heart above to save a color, then apply it here.",
   重命名颜色: "Rename color",
-  更多色值: "More values",
-  "CSS 命名色": "Named CSS colors",
-  命名色色值: "Named color value",
-  白色文字: "White text",
-  黑色文字: "Black text",
-  色轮位置: "Color wheel position",
-  "色相 {hue}° · 饱和度 {sat}%": "Hue {hue}° · Saturation {sat}%",
 
   // ─────────────────────────── 通用原语 ───────────────────────────
   "复制 {value}": "Copy {value}",
@@ -448,8 +438,6 @@ const core = {
   收藏色板: "Saved swatches",
   数量: "Count",
   名称: "Name",
-  提取数量: "Extract count",
-  提取颜色: "Extract colors",
   图片尺寸: "Image size",
   导出合成图: "Export composite",
   "导出中…": "Exporting…",

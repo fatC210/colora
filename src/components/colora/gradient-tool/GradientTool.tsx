@@ -4,11 +4,11 @@ import {
   Settings2,
   Code2,
   Trash2,
-  ChevronDown,
   Heart,
   Pencil,
   Eye,
   EyeOff,
+  Wand2,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import { ColorPicker, CopyButton, InlineRename, Tip } from "../primitives";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ExportDialog } from "../ExportDialog";
+import { ToolLayout } from "../ToolLayout";
 import { GRADIENT_LINE_RADIUS, GRAD_TYPE_LABELS, MESH_POINTS, TYPES } from "./constants";
 import type { GradType, MeshPoint } from "./constants";
 import {
@@ -50,8 +51,6 @@ export function GradientTool() {
   const [space, setSpace] = useState<InterpSpace>(gradientConfig.space);
   const [gradientCenter, setGradientCenter] = useState<MeshPoint>(gradientConfig.center);
   const [draggingStopId, setDraggingStopId] = useState<string | null>(null);
-  const [showCtrl, setShowCtrl] = useState(false);
-  const [showCode, setShowCode] = useState(false);
   const [showStops, setShowStops] = useState(true);
   const [editingGradientId, setEditingGradientId] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -265,7 +264,164 @@ export function GradientTool() {
   };
 
   return (
-    <div className="space-y-4">
+    <ToolLayout
+      title={t("渐变编辑")}
+      rail={[
+        {
+          id: "actions",
+          icon: Wand2,
+          title: t("渐变操作"),
+          content: (
+            <div className="flex flex-col gap-2">
+              {user && (
+                <Button className="w-full gap-2" onClick={favoriteCurrentGradient}>
+                  <Heart className="size-4" /> {t("收藏当前渐变")}
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                className="w-full gap-2"
+                onClick={() =>
+                  setGradientStops([
+                    ...stops,
+                    {
+                      id: createStopId(),
+                      hex: randomHex(),
+                      pos: getNextStopPosition(stops),
+                      mesh: MESH_POINTS[stops.length % MESH_POINTS.length],
+                    },
+                  ])
+                }
+              >
+                <Plus className="size-4" /> {t("添加节点")}
+              </Button>
+              <ExportDialog
+                module="gradient"
+                trigger={
+                  <Button variant="outline" className="w-full gap-2">
+                    <Code2 className="size-4" /> {t("导出当前渐变")}
+                  </Button>
+                }
+              />
+            </div>
+          ),
+        },
+        {
+          id: "controls",
+          icon: Settings2,
+          title: t("渐变控制（角度 / 中心 / 插值方式）"),
+          content: (
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div>
+                <label className="text-xs text-muted-foreground">
+                  {type === "mesh"
+                    ? t("角度（Mesh 不适用）")
+                    : type === "radial"
+                      ? t("角度（径向不适用）")
+                      : t("角度 {angle}°", { angle })}
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={360}
+                  step={5}
+                  value={angle}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    scheduleRangeUpdate(() => setAngle(v));
+                  }}
+                  disabled={type === "radial" || type === "mesh"}
+                  className="w-full accent-foreground disabled:opacity-40"
+                />
+              </div>
+              {(type === "radial" || type === "conic") && (
+                <div className="grid gap-3">
+                  <div>
+                    <label className="text-xs text-muted-foreground">
+                      {t("中心 X")} {Math.round(gradientCenter.x)}%
+                    </label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={gradientCenter.x}
+                      onChange={(event) => {
+                        const v = Number(event.target.value);
+                        scheduleRangeUpdate(() =>
+                          setGradientCenter((current) => ({ ...current, x: v })),
+                        );
+                      }}
+                      className="w-full accent-foreground"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground">
+                      {t("中心 Y")} {Math.round(gradientCenter.y)}%
+                    </label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={gradientCenter.y}
+                      onChange={(event) => {
+                        const v = Number(event.target.value);
+                        scheduleRangeUpdate(() =>
+                          setGradientCenter((current) => ({ ...current, y: v })),
+                        );
+                      }}
+                      className="w-full accent-foreground"
+                    />
+                  </div>
+                </div>
+              )}
+              <div>
+                <label className="text-xs text-muted-foreground">{t("色彩空间插值")}</label>
+                <div className="mt-2 flex gap-1">
+                  {(["rgb", "lab", "lch"] as InterpSpace[]).map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setSpace(s)}
+                      className={cn(
+                        "rounded-full px-3 py-1.5 text-xs uppercase",
+                        space === s
+                          ? "bg-foreground text-background"
+                          : "text-muted-foreground hover:bg-accent",
+                      )}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ),
+        },
+        {
+          id: "css",
+          icon: Code2,
+          title: t("CSS 代码"),
+          content: (
+            <div className="flex items-start gap-3">
+              <code className="flex-1 break-all font-mono text-xs text-muted-foreground">
+                {type === "mesh"
+                  ? `background-image: ${meshStyle.backgroundImage};`
+                  : `background: ${css};`}
+              </code>
+              <CopyButton
+                value={
+                  type === "mesh"
+                    ? `background-image: ${meshStyle.backgroundImage};`
+                    : `background: ${css};`
+                }
+              />
+            </div>
+          ),
+        },
+      ]}
+    >
       <Tabs value={type} onValueChange={(v) => setType(v as GradType)}>
         <TabsList>
           {TYPES.map((item) => (
@@ -737,37 +893,6 @@ export function GradientTool() {
               );
             })}
           </div>
-
-          {user && (
-            <Button className="gap-2" onClick={favoriteCurrentGradient}>
-              <Heart className="size-4" /> {t("收藏当前渐变")}
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={() =>
-              setGradientStops([
-                ...stops,
-                {
-                  id: createStopId(),
-                  hex: randomHex(),
-                  pos: getNextStopPosition(stops),
-                  mesh: MESH_POINTS[stops.length % MESH_POINTS.length],
-                },
-              ])
-            }
-          >
-            <Plus className="size-4" /> {t("添加节点")}
-          </Button>
-          <ExportDialog
-            module="gradient"
-            trigger={
-              <Button variant="outline" className="gap-2">
-                <Code2 className="size-4" /> {t("导出当前渐变")}
-              </Button>
-            }
-          />
         </div>
       </section>
 
@@ -840,138 +965,6 @@ export function GradientTool() {
           )}
         </section>
       )}
-
-      <section className="panel">
-        <button
-          type="button"
-          onClick={() => setShowCtrl((s) => !s)}
-          className="flex w-full items-center justify-between px-5 py-4 text-sm"
-        >
-          <span className="flex items-center gap-2">
-            <Settings2 className="size-4 text-muted-foreground" strokeWidth={1.6} />
-            {t("渐变控制（角度 / 中心 / 插值方式）")}
-          </span>
-          <ChevronDown className={cn("size-4 transition-transform", showCtrl && "rotate-180")} />
-        </button>
-        {showCtrl && (
-          <div className="grid gap-5 border-t border-border px-5 py-4 sm:grid-cols-2">
-            <div>
-              <label className="text-xs text-muted-foreground">
-                {type === "mesh"
-                  ? t("角度（Mesh 不适用）")
-                  : type === "radial"
-                    ? t("角度（径向不适用）")
-                    : t("角度 {angle}°", { angle })}
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={360}
-                step={5}
-                value={angle}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  scheduleRangeUpdate(() => setAngle(v));
-                }}
-                disabled={type === "radial" || type === "mesh"}
-                className="w-full accent-foreground disabled:opacity-40"
-              />
-            </div>
-            {(type === "radial" || type === "conic") && (
-              <div className="grid gap-3">
-                <div>
-                  <label className="text-xs text-muted-foreground">
-                    {t("中心 X")} {Math.round(gradientCenter.x)}%
-                  </label>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={5}
-                    value={gradientCenter.x}
-                    onChange={(event) => {
-                      const v = Number(event.target.value);
-                      scheduleRangeUpdate(() =>
-                        setGradientCenter((current) => ({ ...current, x: v })),
-                      );
-                    }}
-                    className="w-full accent-foreground"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">
-                    {t("中心 Y")} {Math.round(gradientCenter.y)}%
-                  </label>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={5}
-                    value={gradientCenter.y}
-                    onChange={(event) => {
-                      const v = Number(event.target.value);
-                      scheduleRangeUpdate(() =>
-                        setGradientCenter((current) => ({ ...current, y: v })),
-                      );
-                    }}
-                    className="w-full accent-foreground"
-                  />
-                </div>
-              </div>
-            )}
-            <div>
-              <label className="text-xs text-muted-foreground">{t("色彩空间插值")}</label>
-              <div className="mt-2 flex gap-1">
-                {(["rgb", "lab", "lch"] as InterpSpace[]).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setSpace(s)}
-                    className={cn(
-                      "rounded-full px-3 py-1.5 text-xs uppercase",
-                      space === s
-                        ? "bg-foreground text-background"
-                        : "text-muted-foreground hover:bg-accent",
-                    )}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      <section className="panel">
-        <button
-          type="button"
-          onClick={() => setShowCode((s) => !s)}
-          className="flex w-full items-center justify-between px-5 py-4 text-sm"
-        >
-          <span className="flex items-center gap-2">
-            <Code2 className="size-4 text-muted-foreground" strokeWidth={1.6} />
-            {t("CSS 代码")}
-          </span>
-          <ChevronDown className={cn("size-4 transition-transform", showCode && "rotate-180")} />
-        </button>
-        {showCode && (
-          <div className="flex items-start gap-3 border-t border-border px-5 py-4">
-            <code className="flex-1 break-all font-mono text-xs text-muted-foreground">
-              {type === "mesh"
-                ? `background-image: ${meshStyle.backgroundImage};`
-                : `background: ${css};`}
-            </code>
-            <CopyButton
-              value={
-                type === "mesh"
-                  ? `background-image: ${meshStyle.backgroundImage};`
-                  : `background: ${css};`
-              }
-            />
-          </div>
-        )}
-      </section>
-    </div>
+    </ToolLayout>
   );
 }

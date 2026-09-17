@@ -133,10 +133,19 @@ export function Tip({
     });
   }
 
+  /*
+   * 空 label 表示「这一处不要 tooltip」。注意仍然渲染下面这整套结构、不返回裸 children：
+   * 调用方常按状态在「有 tooltip / 无 tooltip」之间切换（如侧栏收起时才给导航项 tooltip），
+   * 一旦返回结构变了，React 会重建整棵子树 —— 换掉的 DOM 节点不跑 CSS 过渡，
+   * 侧栏收起时标签就会瞬间消失而不是收没。
+   */
+  const hasLabel = label !== undefined && label !== null && label !== "";
+
   return (
     <Tooltip
-      open={open}
+      open={hasLabel && open}
       onOpenChange={(next) => {
+        if (!hasLabel) return;
         // 触摸轻点后聚焦会触发 Radix 的 onOpenChange(true)，屏蔽以避免单击闪现 tooltip；
         // 长按走 setOpen(true) 直调，不受影响；桌面端 hover/focus 正常响应。
         if (next && recentTouchRef.current) return;

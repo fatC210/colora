@@ -80,22 +80,18 @@ export function PointList({
   onPick: (hex: string) => void;
   onRemove: (id: string) => void;
 }) {
-  const t = useT();
   return (
-    <section className="panel p-5">
-      <h3 className="mb-4 text-sm font-medium">{t("点位列表")}</h3>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {points.map((point, index) => (
-          <PointRow
-            key={point.id}
-            point={point}
-            index={index}
-            cbMode={cbMode}
-            onPick={onPick}
-            onRemove={onRemove}
-          />
-        ))}
-      </div>
-    </section>
+    <div className="grid gap-2">
+      {points.map((point, index) => (
+        <PointRow
+          key={point.id}
+          point={point}
+          index={index}
+          cbMode={cbMode}
+          onPick={onPick}
+          onRemove={onRemove}
+        />
+      ))}
+    </div>
   );
 }

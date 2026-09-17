@@ -131,7 +131,7 @@ function ColoraApp() {
           </div>
 
           {!effectiveZen && !showCanvas && (
-            <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+            <div className="colora-page px-4 py-5 sm:px-6 sm:py-6 lg:py-2 lg:pr-2 lg:pl-0">
               <h1 className="colora-page-title mb-4 text-2xl font-bold tracking-tight sm:mb-5 sm:text-3xl">
                 {title}
               </h1>

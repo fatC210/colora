@@ -61,11 +61,27 @@
   --font-sans: "Inter", "Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Source Han Sans SC", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Inter", "Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Source Han Sans SC", ui-sans-serif, system-ui, sans-serif;
   --font-brand: "Acme", "Inter", ui-sans-serif, system-ui, sans-serif;
-  --shadow-panel: 0 1px 2px oklch(0 0 0 / 0.04), 0 8px 24px oklch(0 0 0 / 0.06);
+  /*
+   * 卡片投影。用负 spread 把阴影收在卡片近旁：
+   * 卡片与侧栏之间只有 8px 间距，若用大 blur（如 0 12px 32px）会横向糊到侧栏那一条上，
+   * 看上去就像侧栏和背景之间多了一层色阶 —— 实际两者颜色完全相同。
+   */
+  --shadow-panel:
+    0 1px 2px -1px oklch(0 0 0 / 0.04),
+    0 2px 6px -2px oklch(0 0 0 / 0.04),
+    0 6px 16px -6px oklch(0 0 0 / 0.06);
 }
 
 :root {
   --radius: 0.75rem;
+  /*
+   * 两侧栏（左导航 / 右参数栏）收起展开共用的动效参数。宽度和内部元素（标签、内边距、
+   * 按钮对齐）必须共用同一条曲线、同一时长 —— 只让宽度动、其余属性瞬间跳变的话，
+   * 看着就是「先顿一下再慢慢缩」。曲线是标准的对称缓入缓出：起止都平缓，全程单调
+   * 不回弹（旧版 cubic-bezier(0.22,1,0.36,1) 起步极快、尾巴很长，观感就是猛地一弹）。
+   * 放在 :root 是因为右栏跟左栏不在同一棵子树里，定义在 .colora-sidebar 上它取不到。
+   */
+  --rail-motion: 280ms cubic-bezier(0.4, 0, 0.2, 1);
   --background: oklch(0.985 0 0);
   --foreground: oklch(0.16 0 0);
   --surface: oklch(1 0 0);
@@ -83,8 +99,8 @@
   --accent-foreground: oklch(0.16 0 0);
   --destructive: oklch(0.42 0 0);
   --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.9 0 0);
-  --input: oklch(0.9 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
   --ring: oklch(0.16 0 0);
   --sidebar: oklch(1 0 0);
   --sidebar-foreground: oklch(0.16 0 0);
@@ -228,40 +244,50 @@
     position: relative;
     z-index: 30;
     height: 100dvh;
-    width: 13rem;
+    /* 比 13rem 少 4px：让卡片能再往左靠 4px，同时用 nav 的左右内边距
+       把导航项高亮块的尺寸和位置补回原样（仍是 8px 起、宽 192px）。 */
+    width: 12.75rem;
     flex-shrink: 0;
     flex-direction: column;
     overflow: hidden;
-    border-right: 1px solid var(--color-sidebar-border);
-    background-color: var(--color-sidebar);
-    transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1);
+    /* 与页面背景同色、不要分隔竖线：侧栏并入背景，靠选中态与 hover 区分。
+       （移动端抽屉在自己的媒体查询里另有 border-right + 背景色，不受影响。） */
+    border-right: 0;
+    background-color: var(--color-background);
+    transition: width var(--rail-motion);
   }
 
   /*
-   * 品牌字。展开态 13rem 放得下完整 “COLORA”；收起态（4.5rem）只留单字母 “C”。
-   * 两个 span 由下面的 [data-collapsed] 规则互斥显示（移动端抽屉里同样显示全称）。
+   * 品牌字。只在展开态与移动端抽屉里出现；收起态收没（不是隐藏）。
+   * 用 max-width 收没而不是 display:none：后者在动画第一帧就整块消失，而侧栏还在慢慢缩。
+   *
+   * 注意：这个按钮的 className 上不要再加 Tailwind 的 `transition-opacity` ——
+   * utilities 层排在 components 之后，那条会把这里的 transition 整条盖掉，
+   * max-width 就进不了过渡列表（hover 的透明度会动，收起却还是瞬变）。
    */
   .colora-sidebar-logo {
     display: flex;
     align-items: center;
+    max-width: 12rem;
+    overflow: hidden;
     font-size: 1.5rem;
     line-height: 1;
     white-space: nowrap;
+    transition:
+      max-width var(--rail-motion),
+      opacity var(--rail-motion),
+      transform 160ms ease;
   }
 
-  /* 完整词默认不显示：收起态太窄，只保留首字母 */
-  .colora-sidebar-logo-word {
-    display: none;
-  }
-
-  /* 抽屉头部：桌面下是 logo + 收起按钮的一行 */
+  /* 抽屉头部：桌面下是「展开/收起按钮 + 品牌字」的一行（移动端由抽屉块改成两端对齐） */
   .colora-sidebar-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     flex-shrink: 0;
     gap: 0.5rem;
     padding: 0.75rem 0.625rem 0.5rem 0.75rem;
+    transition: padding var(--rail-motion);
   }
 
   /* 抽屉内关闭按钮：桌面下隐藏 */
@@ -269,8 +295,8 @@
     display: none;
   }
 
-  /* 桌面收起按钮：默认隐藏，由下面的 min-width 块开启；移动端不显示 */
-  .colora-sidebar-collapse {
+  /* 桌面展开/收起按钮：默认隐藏，由下面的 min-width 块开启；移动端抽屉用右上角的关闭按钮 */
+  .colora-sidebar-toggle {
     display: none;
   }
 
@@ -288,20 +314,44 @@
     flex: 1 1 auto;
     flex-direction: column;
     gap: 0.25rem;
-    padding-inline: 0.5rem;
+    /* 左右 8px / 4px：高亮块仍从 8px 起、宽 192px（与侧栏减宽前完全一致），
+       右缘停在 200px；卡片从 204px 开始 —— 视觉间距 4px。 */
+    padding-left: 0.5rem;
+    padding-right: 0.25rem;
     overflow-x: hidden;
     /* 展开态是行布局，矮屏放不下时纵向滚动兜底（旧版靠两段 max-height 规则分档缩小图标） */
     overflow-y: auto;
+    transition: padding var(--rail-motion);
   }
 
   .colora-sidebar-actions {
     display: flex;
+    position: relative;
     flex-direction: column;
     gap: 0.25rem;
-    border-top: 1px solid var(--color-sidebar-border);
-    padding: 0.75rem 0.5rem 1rem;
+    padding: 0.75rem 0.25rem 1rem 0.5rem;
+    transition: padding var(--rail-motion);
   }
 
+  /*
+   * 底部分隔线用伪元素画，不用 border-top —— border 必然贴着容器的左右边缘，
+   * 想要两端留白只能靠伪元素。左右各留 12px，线不顶到边。
+   */
+  .colora-sidebar-actions::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0.75rem;
+    left: 0.75rem;
+    height: 1px;
+    background-color: var(--color-sidebar-border);
+  }
+
+  /*
+   * 侧栏按钮的共用样式。调用点（导航项 / 导出中心 / 账户）里的图标一律要带
+   * Tailwind 的 `shrink-0`：少了它，收起侧栏时 flex 会先把图标从 20px 压到 12px、
+   * 再随按钮变窄一路弹回，观感就是图标闪一下（标签也会被连带挤动）。
+   */
   .colora-sidebar-button {
     position: relative;
     justify-content: flex-start;
@@ -311,21 +361,25 @@
     font-size: 13px;
     transition:
       background-color 160ms ease,
-      color 160ms ease;
+      color 160ms ease,
+      padding var(--rail-motion),
+      gap var(--rail-motion);
   }
 
   .colora-sidebar-avatar {
     flex-shrink: 0;
   }
 
+  /* 同品牌字：收起态用 max-width 收没，不用 display:none（那会在动画第一帧就整块消失） */
   .colora-sidebar-label {
+    max-width: 12rem;
+    overflow: hidden;
     font-size: 13px;
     line-height: 1;
     white-space: nowrap;
-  }
-
-  .colora-sidebar[data-collapsed="true"] .colora-sidebar-logo-word {
-    display: none;
+    transition:
+      max-width var(--rail-motion),
+      opacity var(--rail-motion);
   }
 
   /*
@@ -333,21 +387,25 @@
    * 768 以上侧栏都是常驻列，没有理由再按屏高分档（旧版有 88/64/56 三档）。
    */
   @media (min-width: 769px) {
-    /* 展开态 13rem 放得下整词；收起态回到单字母（见下面的 [data-collapsed]） */
-    .colora-sidebar-logo-mark {
+    /* 桌面隐藏页面标题：侧栏已经高亮了当前工具，标题是重复信息；去掉后卡片能占满高度。
+       移动端保留 —— 它在那里是顶栏的一部分（移动端块里 .colora-page-title 是 fixed）。 */
+    .colora-page-title {
       display: none;
     }
 
-    .colora-sidebar-logo-word {
-      display: inline;
-    }
-
-    .colora-sidebar-collapse {
+    /*
+     * 展开/收起按钮。两种形态下都停在 header 左侧的同一位置：收起态这个按钮本身就是
+     * 品牌 logo（hover 时 logo 淡出、展开箭头淡入），展开态它显示收起箭头，所以用户
+     * 来回切换时鼠标不用移动。2.5rem 与导航项 min-height 同高，保持纵向节奏一致。
+     */
+    .colora-sidebar-toggle {
       display: inline-flex;
+      position: relative;
       align-items: center;
       justify-content: center;
-      width: 2rem;
-      height: 2rem;
+      width: 2.5rem;
+      height: 2.5rem;
+      flex-shrink: 0;
       border-radius: 0.5rem;
       color: var(--color-muted-foreground);
       transition:
@@ -355,8 +413,8 @@
         color 160ms ease;
     }
 
-    .colora-sidebar-collapse:hover,
-    .colora-sidebar-collapse:focus-visible {
+    .colora-sidebar-toggle:hover,
+    .colora-sidebar-toggle:focus-visible {
       background-color: var(--color-sidebar-accent);
       color: var(--color-sidebar-foreground);
     }
@@ -365,30 +423,94 @@
       width: 4.5rem;
     }
 
-    /* 收起态：品牌字回到单字母 */
-    .colora-sidebar[data-collapsed="true"] .colora-sidebar-logo-mark {
-      display: inline;
+    /*
+     * 按钮里的三层（品牌图形 / 展开箭头 / 收起箭头）叠在同一位置做交叉淡入淡出。
+     * 三层始终存在，只切 opacity —— 别按状态条件渲染图标：换图标就是换 DOM 节点，
+     * 新建节点不跑过渡，收起瞬间会硬切。
+     * 图形 26px 是刻意压过重量的：下面是 20px、1.6 线宽的单线图标，
+     * 铺满 40px 按钮时会显得比整列导航都重，像贴上去的。
+     */
+    .colora-sidebar-toggle > * {
+      position: absolute;
+      inset: 0;
+      margin: auto;
+      transition:
+        opacity 160ms ease,
+        transform 160ms ease;
     }
 
-    .colora-sidebar[data-collapsed="true"] .colora-sidebar-logo-word {
-      display: none;
+    .colora-sidebar-toggle-logo {
+      width: 1.625rem;
+      height: 1.625rem;
+      opacity: 0;
+    }
+
+    /* 展开态：显示收起箭头 */
+    .colora-sidebar-toggle-icon-open {
+      opacity: 0;
+    }
+
+    /* 收起态：品牌图形顶上来，收起箭头退场 */
+    .colora-sidebar[data-collapsed="true"] .colora-sidebar-toggle-logo {
+      opacity: 1;
+    }
+
+    .colora-sidebar[data-collapsed="true"] .colora-sidebar-toggle-icon-close {
+      opacity: 0;
+    }
+
+    /* 收起态 hover / 键盘聚焦：图形退场，展开箭头浮现 */
+    .colora-sidebar[data-collapsed="true"] .colora-sidebar-toggle:hover .colora-sidebar-toggle-logo,
+    .colora-sidebar[data-collapsed="true"] .colora-sidebar-toggle:focus-visible .colora-sidebar-toggle-logo {
+      opacity: 0;
+      transform: scale(0.86);
+    }
+
+    .colora-sidebar[data-collapsed="true"] .colora-sidebar-toggle:hover .colora-sidebar-toggle-icon-open,
+    .colora-sidebar[data-collapsed="true"] .colora-sidebar-toggle:focus-visible .colora-sidebar-toggle-icon-open {
+      opacity: 1;
+    }
+
+    /* 收起态：品牌字收没（max-width 归零，见 .colora-sidebar-logo） */
+    .colora-sidebar[data-collapsed="true"] .colora-sidebar-logo {
+      max-width: 0;
+      opacity: 0;
     }
 
     /* 收起态：只剩图标 */
     .colora-sidebar[data-collapsed="true"] .colora-sidebar-label {
-      display: none;
+      max-width: 0;
+      opacity: 0;
     }
 
+    /*
+     * 收起态：内边距收到 (40 - 20) / 2 = 10px，图标正好落在正方形正中。
+     * 这里不切 justify-content —— 那个属性不能过渡，一切就是瞬移；
+     * 只动 padding 的话，图标在整段动画里只平移 2px（12px → 10px），几乎看不出位移。
+     */
     .colora-sidebar[data-collapsed="true"] .colora-sidebar-button {
-      justify-content: center;
       gap: 0;
-      padding-inline: 0;
+      padding-inline: 0.625rem;
     }
 
-    /* 收起态 header 竖排，保证「回到展开」永远可达 */
+    /*
+     * 收起态：导航项与动作项都收成 40×40 的正方形，与顶部的展开/收起按钮同宽同高。
+     * 展开态那套左右 8px / 4px 的不对称内边距是为了让高亮块左缘对齐卡片，
+     * 到收起态就只剩「比顶部按钮宽 20px」这一个副作用 —— 高亮块是 60×40 的长方形，
+     * 和正上方的正方形按钮并排看着不齐。72px 的 rail 减掉左右各 16px 正好 40px。
+     */
+    .colora-sidebar[data-collapsed="true"] .colora-sidebar-nav,
+    .colora-sidebar[data-collapsed="true"] .colora-sidebar-actions {
+      padding-inline: 1rem;
+    }
+
+    /*
+     * 收起态 header 只剩一个按钮：靠 padding 把它推到 rail 中轴。
+     * 用 padding-inline 而不是 justify-content: center —— 前者能跟着宽度一起过渡，
+     * 后者不能过渡，会在动画第一帧把按钮瞬移到位。
+     */
     .colora-sidebar[data-collapsed="true"] .colora-sidebar-header {
-      flex-direction: column;
-      padding-inline: 0.5rem;
+      padding-inline: 1rem;
     }
   }
 
@@ -413,28 +535,366 @@
     overscroll-behavior: contain;
   }
 
-  .colora-section {
-    overflow: hidden;
+  /*
+   * 工具工作区：主内容卡片 + 可选右侧参数栏。
+   * 窄屏是单列（rail 排在主内容之前，与迁移前的控件顺序一致）；≥1024 才是并排两栏。
+   */
+  .colora-surface-card {
+    min-width: 0;
+    /* 卡片边界主要靠阴影撑起来；边框直接用 --color-border（已对齐参考站的 0.922，
+       不用再叠 color-mix —— 那样会压过头，实测比参考站还淡）。 */
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-2xl);
     background-color: var(--color-surface);
-    transition:
-      border-color 160ms ease,
-      background-color 160ms ease,
-      box-shadow 180ms ease,
-      transform 180ms ease;
+    box-shadow: var(--shadow-panel);
+    padding: 1.25rem;
   }
 
-  .colora-section:hover,
-  .colora-section:focus-within {
-    border-color: color-mix(in oklch, var(--color-foreground) 18%, var(--color-border));
-    box-shadow: 0 8px 18px oklch(0 0 0 / 0.05);
-    transform: translateY(-1px);
+  .colora-tool-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .colora-tool-main {
+    min-width: 0;
+  }
+
+  /* 窄屏：rail 排到主内容之前；且退化成普通区块（不套卡片，避免卡片套卡片） */
+  .colora-tool-rail {
+    order: -1;
+    min-width: 0;
+  }
+
+  .colora-rail-card {
+    min-width: 0;
+  }
+
+  /*
+   * 窄屏：rail 排到主内容上方，此时没有标题栏、没有图标栏，切换按钮也不显示。
+   * 注意 viewport 不能一起隐藏 —— 它是包着 body 的容器，隐藏了整栏就空了。
+   */
+  .colora-rail-header,
+  .colora-rail-strip,
+  .colora-rail-toggle {
+    display: none;
+  }
+
+  .colora-rail-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  /* 分区：窄屏是独立卡片（与迁移前一致）。分区内边距统一由这里给，
+     各工具的内容不要再自带 p-4/p-5，否则标题与内容左缘会错位。 */
+  .colora-rail-section {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    background-color: var(--color-surface);
+    padding: 1rem;
+  }
+
+  .colora-rail-section-title {
+    margin-bottom: 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-muted-foreground);
+  }
+
+  @media (min-width: 1024px) {
+    /*
+     * 桌面不再整页滚动：内容区变成「填满窗口高度」的容器，滚动发生在卡片内部。
+     * 窄屏保持原来的整页滚动 —— 那里 rail 会排到主内容上方，硬撑 100% 会挤成一团。
+     */
+    .colora-content-scroller {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* 色盲横幅（若有）占位后，余下高度全给工具区 */
+    .colora-page {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* 画布：同样占满横幅之外的剩余高度 */
+    .colora-content-scroller > section {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
+    .colora-surface-card {
+      height: 100%;
+      padding: 1.75rem;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .colora-tool-grid {
+      flex: 1 1 auto;
+      flex-direction: row;
+      align-items: stretch;
+      gap: 1.5rem;
+      min-height: 0;
+    }
+
+    .colora-tool-main {
+      flex: 1 1 0%;
+      min-height: 0;
+    }
+
+    /*
+     * 右栏。展开 16rem、收起 4.5rem（与左侧栏收起态同宽同语言，图标尺寸/圆角/间距也一致）。
+     * 两个宽度都写成变量，让列宽、body 的固定宽度、图标栏宽度共用同一个值，避免三处漂移。
+     *
+     * 不画竖分隔线：右栏是并入页面背景的，跟主内容的分界靠主内容卡片自己的边框表达
+     * （参考稿里那条「线」其实就是卡片的边框，不是参数栏的边界）。
+     */
+    .colora-tool-rail {
+      --rail-open-w: 16rem;
+      --rail-strip-w: 4rem;
+      position: relative;
+      flex: 0 0 var(--rail-open-w);
+      order: 0;
+      /*
+       * 抵消 .colora-page 的 padding-right（pr-2，8px）：右栏是贴着窗口右缘的最后一列，
+       * 留着那 8px 会让滚动条右边多出一条空白。负外边距把它顶到视口边缘；
+       * flex 布局里主列会相应加宽 8px，卡片跟着往右长一点，与右栏的间距不变。
+       */
+      margin-right: -0.5rem;
+      transition: flex-basis var(--rail-motion);
+    }
+
+    /* 收起后不是归零，而是留一条图标栏 */
+    .colora-tool-grid[data-rail="closed"] .colora-tool-rail {
+      flex-basis: var(--rail-strip-w);
+    }
+
+    /* 无卡片外观：整栏并入页面背景，靠上面那条竖线跟主内容分开 */
+    .colora-rail-card {
+      display: flex;
+      height: 100%;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /*
+     * 标题栏。切换按钮用绝对定位钉在右缘，不用 flex + margin-left:auto ——
+     * 收起态标题宽度归零后，auto 边距在内容溢出时会失效，按钮会被顶偏。
+     * 绝对定位下按钮右缘恒为 rail 右缘 − 1.5rem，两种形态一致（栏右缘本身不动），
+     * 也就跟下面图标列的右缘对齐了。
+     *
+     * 左右内边距刻意不对称：栏外还有 24px 的 grid gap（左）和 8px 的页面右内边距（右），
+     * 两边都算进去才是眼睛看到的空白。左 8px + 右 24px 时，
+     * 「卡片右缘 → 内容」= 24 + 8 = 32px，「内容 → 窗口右缘」= 24 + 8 = 32px，两侧相等。
+     * 分区与图标栏用同一组值，展开/收起切换时内容左缘不会跳。
+     */
+    .colora-rail-header {
+      position: relative;
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+      padding: 0.75rem 1.5rem 0.75rem 0;
+    }
+
+    /* 标题下的分隔线：两端留白，不顶到边 */
+    .colora-rail-header::after {
+      content: "";
+      position: absolute;
+      right: 1.5rem;
+      bottom: 0;
+      left: 0;
+      height: 1px;
+      background-color: var(--color-border);
+    }
+
+    /* 用 max-width 收没而不是 display:none —— 后者在动画第一帧就整块消失，而栏还在慢慢收 */
+    .colora-rail-title {
+      max-width: 10rem;
+      overflow: hidden;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: var(--color-foreground);
+      white-space: nowrap;
+      transition:
+        max-width var(--rail-motion),
+        opacity var(--rail-motion);
+    }
+
+    .colora-tool-grid[data-rail="closed"] .colora-rail-title {
+      max-width: 0;
+      opacity: 0;
+    }
+
+    .colora-rail-toggle {
+      position: absolute;
+      top: 50%;
+      right: 1.5rem;
+      display: inline-flex;
+      width: 2.5rem;
+      height: 2.5rem;
+      align-items: center;
+      justify-content: center;
+      border-radius: 0.5rem;
+      color: var(--color-muted-foreground);
+      transform: translateY(-50%);
+      transition:
+        background-color 160ms ease,
+        color 160ms ease;
+    }
+
+    .colora-rail-toggle:hover,
+    .colora-rail-toggle:focus-visible {
+      background-color: var(--color-accent);
+      color: var(--color-foreground);
+    }
+
+    /* body 与图标栏外面再包一层：图标栏用 inset:0 定位需要一个不含标题栏的基准，
+       否则要么盖住标题栏（收起态点不动切换按钮），要么得写死标题栏高度（受字号/i18n 影响）。 */
+    .colora-rail-viewport {
+      display: flex;
+      position: relative;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
+    /*
+     * 展开态内容。absolute + right:0 + 固定宽度，三个作用缺一不可：
+     * 1) 固定宽度 —— column flex 里 flex:1 只管主轴高度，宽度来自 cross 轴 stretch，
+     *    不写死就会被跟着压缩，收起动画中内容会一路重排；
+     * 2) right:0 —— rail 右缘不动、左缘在动，右对齐才能让内容在动画中原地不动
+     *    （只固定宽度的话内容仍会随左缘水平平移）；
+     * 3) 两种形态下滚动位置一致，点图标可以立即滚，不必等过渡结束。
+     */
+    .colora-rail-body {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      width: var(--rail-open-w);
+      flex-direction: column;
+      gap: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      /*
+       * 滚动条固定占位：不这么做的话，内容会不会溢出会让右缘左右跳 10px。
+       * --rail-scrollbar-w 必须与 @layer base 里 ::-webkit-scrollbar 的 width 保持一致。
+       */
+      --rail-scrollbar-w: 10px;
+      scrollbar-gutter: stable;
+      transition: opacity var(--rail-motion);
+    }
+
+    .colora-tool-grid[data-rail="closed"] .colora-rail-body {
+      pointer-events: none;
+      opacity: 0;
+    }
+
+    /*
+     * 收起态的图标栏。与 body 同级（body 挂着 inert，套进去会连图标一起废掉）。
+     * 用 visibility 而不是 display 切换：它可过渡（切到 hidden 时会等过渡跑完才生效），
+     * 展开态还能顺带挡住「隐形但可点」——不然它会盖住 ImageTool 第一行的整行按钮。
+     */
+    .colora-rail-strip {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.25rem;
+      /*
+       * 左右内边距刻意不对称：栏外还有 24px 的 grid gap（左）和 8px 的页面右内边距（右），
+       * 两边都算进去才是眼睛看到的空白。图标落在 [8, 48]（栏内）时，
+       * 「卡片右缘 → 图标」= 24 + 8 = 32px，「图标 → 窗口右缘」= 24 + 8 = 32px，两侧相等。
+       * 若按栏内居中（左右各 16px）排，外侧会是 40px、内侧 24px，看着就是偏的。
+       * 右侧留 1.5rem 同时让图标列右缘与标题栏的切换按钮右缘对齐。
+       */
+      padding: 0.75rem 1.5rem 1rem 0;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition:
+        opacity var(--rail-motion),
+        visibility var(--rail-motion);
+    }
+
+    .colora-tool-grid[data-rail="closed"] .colora-rail-strip {
+      visibility: visible;
+      pointer-events: auto;
+      opacity: 1;
+    }
+
+    .colora-rail-strip-button {
+      display: inline-flex;
+      width: 2.5rem;
+      height: 2.5rem;
+      flex-shrink: 0;
+      align-items: center;
+      justify-content: center;
+      border-radius: 0.5rem;
+      color: var(--color-muted-foreground);
+      transition:
+        background-color 160ms ease,
+        color 160ms ease;
+    }
+
+    .colora-rail-strip-button:hover,
+    .colora-rail-strip-button:focus-visible {
+      background-color: var(--color-accent);
+      color: var(--color-foreground);
+    }
+
+    /* 分区：去掉卡片外观，改用两端留白的分隔线。
+       内边距左右不对称的理由同标题栏（外侧 24px gap vs 8px 页面内边距），
+       这样内容的左右空白才是视觉上相等的 32px。 */
+    .colora-rail-section {
+      position: relative;
+      border: 0;
+      border-radius: 0;
+      background-color: transparent;
+      /* 右内边距扣掉滚动条占宽：分区的可用宽度被滚动条吃掉 10px，
+         不扣的话内容右缘会比标题栏/图标列多缩进 10px。 */
+      padding: 1.25rem calc(1.5rem - var(--rail-scrollbar-w, 10px)) 1.25rem 0;
+    }
+
+    .colora-rail-section + .colora-rail-section::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      right: 1.5rem;
+      left: 0;
+      height: 1px;
+      background-color: var(--color-border);
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
     .colora-tabs-indicator,
-    .colora-section {
+    .colora-sidebar,
+    .colora-tool-rail,
+    .colora-rail-card,
+    .colora-rail-toggle,
+    .colora-rail-title,
+    .colora-rail-body,
+    .colora-rail-strip,
+    .colora-rail-strip-button,
+    .colora-rail-section,
+    .colora-sidebar-toggle,
+    .colora-sidebar-toggle-logo,
+    .colora-sidebar-toggle-icon,
+    .colora-sidebar-header,
+    .colora-sidebar-nav,
+    .colora-sidebar-actions,
+    .colora-sidebar-button,
+    .colora-sidebar-label,
+    .colora-sidebar-logo {
       transition-duration: 1ms !important;
       animation-duration: 1ms !important;
     }
@@ -496,16 +956,6 @@
     padding: 0;
     /* 移动端抽屉 248px 宽，放得下整词 */
     font-size: 1.5rem;
-  }
-
-  /* 抽屉里显示完整 “COLORA”，收起单字母。声明在 @layer 之外，
-     才能盖过组件层里 .colora-sidebar-logo-word 的 display:none。 */
-  .colora-sidebar-logo-mark {
-    display: none;
-  }
-
-  .colora-sidebar-logo-word {
-    display: inline;
   }
 
   .colora-sidebar-close {
