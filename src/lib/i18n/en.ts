@@ -307,6 +307,28 @@ const core = {
   待优化: "Needs work",
 
   // ─────────────────────────── 渐变工具 ───────────────────────────
+  // 对比度检查：成对配色库
+  "预览": "Preview",
+  "配色组合": "Color duos",
+  "全部": "All",
+  "{n} 组": "{n} duos",
+  "标题示例": "Heading sample",
+  "正文示例": "Body sample",
+  "大字": "Large text",
+  // 按目标分匹配颜色（自由选配页）
+  "目标分": "Target score",
+  "匹配颜色": "Match colors",
+  "已尽量贴近：{score}": "Closest achievable: {score}",
+  // 右栏分区标题
+  渐变类型: "Gradient type",
+  方向与中心: "Direction & center",
+  颜色过渡: "Color transition",
+  // 渐变缓动（对齐 magicpattern 的分组与命名）
+  渐变缓动: "Gradient easing",
+  "缓动已开启：锚点由曲线自动生成，关掉缓动即可回到你原来的锚点。": "Easing is on: the anchors are generated from the curve. Turn easing off to get your original anchors back.",
+  缓入: "In",
+  缓出: "Out",
+  缓入缓出: "In-out",
   渐变操作: "Gradient actions",
   线性: "Linear",
   径向: "Radial",

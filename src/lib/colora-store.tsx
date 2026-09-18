@@ -12,6 +12,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import type { CBMode, InterpSpace, MixMode } from "./color";
+import type { GradientEasing } from "./easing";
 import type { Lang, TKey } from "./i18n";
 import { detectBrowserLang, getStoredLang, translate } from "./i18n";
 
@@ -28,6 +29,11 @@ export type GradientConfig = {
   type: "linear" | "radial" | "conic" | "mesh";
   angle: number;
   space: InterpSpace;
+  /**
+   * 相邻色标之间的缓动曲线。"linear" = 不缓动，也就是这个字段引入之前的行为 ——
+   * 所以默认值必须是它，否则所有已存在的渐变观感都会变。
+   */
+  easing: GradientEasing;
   center: { x: number; y: number };
 };
 
@@ -184,6 +190,7 @@ const DEFAULT_GRADIENT_CONFIG: GradientConfig = {
   type: "linear",
   angle: 135,
   space: "rgb",
+  easing: "linear",
   center: { x: 50, y: 50 },
 };
 

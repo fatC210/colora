@@ -9,6 +9,7 @@ import { RailSection } from "./RailSection";
  */
 export type RailSectionSpec = {
   id: string;
+  /** 分区图标。收起态的分区图标栏用它，展开态不显示。 */
   icon: ComponentType<{ className?: string; strokeWidth?: number }>;
   title: string;
   content: ReactNode;
@@ -22,13 +23,31 @@ export type RailSectionSpec = {
 };
 
 /** 读右栏展开偏好。SSR 无 window 时返回 true（默认展开）。 */
-function loadRailOpen() {
+function readRailOpen() {
   if (typeof window === "undefined") return true;
   try {
     return localStorage.getItem("colora.railOpen") !== "false";
   } catch {
     return true;
   }
+}
+
+/**
+ * 展开偏好的模块级缓存。
+ *
+ * ToolLayout 是**每个工具各挂一个**的，切换工具时整个组件被卸载重建。若只用
+ * `useState(true)` + effect 读 localStorage，每次切工具都会先按「展开」渲染一帧、
+ * 再动画收起来 —— 看着就是「先展开再收起」。
+ *
+ * 缓存放在模块作用域后，第二次及以后的挂载在**首次渲染**就能拿到正确的值，
+ * 元素一创建就是收起态（新建元素不跑过渡），不再闪。
+ * 首次挂载（整页加载）缓存还是空的，仍需由 effect 校正一次 —— 那与左栏行为一致。
+ */
+let railOpenCache: boolean | null = null;
+
+function loadRailOpen() {
+  railOpenCache ??= readRailOpen();
+  return railOpenCache;
 }
 
 /**
@@ -52,8 +71,10 @@ export function ToolLayout({
   children: ReactNode;
 }) {
   const t = useT();
-  const [railOpen, setRailOpen] = useState(true);
+  // 首帧就取缓存值：切换工具重建时不会先渲染成展开态。
+  const [railOpen, setRailOpen] = useState(() => railOpenCache ?? true);
   useEffect(() => {
+    // 首次挂载缓存为空，这里补一次（值与首帧相同则不会触发重渲染）。
     setRailOpen(loadRailOpen());
   }, []);
 
@@ -66,6 +87,8 @@ export function ToolLayout({
     }
     try {
       localStorage.setItem("colora.railOpen", JSON.stringify(railOpen));
+      // 同步缓存：否则收起后切工具，新实例会拿旧缓存值又弹回展开态。
+      railOpenCache = railOpen;
     } catch {
       // 隐私模式等场景下 localStorage 可能抛错；偏好丢失不影响功能。
     }
@@ -91,16 +114,15 @@ export function ToolLayout({
     setRailOpen(false);
   };
 
-  const openAt = (id?: string) => {
+  const openAt = (id: string) => {
     setRailOpen(true);
     const body = bodyRef.current;
-    if (!id || !body) return;
-    const target = body.querySelector<HTMLElement>(`[data-rail-section="${id}"]`);
-    if (!target) return;
+    const target = body?.querySelector<HTMLElement>(`[data-rail-section="${id}"]`);
+    if (!body || !target) return;
     // 只滚目标容器：scrollIntoView 会连 overflow:hidden 的祖先一起滚，
     // 展开动画进行中会把祖先的 scrollLeft 也搅动。
     body.scrollTo({ top: target.offsetTop - body.offsetTop, behavior: "smooth" });
-    // 刚点的图标会随 strip 一起隐藏，焦点得先落到目标分区，否则会丢。
+    // 刚点的图标会随图标栏一起隐藏，焦点得先落到目标分区，否则会丢。
     window.requestAnimationFrame(() => target.focus({ preventScroll: true }));
   };
 
@@ -120,7 +142,7 @@ export function ToolLayout({
               <button
                 ref={toggleRef}
                 type="button"
-                onClick={() => (railOpen ? collapse() : openAt())}
+                onClick={() => (railOpen ? collapse() : setRailOpen(true))}
                 aria-expanded={railOpen}
                 aria-controls={bodyId}
                 aria-label={label}
@@ -146,8 +168,8 @@ export function ToolLayout({
                 ))}
               </div>
 
-              {/* 收起态的图标栏。必须与 body 同级 —— body 挂着 inert，
-                  套在里面会连图标一起废掉，收起后就点不动了。 */}
+              {/* 收起态的分区图标栏。与 body 同级 —— body 挂着 inert，
+                  套进去会连图标一起废掉，收起后就点不动了。 */}
               <div className="colora-rail-strip" inert={railOpen ? true : undefined}>
                 {sections.map((section) => (
                   <button

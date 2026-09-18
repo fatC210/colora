@@ -21,6 +21,7 @@ import {
   HARMONIES,
   generateHarmony,
   harmonyScore,
+  matchHarmonyScore,
   jitter,
   normalizeHex,
   randomHex,
@@ -326,12 +327,31 @@ function FreePicker() {
   const { palette, setPalette, setColor, cbMode, saveColor, user } = useColora();
   const score = harmonyScore(palette);
   const t = useT();
+  /*
+   * 锁：只影响「按目标分匹配」时动不动这个槽位（这一页本来没有锁定，为了这个功能才加）。
+   * 用 index 对齐调色板，增删颜色时要同步维护。
+   */
+  const [locked, setLocked] = useState<boolean[]>(() => palette.map(() => false));
+  const [target, setTarget] = useState(80);
+  const [notice, setNotice] = useState("");
+
+  const applyTarget = () => {
+    const next = matchHarmonyScore(palette, locked, target);
+    setPalette(next);
+    const achieved = harmonyScore(next);
+    // 锁定的颜色会限制可达分数，够不着时说清楚，别让人以为按钮没生效。
+    setNotice(
+      Math.abs(achieved - target) <= 2 ? "" : t("已尽量贴近：{score}", { score: achieved }),
+    );
+  };
 
   return (
     <section className="panel p-5">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h3 className="text-sm font-medium">{t("自由选配（3-10 个颜色）")}</h3>
 
+        {/* 和谐度评分 + 按目标分匹配：同一组，别让目标分单开一行 */}
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
         {/* 和谐度评分：等级药丸 + 渐变条，桌面端与移动端统一样式 */}
         <div className="flex items-center justify-between gap-4">
           <div className="flex flex-col gap-1.5">
@@ -370,30 +390,81 @@ function FreePicker() {
             />
           </div>
         </div>
+
+        {/* 按目标分匹配：只动未锁定的颜色；每点一次换一组解 */}
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="colora-target-score" className="text-xs text-muted-foreground">
+            {t("目标分")}
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              id="colora-target-score"
+              type="number"
+              min={0}
+              max={100}
+              value={target}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setTarget(Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : 0);
+                setNotice("");
+              }}
+              className="h-8 w-16 rounded-md border border-input bg-transparent px-2 text-sm"
+            />
+            <Button size="sm" variant="outline" onClick={applyTarget}>
+              {t("匹配颜色")}
+            </Button>
+            {notice && <span className="text-xs text-muted-foreground">{notice}</span>}
+          </div>
+        </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3 sm:flex sm:flex-wrap sm:gap-3">
         {palette.map((c, i) => (
           <div key={i} className="w-full space-y-2 sm:w-32">
-            <Popover>
-              <Tip label={c}>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="h-32 w-full rounded-xl border border-border/60"
-                    style={{ backgroundColor: simulateCB(c, cbMode) }}
-                    onDoubleClick={() => setColor(c)}
-                    aria-label={c}
+            <div className="relative">
+              <Popover>
+                <Tip label={c}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="h-32 w-full rounded-xl border border-border/60"
+                      style={{ backgroundColor: simulateCB(c, cbMode) }}
+                      onDoubleClick={() => setColor(c)}
+                      aria-label={c}
+                    />
+                  </PopoverTrigger>
+                </Tip>
+                <PopoverContent className="w-64">
+                  <ColorPicker
+                    value={c}
+                    onChange={(hex) => setPalette(palette.map((p, pi) => (pi === i ? hex : p)))}
                   />
-                </PopoverTrigger>
+                </PopoverContent>
+              </Popover>
+              <Tip label={locked[i] ? t("已锁定，点击解锁") : t("未锁定，点击锁定")}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setLocked((prev) => prev.map((l, li) => (li === i ? !l : l)))
+                  }
+                  aria-pressed={!!locked[i]}
+                  aria-label={locked[i] ? t("已锁定，点击解锁") : t("未锁定，点击锁定")}
+                  className={cn(
+                    "absolute right-2 top-2 grid size-8 place-items-center rounded-full shadow-sm ring-1 ring-inset transition-colors",
+                    locked[i]
+                      ? "bg-foreground text-background ring-background/30"
+                      : "bg-background/85 text-muted-foreground ring-foreground/25 hover:bg-background hover:text-foreground",
+                  )}
+                >
+                  {locked[i] ? (
+                    <Lock className="size-3.5 stroke-[2.5]" />
+                  ) : (
+                    <LockOpen className="size-3.5" />
+                  )}
+                </button>
               </Tip>
-              <PopoverContent className="w-64">
-                <ColorPicker
-                  value={c}
-                  onChange={(hex) => setPalette(palette.map((p, pi) => (pi === i ? hex : p)))}
-                />
-              </PopoverContent>
-            </Popover>
+            </div>
             <div className="flex items-center justify-between gap-1">
               <CopyText value={c} className="font-mono text-xs" />
               {user && (
@@ -412,7 +483,10 @@ function FreePicker() {
                 <button
                   type="button"
                   disabled={palette.length <= 3}
-                  onClick={() => setPalette(palette.filter((_, pi) => pi !== i))}
+                  onClick={() => {
+                    setPalette(palette.filter((_, pi) => pi !== i));
+                    setLocked((prev) => prev.filter((_, li) => li !== i));
+                  }}
                   className="text-muted-foreground hover:text-foreground disabled:opacity-30"
                   aria-label={t("删除颜色")}
                 >
@@ -427,7 +501,10 @@ function FreePicker() {
           <Tip label={t("添加颜色")}>
             <button
               type="button"
-              onClick={() => setPalette([...palette, randomHex()])}
+              onClick={() => {
+                setPalette([...palette, randomHex()]);
+                setLocked((prev) => [...prev, false]);
+              }}
               className="grid h-32 w-full place-items-center rounded-xl border border-dashed border-border text-muted-foreground hover:text-foreground sm:w-32"
               aria-label={t("添加颜色")}
             >

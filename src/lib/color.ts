@@ -348,6 +348,85 @@ export function harmonyScore(colors: string[]) {
   return Math.round(clamp((hueScore * 0.7 + spread * 0.3) * 100, 0, 100));
 }
 
+/**
+ * 调整**未锁定**的颜色，让和谐度评分尽量贴近 `target`；锁定的颜色原样保留。
+ *
+ * 用坐标下降：逐个未锁定槽位试遍候选色，留下让 |评分 − 目标| 最小的那个，多轮直到不再改善。
+ * 候选 = 色相每 3° × 几档明度：色相决定评分里的「色相差是否贴近 0/30/…/180」，
+ * 明度决定「明暗跨度」那一项。饱和度不参与评分，所以原样保留 ——
+ * 免得为了凑分把颜色改得莫名刺眼或发灰（本来就是灰的除外，见下）。
+ *
+ * 评分是离散且非单调的，解析求解不现实；但候选空间很小
+ * （≤10 槽 × 120 色相 × 5 明度 × 4 轮），跑一次不到 10ms。
+ */
+/** 候选明度档位。铺满 10%~90% 才能覆盖评分里的「明暗跨度」项；是否极端交给平局规则去权衡。 */
+const LIGHTNESS_STEPS = [10, 20, 30, 40, 50, 60, 70, 80, 90];
+
+export function matchHarmonyScore(
+  colors: string[],
+  locked: readonly boolean[],
+  target: number,
+  rand: () => number = Math.random,
+): string[] {
+  const goal = clamp(Math.round(target), 0, 100);
+  const out = [...colors];
+  /*
+   * 每点一次换一组：候选的**遍历顺序**随机化。
+   * 同一个分数通常有多个解（色相整体旋转、明度怎么组合都能凑出同一个分），
+   * 坐标下降取「第一个遇到的等优解」，顺序一换就落到另一个解上 ——
+   * 结果既仍然精确命中目标分，又每次不同。
+   */
+  // 起点也随机化：否则第二次点击时当前配色本身已经是个最优解，坐标下降原地不动，
+  // 连点会一直得到同一组颜色。色相随机、饱和度与明度保留（它们不参与评分）。
+  for (let i = 0; i < out.length; i++) {
+    if (locked[i]) continue;
+    const hsl = rgbToHsl(hexToRgb(out[i]));
+    out[i] = rgbToHex(
+      hslToRgb({ h: Math.floor(rand() * 360), s: hsl.s < 8 ? 60 : hsl.s, l: hsl.l }),
+    );
+  }
+  const hueStart = Math.floor(rand() * 120) * 3; // 0..357，3 的倍数
+  const lightnessOrder = [...LIGHTNESS_STEPS];
+  for (let i = lightnessOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [lightnessOrder[i], lightnessOrder[j]] = [lightnessOrder[j], lightnessOrder[i]];
+  }
+  for (let pass = 0; pass < 4; pass++) {
+    let changed = false;
+    for (let i = 0; i < out.length; i++) {
+      if (locked[i]) continue;
+      const current = out[i];
+      const hsl = rgbToHsl(hexToRgb(current));
+      // 灰色（饱和度≈0）时色相没有意义，给它一个基础饱和度，否则搜索动不了这个槽位。
+      const sat = hsl.s < 8 ? 60 : hsl.s;
+      let bestHex = current;
+      let bestDelta = Math.abs(harmonyScore(out) - goal);
+      let bestBalance = Math.abs(hsl.l - 50);
+      for (let step = 0; step < 120; step++) {
+        const h = (hueStart + step * 3) % 360;
+        for (const l of lightnessOrder) {
+          const candidate = rgbToHex(hslToRgb({ h, s: sat, l }));
+          out[i] = candidate;
+          const delta = Math.abs(harmonyScore(out) - goal);
+          // 先比「离目标分多远」；一样近时选明度更居中的。
+          // 同一个分数往往有多个解（评分里的明暗跨度项只看最亮/最暗之差），
+          // 不加这个平局规则会优先挑近黑近白 —— 分是凑到了，颜色没法用。
+          const balance = Math.abs(l - 50);
+          if (delta < bestDelta || (delta === bestDelta && balance < bestBalance)) {
+            bestDelta = delta;
+            bestBalance = balance;
+            bestHex = candidate;
+          }
+        }
+      }
+      out[i] = bestHex;
+      if (bestHex !== current) changed = true;
+    }
+    if (!changed) break;
+  }
+  return out;
+}
+
 // ---- Mixing ----
 export type MixMode = "subtractive" | "additive" | "average";
 

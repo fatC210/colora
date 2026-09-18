@@ -649,15 +649,16 @@
     }
 
     /*
-     * 右栏。展开 16rem、收起 4.5rem（与左侧栏收起态同宽同语言，图标尺寸/圆角/间距也一致）。
-     * 两个宽度都写成变量，让列宽、body 的固定宽度、图标栏宽度共用同一个值，避免三处漂移。
+     * 右栏。展开 16rem、收起 4rem —— 收起态只留右上角那一个切换按钮，
+     * 栏宽正好是「按钮 2.5rem + 右内边距 1.5rem」。两个宽度都写成变量，
+     * 让列宽与 body 的固定宽度共用同一个值，避免两处漂移。
      *
      * 不画竖分隔线：右栏是并入页面背景的，跟主内容的分界靠主内容卡片自己的边框表达
      * （参考稿里那条「线」其实就是卡片的边框，不是参数栏的边界）。
      */
     .colora-tool-rail {
       --rail-open-w: 16rem;
-      --rail-strip-w: 4rem;
+      --rail-closed-w: 4rem;
       position: relative;
       flex: 0 0 var(--rail-open-w);
       order: 0;
@@ -670,9 +671,9 @@
       transition: flex-basis var(--rail-motion);
     }
 
-    /* 收起后不是归零，而是留一条图标栏 */
+    /* 收起后不归零，保留一条窄栏 —— 宽度正好是「切换按钮 2.5rem + 右内边距 1.5rem」 */
     .colora-tool-grid[data-rail="closed"] .colora-tool-rail {
-      flex-basis: var(--rail-strip-w);
+      flex-basis: var(--rail-closed-w);
     }
 
     /* 无卡片外观：整栏并入页面背景，靠上面那条竖线跟主内容分开 */
@@ -798,9 +799,14 @@
     }
 
     /*
-     * 收起态的图标栏。与 body 同级（body 挂着 inert，套进去会连图标一起废掉）。
+     * 收起态的分区图标栏。与 body 同级（body 挂着 inert，套进去会连图标一起废掉）。
      * 用 visibility 而不是 display 切换：它可过渡（切到 hidden 时会等过渡跑完才生效），
-     * 展开态还能顺带挡住「隐形但可点」——不然它会盖住 ImageTool 第一行的整行按钮。
+     * 展开态还能顺带挡住「隐形但可点」——不然它会盖住主内容上的控件。
+     *
+     * 左内边距 0、右 1.5rem：栏宽 4rem 减掉右侧 1.5rem 正好剩 2.5rem 的按钮宽，
+     * 图标落在 [0, 2.5rem]，与标题栏那颗切换按钮的右缘对齐；
+     * 视觉上「卡片右缘 → 图标」= 24px grid gap，「图标 → 视口右缘」= 1.5rem 内边距，
+     * 两侧相等（右栏贴着视口，外侧没有额外的页面内边距）。
      */
     .colora-rail-strip {
       position: absolute;
@@ -809,13 +815,6 @@
       flex-direction: column;
       align-items: center;
       gap: 0.25rem;
-      /*
-       * 左右内边距刻意不对称：栏外还有 24px 的 grid gap（左）和 8px 的页面右内边距（右），
-       * 两边都算进去才是眼睛看到的空白。图标落在 [8, 48]（栏内）时，
-       * 「卡片右缘 → 图标」= 24 + 8 = 32px，「图标 → 窗口右缘」= 24 + 8 = 32px，两侧相等。
-       * 若按栏内居中（左右各 16px）排，外侧会是 40px、内侧 24px，看着就是偏的。
-       * 右侧留 1.5rem 同时让图标列右缘与标题栏的切换按钮右缘对齐。
-       */
       padding: 0.75rem 1.5rem 1rem 0;
       opacity: 0;
       visibility: hidden;

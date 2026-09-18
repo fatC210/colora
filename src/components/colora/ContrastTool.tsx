@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeftRight, Check, Gauge, HelpCircle, List, Palette, Sparkles } from "lucide-react";
 import { useColora } from "@/lib/colora-store";
 import { contrastRatio, hexToRgb, rgbToHex, rgbToHsl, hslToRgb, simulateCB } from "@/lib/color";
+import { COLOR_DUOS } from "@/lib/color-duos";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useT } from "@/lib/i18n/use-t";
 import { CopyText, ColorPicker, Tip } from "./primitives";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -70,12 +72,26 @@ export function ContrastTool() {
   const { cbMode, setContrastExport } = useColora();
   const [fg, setFg] = useState("#0F172A");
   const [bg, setBg] = useState("#F1F1F1");
+  /** 中间卡片的两副面孔：当前配色预览 / 成对配色库。 */
+  const [tab, setTab] = useState<"preview" | "duos">("preview");
+  /** 配色库默认只看达标的 —— 整份清单里一半以上连 3:1 都不到，全铺出来没意义。 */
+  const [duoLevel, setDuoLevel] = useState<"all" | "AA" | "AAA">("AA");
   const t = useT();
 
   const ratio = useMemo(() => contrastRatio(fg, bg), [fg, bg]);
   const aa = ratio >= 4.5;
   const aaa = ratio >= 7;
   const suggestions = useMemo(() => suggest(fg, bg, 4.5), [fg, bg]);
+
+  // 等级现算而不是写死在数据里：改评分口径时不会和数据对不上。
+  const duos = useMemo(
+    () => COLOR_DUOS.map(([bgHex, fgHex]) => ({ bg: bgHex, fg: fgHex, ratio: contrastRatio(fgHex, bgHex) })),
+    [],
+  );
+  const visibleDuos = useMemo(
+    () => duos.filter((d) => duoLevel === "all" || (duoLevel === "AAA" ? d.ratio >= 7 : d.ratio >= 4.5)),
+    [duos, duoLevel],
+  );
 
   useEffect(() => {
     setContrastExport({ fg, bg, ratio, suggestions });
@@ -228,25 +244,118 @@ export function ContrastTool() {
         },
       ]}
     >
-      <section
-        className="rounded-xl border border-border p-6 sm:p-10"
-        style={{ backgroundColor: simulateCB(bg, cbMode), color: simulateCB(fg, cbMode) }}
-      >
-        <h2 className="text-4xl font-bold tracking-tight sm:text-5xl">{t("设计让信息清晰可见")}</h2>
-        <p className="mt-4 max-w-2xl text-base leading-relaxed opacity-90">
-          {t("良好的对比度让内容更易阅读，帮助用户快速获取关键信息，提升体验与可访问性。")}
-        </p>
-        <button
-          type="button"
-          className="mt-6 rounded-lg px-6 py-3 text-sm font-medium sm:mt-8"
-          style={{ backgroundColor: simulateCB(fg, cbMode), color: simulateCB(bg, cbMode) }}
-        >
-          {t("主要按钮")}
-        </button>
-        <p className="mt-6 text-xs opacity-80">
-          {t("小号文字示例：12px 正文在此背景上的可读性表现。")}
-        </p>
-      </section>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Tabs value={tab} onValueChange={(v) => setTab(v as "preview" | "duos")}>
+            <TabsList>
+              <TabsTrigger value="preview">{t("预览")}</TabsTrigger>
+              <TabsTrigger value="duos">{t("配色组合")}</TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          {tab === "duos" && (
+            <div className="flex flex-wrap items-center gap-2">
+              {(["all", "AA", "AAA"] as const).map((lv) => (
+                <button
+                  key={lv}
+                  type="button"
+                  onClick={() => setDuoLevel(lv)}
+                  className={cn(
+                    "rounded-full px-3 py-1.5 text-xs",
+                    duoLevel === lv
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:bg-accent",
+                  )}
+                >
+                  {lv === "all" ? t("全部") : lv}
+                </button>
+              ))}
+              <span className="text-xs text-muted-foreground">
+                {t("{n} 组", { n: visibleDuos.length })}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {tab === "preview" ? (
+          <section
+            className="rounded-xl border border-border p-6 sm:p-10"
+            style={{ backgroundColor: simulateCB(bg, cbMode), color: simulateCB(fg, cbMode) }}
+          >
+            <h2 className="text-4xl font-bold tracking-tight sm:text-5xl">{t("设计让信息清晰可见")}</h2>
+            <p className="mt-4 max-w-2xl text-base leading-relaxed opacity-90">
+              {t("良好的对比度让内容更易阅读，帮助用户快速获取关键信息，提升体验与可访问性。")}
+            </p>
+            <button
+              type="button"
+              className="mt-6 rounded-lg px-6 py-3 text-sm font-medium sm:mt-8"
+              style={{ backgroundColor: simulateCB(fg, cbMode), color: simulateCB(bg, cbMode) }}
+            >
+              {t("主要按钮")}
+            </button>
+            <p className="mt-6 text-xs opacity-80">
+              {t("小号文字示例：12px 正文在此背景上的可读性表现。")}
+            </p>
+          </section>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {visibleDuos.map((d) => {
+              const active = d.fg === fg && d.bg === bg;
+              return (
+                <button
+                  key={`${d.bg}-${d.fg}`}
+                  type="button"
+                  onClick={() => {
+                    setFg(d.fg);
+                    setBg(d.bg);
+                  }}
+                  aria-pressed={active}
+                  className={cn(
+                    "overflow-hidden rounded-xl border text-left transition-all hover:-translate-y-0.5 hover:shadow-md",
+                    active ? "border-foreground ring-1 ring-foreground" : "border-border",
+                  )}
+                >
+                  <span
+                    className="flex flex-col gap-1 p-4"
+                    style={{ backgroundColor: d.bg, color: d.fg }}
+                  >
+                    <span className="text-base font-semibold leading-tight">{t("标题示例")}</span>
+                    <span className="text-xs leading-relaxed opacity-90">{t("正文示例")}</span>
+                  </span>
+                  <span className="flex items-center justify-between gap-2 border-t border-border px-3 py-2">
+                    <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+                      <span
+                        className="size-3 shrink-0 rounded-full ring-1 ring-inset ring-foreground/20"
+                        style={{ backgroundColor: d.bg }}
+                      />
+                      <span className="truncate">{d.bg}</span>
+                      <span
+                        className="size-3 shrink-0 rounded-full ring-1 ring-inset ring-foreground/20"
+                        style={{ backgroundColor: d.fg }}
+                      />
+                      <span className="truncate">{d.fg}</span>
+                    </span>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                        d.ratio >= 7
+                          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                          : d.ratio >= 4.5
+                            ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                            : d.ratio >= 3
+                              ? "bg-orange-500/15 text-orange-600 dark:text-orange-400"
+                              : "bg-rose-500/15 text-rose-600 dark:text-rose-400",
+                      )}
+                    >
+                      {d.ratio >= 7 ? "AAA" : d.ratio >= 4.5 ? "AA" : t("大字")} {d.ratio.toFixed(1)}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </ToolLayout>
   );
 }
