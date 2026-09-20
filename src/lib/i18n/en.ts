@@ -307,6 +307,12 @@ const core = {
   待优化: "Needs work",
 
   // ─────────────────────────── 渐变工具 ───────────────────────────
+  // 对比度检查：配色组合的交互
+  "点击应用到预览": "Click to apply to preview",
+  "已应用到预览": "Applied to preview",
+  "应用配色组合：{bg} / {fg}": "Apply color duo: {bg} / {fg}",
+  "收藏这组配色": "Save this duo",
+  "收藏当前组合": "Save current pair",
   // 对比度检查：成对配色库
   "预览": "Preview",
   "配色组合": "Color duos",
