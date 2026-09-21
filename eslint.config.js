@@ -6,7 +6,14 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", ".output", ".vinxi"] },
+  {
+    /*
+     * 构建 / 部署产物目录。flat config **不会**默认忽略点目录（这一点和旧的 eslintrc 不同），
+     * 少了这几个条目，`npm run lint` 会一路扫进 TanStack 的临时目录和 wrangler 的部署缓存，
+     * 实测跑 14 分钟都不结束。`.output` 原本就在，其余几个是补的。
+     */
+    ignores: ["dist", ".output", ".vinxi", ".tanstack", ".vercel", ".wrangler"],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

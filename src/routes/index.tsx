@@ -63,7 +63,8 @@ function CbFilters() {
 }
 
 function ColoraApp() {
-  const [tool, setTool] = useState<ToolId>("palette");
+  // 默认落在「首页」—— 它现在是一整页的配色方案墙，是访客看到的第一屏。
+  const [tool, setTool] = useState<ToolId>("home");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const { cbMode, setCbMode, zenMode, toggleZen } = useColora();
   const t = useT();
@@ -135,7 +136,7 @@ function ColoraApp() {
               <h1 className="colora-page-title mb-4 text-2xl font-bold tracking-tight sm:mb-5 sm:text-3xl">
                 {title}
               </h1>
-              {effectiveTool === "home" && <HomeTool onTool={setTool} />}
+              {effectiveTool === "home" && <HomeTool />}
               {effectiveTool === "palette" && <PaletteTool />}
               {effectiveTool === "gradient" && <GradientTool />}
               {effectiveTool === "mixer" && <MixerTool />}

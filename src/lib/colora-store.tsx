@@ -127,19 +127,35 @@ type Store = {
   setGradientStops: Dispatch<SetStateAction<GradientStop[]>>;
   gradientConfig: GradientConfig;
   setGradientConfig: Dispatch<SetStateAction<GradientConfig>>;
-  imageExport: ImageExportState;
+  /*
+   * 四个导出快照**只给 setter，不给值** —— 值走 `useColoraExports()`（另一个 context）。
+   *
+   * 这些快照是工具里每次调整都要重写的（对比度工具是每改一次前景/背景色就写一次）。
+   * 之前值和 setter 一起挂在主 context 上，于是每写一次快照，主 context 的 value
+   * 就整体重建一次，**全应用跟着重渲染**。对比度工具实测：点一张配色卡，高亮要
+   * 100ms 以上才出现（把这次写入摘掉后是 25ms）。
+   *
+   * setter 是 useState 的 dispatch，引用恒定，留在主 context 里不会引起重渲染；
+   * 真正读这些值的只有导出弹窗，让它单独订阅那个小 context 就够了。
+   */
   setImageExport: Dispatch<SetStateAction<ImageExportState>>;
-  mixerExport: MixerExportState;
   setMixerExport: Dispatch<SetStateAction<MixerExportState>>;
-  contrastExport: ContrastExportState;
   setContrastExport: Dispatch<SetStateAction<ContrastExportState>>;
-  previewExport: PreviewExportState;
   setPreviewExport: Dispatch<SetStateAction<PreviewExportState>>;
   logoGradient: string[];
   randomizeLogoGradient: () => void;
 };
 
+/** 导出弹窗要的四份快照。单独一个 context，写它不会惊动全应用。 */
+export type ExportSnapshots = {
+  imageExport: ImageExportState;
+  mixerExport: MixerExportState;
+  contrastExport: ContrastExportState;
+  previewExport: PreviewExportState;
+};
+
 const Ctx = createContext<Store | null>(null);
+const ExportCtx = createContext<ExportSnapshots | null>(null);
 
 const DEFAULT_PALETTE = ["#6366F1", "#F97316", "#FACC15", "#14B8A6", "#8B5CF6"];
 
@@ -491,13 +507,9 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
       setGradientStops,
       gradientConfig,
       setGradientConfig,
-      imageExport,
       setImageExport,
-      mixerExport,
       setMixerExport,
-      contrastExport,
       setContrastExport,
-      previewExport,
       setPreviewExport,
       logoGradient,
       randomizeLogoGradient,
@@ -517,10 +529,6 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
       accounts,
       gradientStops,
       gradientConfig,
-      imageExport,
-      mixerExport,
-      contrastExport,
-      previewExport,
       logoGradient,
       persistSaved,
       persistFavoriteColors,
@@ -529,11 +537,28 @@ export function ColoraProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  // 快照单独打包：只有这个 useMemo 会随快照变化，主 context 的 value 不受影响。
+  const exportSnapshots = useMemo<ExportSnapshots>(
+    () => ({ imageExport, mixerExport, contrastExport, previewExport }),
+    [imageExport, mixerExport, contrastExport, previewExport],
+  );
+
+  return (
+    <Ctx.Provider value={value}>
+      <ExportCtx.Provider value={exportSnapshots}>{children}</ExportCtx.Provider>
+    </Ctx.Provider>
+  );
 }
 
 export function useColora() {
   const ctx = useContext(Ctx);
   if (!ctx) throw new Error("useColora must be used inside ColoraProvider");
+  return ctx;
+}
+
+/** 导出弹窗专用的四个快照。写快照只会重渲染订阅了这里的组件。 */
+export function useColoraExports() {
+  const ctx = useContext(ExportCtx);
+  if (!ctx) throw new Error("useColoraExports must be used inside ColoraProvider");
   return ctx;
 }

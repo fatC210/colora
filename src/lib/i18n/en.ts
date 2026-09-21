@@ -1,4 +1,5 @@
 import { canvas } from "./en.canvas";
+import { palettes } from "./en.palettes";
 
 /**
  * 英文词典。**key 是中文原文，value 是英文译文**。
@@ -9,7 +10,8 @@ import { canvas } from "./en.canvas";
  * 带插值的文案把占位符写进 key：`t("账户与设置（已登录：{email}）", { email })`。
  *
  * ⚠️ `core` 是**单个对象字面量**，TS 会对重复键直接报错 —— 这是刻意的安全网。
- * 画布工具的词条量太大（216 条），单独放在 `./en.canvas` 里；跨文件的重复 key
+ * 词条量大的两处单独成文件：画布工具 216 条在 `./en.canvas`，首页配色墙的
+ * 120 个方案名 + 10 个标签在 `./en.palettes`。跨文件的重复 key
  * 编译器管不到，靠 `node check-i18n.cjs` 兜底（它同时检查重复 key 与漏翻）。
  */
 const core = {
@@ -18,16 +20,7 @@ const core = {
   重命名: "Rename",
   取消: "Cancel",
   复制: "Copy",
-  重置: "Reset",
-  应用: "Apply",
-  添加: "Add",
-  保存: "Save",
   导出: "Export",
-  锁定: "Lock",
-  解锁: "Unlock",
-  收藏: "Favorite",
-  展开: "Expand",
-  折叠: "Collapse",
   暂无: "None",
   暂无结果: "No results",
   操作失败: "Operation failed",
@@ -44,7 +37,6 @@ const core = {
   对比度检查: "Contrast Check",
   实时预览: "Live Preview",
   对比度: "Contrast",
-  检查: "Check",
   色盲模拟: "Color Blindness",
   账户: "Account",
   账户与设置: "Account & Settings",
@@ -57,6 +49,21 @@ const core = {
   操作: "Actions",
   "试试点击！": "Try clicking!",
   点击随机切换品牌渐变: "Click to shuffle the brand gradient",
+
+  // ─────────────────────────── 首页配色墙 ───────────────────────────
+  // 120 个方案名 + 10 个标签名在 ./en.palettes，这里只放界面文案。
+  搜索配色方案: "Search palettes",
+  清空搜索: "Clear search",
+  清空筛选: "Clear filters",
+  筛选标签: "Filter by tag",
+  "共 {n} 组配色": "{n} palettes",
+  随机看一组: "Jump to a random palette",
+  点色块即可复制色号: "Click a swatch to copy its hex code",
+  没有找到匹配的配色方案: "No palettes match",
+  "试试换个关键词，或清空筛选条件。": "Try another keyword, or clear the filters.",
+  查看色号: "Show hex codes",
+  隐藏色号: "Hide hex codes",
+  取消收藏: "Remove from favorites",
 
   // 色盲模拟（值来自 lib/color.ts 的 CB_LABELS，key 是 CBMode 枚举，不能动）
   红色盲: "Protanopia",
@@ -104,33 +111,10 @@ const core = {
   请先登录后再收藏: "Sign in to save favorites",
   "登录后，收藏会跟随你的账号保存。": "Once signed in, your favorites follow your account.",
 
-  // ─────────────────────────── 首页 ───────────────────────────
-  "调配、混合、预览、导出，一站式完成配色工作":
-    "Tune, mix, preview and export — your whole color workflow in one place",
-  "Colora 是面向设计师与前端开发者的轻量级色彩工具。所见即所得，从选色到拿到代码不超过三步。":
-    "Colora is a lightweight color tool for designers and front-end developers. What you see is what you get — three steps from picking a color to shipping the code.",
-  随机生成一组配色: "Generate a random palette",
-  前往配色方案: "Open Palette",
-  最近收藏: "Recent saves",
+  // ─────────── 通用名词：颜色 / 渐变（收藏面板、导出中心、画布共用） ───────────
   颜色: "Colors",
   渐变: "Gradients",
   "应用颜色：{name}": "Apply color: {name}",
-
-  // 首页的工具卡片说明
-  "基于色彩理论自动生成方案，支持锁定与自由选配。":
-    "Auto-generate palettes from color theory, with locking and manual tuning.",
-  "线性 / 径向 / 锥形 / Mesh 渐变可视化编辑。":
-    "Visually edit linear, radial, conic and mesh gradients.",
-  "在画布上绘制线条与形状，颜色沿路径弧长分布。":
-    "Draw lines and shapes on a canvas, with color distributed along each path.",
-  "模拟颜料混合，带液体融合动画与三种混合模式。":
-    "Simulate paint mixing with fluid blending and three mix modes.",
-  "上传图片，拖动取色点实时提取主色。":
-    "Upload an image and drag sample points to pick colors live.",
-  "WCAG 对比度检测与智能替代色推荐。":
-    "WCAG contrast checking with smart alternative color suggestions.",
-  "把配色应用到真实组件与设备尺寸中对比。":
-    "Apply your palette to real components and device sizes for comparison.",
 
   // ───────────────────── 实时预览：设备分组 ─────────────────────
   手机: "Phone",
@@ -320,7 +304,6 @@ const core = {
   "{n} 组": "{n} duos",
   "标题示例": "Heading sample",
   "正文示例": "Body sample",
-  "大字": "Large text",
   // 按目标分匹配颜色（自由选配页）
   "目标分": "Target score",
   "匹配颜色": "Match colors",
@@ -366,7 +349,6 @@ const core = {
   "应用渐变：{name}": "Apply gradient: {name}",
   重命名渐变: "Rename gradient",
   删除渐变: "Delete gradient",
-  "渐变控制（角度 / 中心 / 插值方式）": "Gradient controls (angle / center / interpolation)",
   "角度（Mesh 不适用）": "Angle (not applicable to mesh)",
   "角度（径向不适用）": "Angle (not applicable to radial)",
   "角度 {angle}°": "Angle {angle}°",
@@ -430,7 +412,6 @@ const core = {
     "No passing alternative in the same hue — consider changing the background.",
 
   // 收藏颜色（由 FavoriteColorsPanel 使用，原属 InfoPanel，随其下线迁移）
-  对比: "Compare",
   "暂无收藏颜色。点击上方图标后可从这里一键应用继续调整。":
     "No favorites yet. Use the heart above to save a color, then apply it here.",
   重命名颜色: "Rename color",
@@ -499,4 +480,4 @@ const core = {
   "当前处于 {mode} 模拟模式": "Currently simulating {mode}",
 };
 
-export const en = { ...core, ...canvas };
+export const en = { ...core, ...canvas, ...palettes };

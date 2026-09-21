@@ -15,7 +15,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const CJK = /[一-鿿]/;
-const DICT_FILES = ["src/lib/i18n/en.ts", "src/lib/i18n/en.canvas.ts"];
+const DICT_FILES = [
+  "src/lib/i18n/en.ts",
+  "src/lib/i18n/en.canvas.ts",
+  "src/lib/i18n/en.palettes.ts",
+];
 const SENTINEL = "";
 
 /**

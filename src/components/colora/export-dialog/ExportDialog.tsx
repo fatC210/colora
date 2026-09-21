@@ -20,7 +20,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useColora } from "@/lib/colora-store";
+import { useColora, useColoraExports } from "@/lib/colora-store";
 import { formatAll, hexToRgb, rgbToHsl } from "@/lib/color";
 import { useT } from "@/lib/i18n/use-t";
 import { CodeRow, SectionShell } from "./components";
@@ -45,17 +45,9 @@ export function ExportDialog({
   trigger: ReactNode;
   module?: ExportModule;
 }) {
-  const {
-    color,
-    palette,
-    saved,
-    gradientStops,
-    gradientConfig,
-    imageExport,
-    mixerExport,
-    contrastExport,
-    previewExport,
-  } = useColora();
+  const { color, palette, saved, gradientStops, gradientConfig } = useColora();
+  // 四个导出快照走单独的 context：写快照只重渲染这个弹窗，不会拖累全应用。
+  const { imageExport, mixerExport, contrastExport, previewExport } = useColoraExports();
   const [open, setOpen] = useState(false);
   const t = useT();
   const contentRef = useRef<HTMLDivElement>(null);
