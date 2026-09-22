@@ -4,14 +4,22 @@
  *   node scripts/check-palettes.mjs
  *
  * 校验项：
- *   1. id 唯一、colors 长度 4–5、全部是合法的大写 `#RRGGBB`
- *   2. **组内两两颜色分得开** —— 逐通道差全 ≤14 的两个色算「分不开」。
- *      这条是为了排除「同色系明暗阶梯」式的伪方案：五个颜色摆一起像一条渐变，
- *      当成一组配色方案没有任何信息量。
- *   3. **组内有明度跨度** —— L* 极差 ≥30。一组里全是中间调的糊色，缩略图上会糊成一片。
+ *   1. id 唯一、colors 长度 3–10、全部是合法的大写 `#RRGGBB`
+ *   2. **组内色相要散开** —— 非中性色（LCH 彩度 ≥10，见 `NEUTRAL_C`）之间，色相角的
+ *      **环形**最大差必须 ≥60°。这条挡的是「同一色相的深→浅阶梯」式伪方案：那种方案
+ *      摆进配色墙就是一条渐变，一组和一百组长得一样。
+ *
+ *      ⚠️ 旧版这里查的是「组内两两颜色逐通道差 ≤14 算分不开」。那条口径本身没错，
+ *      但它和下面的明度跨度一夹，**恰好只剩「同色系明暗阶梯」能同时满足两条** ——
+ *      实测把 120 组全逼成了一个模子（`PaletteCard` 里那段「刻意不做成五等分」
+ *      的注释也是同一个思路下的产物）。已废弃，换成色相口径。
+ *   3. **组内有明度跨度** —— L* 极差 ≥25（柔和系 ≥10）。一组全是中间调的糊色，
+ *      缩略图上会糊成一片。整组基本是中性色（非中性色 <2 个）时这条提到 ≥40：
+ *      没有色相可用，只能靠明度把方案撑起来。
  *   4. **跨组近似重复** —— 两组（按明度排序后）逐位颜色都 ≤14 就算重复。
  *      这条肉眼看不出来，是写这个脚本的主要原因（`color-duos.ts` 里记过同类的坑：
  *      曾用「逐通道差 ≤14」捞出 2 组、放到 ≤18 又捞出 4 组）。
+ *      **两组颜色数不同时自动跳过** —— 3–8 色的组合天然不会互相误判。
  *   5. 每个 `name` 都出现在 `src/lib/i18n/en.palettes.ts` 里（防漏翻）
  *   6. 每个 `tags` 值都在 `PALETTE_TAGS` 里，且每个标签至少被用到一次
  *
@@ -23,7 +31,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CURATED_PALETTES, PALETTE_TAGS } from "../src/lib/colora-palettes.ts";
-import { hexToRgb, rgbToLab } from "../src/lib/color.ts";
+import { hexToRgb, rgbToHsl, rgbToLab } from "../src/lib/color.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 /**
@@ -43,10 +51,33 @@ const NEAR = 14;
  * 组内 L* 极差下限。
  *
  * 柔和系（pastel）单独放一条更低的线：那个标签的定义就是「高明度低饱和」，
- * 用 30 去卡等于逼每组都塞一个深色进去，反而毁掉它。
+ * 用 25 去卡等于逼每组都塞一个深色进去，反而毁掉它。实测 coolors 的 pastel 方案
+ * 跨度只有 11.1（`#CDB4DB → #BDE0FE`），所以线放在 10。
  */
-const MIN_SPREAD = 30;
-const MIN_SPREAD_PASTEL = 12;
+const MIN_SPREAD = 25;
+const MIN_SPREAD_PASTEL = 10;
+/**
+ * 彩度低于这个值算中性色（黑 / 白 / 灰 / 米 / 纸白），不参与色相统计。
+ *
+ * ⚠️ 这里用 **LCH 的彩度 C** 而不是 HSL 的饱和度 S。HSL 的 S 在高明度处会虚高 ——
+ * 纸白 `#FAF8F4` 的 S 是 37%、米色 `#E8E4DC` 是 21%，都会被当成「彩色」，
+ * 于是「素纸」这种纯灰阶方案的色相跨度算出 0°，被判成同色系阶梯。实测踩过。
+ * 同一批颜色的 C 只有 2–5，一眼就是中性色。
+ */
+const NEUTRAL_C = 10;
+/** 非中性色之间色相角最大差（环形）的下限。低于它 = 一组同色系明暗阶梯。 */
+const MIN_HUE_SPAN = 60;
+/**
+ * 窄色相方案的豁免门槛：**色数 ≥6 就放行**。
+ *
+ * 这条是给 coolors 那批精选方案开的（见 `colora-palettes.ts` 末尾的「精选」段）。
+ * 同样是同色系，6 色以上是「一条完整色阶」（`#590D22 → #FFF0F3` 十级粉），
+ * 5 色才是「五格渐变」—— 后者在 4 列并排的网格里最容易显得单调，前者不会。
+ * 数据里现有那批手工方案仍然全部走 ≥60° 的色相判据，不受这条影响。
+ */
+const MIN_MANY_COLORS = 6;
+/** 整组基本是中性色（非中性色 <2 个）时的明度跨度下限：没有色相可用，只能靠明度撑。 */
+const MIN_SPREAD_NEUTRAL = 40;
 
 const problems = [];
 
@@ -60,6 +91,17 @@ const rgbOf = (hex) => {
 };
 const maxChannelDiff = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
 const lstar = (hex) => rgbToLab(hexToRgb(hex)).l;
+const hslOf = (hex) => rgbToHsl(hexToRgb(hex));
+/** LCH 彩度。判断「这个颜色看上去是不是彩色」用这个，不用 HSL 的饱和度（见 NEUTRAL_C）。 */
+const chromaOf = (hex) => {
+  const lab = rgbToLab(hexToRgb(hex));
+  return Math.hypot(lab.a, lab.b);
+};
+/** 两个色相角之间的环形距离（0–180）。0° 与 350° 只差 10°，不是 350°。 */
+const hueDist = (a, b) => {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+};
 
 // ── 1. 基本字段 ──
 const ids = new Map();
@@ -69,8 +111,8 @@ for (const p of CURATED_PALETTES) {
   if (ids.has(p.id)) fail(`id 重复：${p.id}（也出现在 ${ids.get(p.id)}）`);
   else ids.set(p.id, p.name);
 
-  if (p.colors.length < 4 || p.colors.length > 5) {
-    fail(`${p.name}：颜色数 ${p.colors.length}，应为 4–5`);
+  if (p.colors.length < 3 || p.colors.length > 10) {
+    fail(`${p.name}：颜色数 ${p.colors.length}，应为 3–10`);
   }
   for (const c of p.colors) {
     if (!HEX.test(c)) fail(`${p.name}：${JSON.stringify(c)} 不是大写 #RRGGBB`);
@@ -81,23 +123,35 @@ for (const p of CURATED_PALETTES) {
   }
 }
 
-// ── 2 / 3. 组内 ──
+// ── 2 / 3. 组内：色相要散开、明度要有跨度 ──
 for (const p of CURATED_PALETTES) {
-  const rgbs = p.colors.map(rgbOf);
-  for (let i = 0; i < rgbs.length; i++) {
-    for (let j = i + 1; j < rgbs.length; j++) {
-      const d = maxChannelDiff(rgbs[i], rgbs[j]);
-      if (d <= NEAR) {
-        fail(`${p.name}：${p.colors[i]} 与 ${p.colors[j]} 分不开（逐通道差最大 ${d}）`);
-      }
-    }
-  }
-
   const ls = p.colors.map(lstar);
   const spread = Math.max(...ls) - Math.min(...ls);
   const floor = p.tags.includes("pastel") ? MIN_SPREAD_PASTEL : MIN_SPREAD;
   if (spread < floor) {
     fail(`${p.name}：明度跨度只有 ${spread.toFixed(1)}（要求 ≥${floor}）`);
+  }
+
+  // 中性色（黑 / 白 / 灰 / 米）没有可用的色相，只拿非中性色两两比
+  const hues = p.colors.filter((hex) => chromaOf(hex) >= NEUTRAL_C).map((hex) => hslOf(hex).h);
+
+  if (hues.length >= 2) {
+    let span = 0;
+    for (let i = 0; i < hues.length; i++) {
+      for (let j = i + 1; j < hues.length; j++) span = Math.max(span, hueDist(hues[i], hues[j]));
+    }
+    if (span < MIN_HUE_SPAN && p.colors.length < MIN_MANY_COLORS) {
+      fail(
+        `${p.name}：非中性色的色相全挤在 ${span.toFixed(0)}° 以内（要求 ≥${MIN_HUE_SPAN}°，` +
+          `或色数 ≥${MIN_MANY_COLORS}）—— 这又是一条同色系明暗阶梯\n      ${p.colors.join(" ")}`,
+      );
+    }
+  } else if (spread < MIN_SPREAD_NEUTRAL) {
+    // 整组是灰阶 + 至多一个点缀色：没有色相可用，只能靠明度撑
+    fail(
+      `${p.name}：整组基本是中性色（非中性色只有 ${hues.length} 个），明度跨度却只有 ` +
+        `${spread.toFixed(1)}（要求 ≥${MIN_SPREAD_NEUTRAL}）`,
+    );
   }
 }
 

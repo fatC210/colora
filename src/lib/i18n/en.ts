@@ -54,15 +54,11 @@ const core = {
   // 120 个方案名 + 10 个标签名在 ./en.palettes，这里只放界面文案。
   搜索配色方案: "Search palettes",
   清空搜索: "Clear search",
-  清空筛选: "Clear filters",
-  筛选标签: "Filter by tag",
   "共 {n} 组配色": "{n} palettes",
+  随机: "Random",
   随机看一组: "Jump to a random palette",
-  点色块即可复制色号: "Click a swatch to copy its hex code",
   没有找到匹配的配色方案: "No palettes match",
   "试试换个关键词，或清空筛选条件。": "Try another keyword, or clear the filters.",
-  查看色号: "Show hex codes",
-  隐藏色号: "Hide hex codes",
   取消收藏: "Remove from favorites",
 
   // 色盲模拟（值来自 lib/color.ts 的 CB_LABELS，key 是 CBMode 枚举，不能动）

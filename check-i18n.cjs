@@ -15,6 +15,21 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const CJK = /[一-鿿]/;
+/**
+ * 文件级排除标记：文件**开头**出现这个字符串就整份跳过。
+ *
+ * 给「源码里必然有中文、但那些中文永远不会显示给用户」的文件用。目前只有
+ * `src/lib/color-families.ts`：它的搜索关键词表（「红」「绿」「蓝」…）是**数据**，
+ * 不是文案 —— 把它们塞进词典会把词典污染成一张同义词表，而且将来做英文搜索时
+ * 真正需要的是英文关键词，不是这些中文的翻译。
+ *
+ * 刻意做成「文件级 + 要显式写标记」而不是按目录 / 文件名通配：这样每次新增
+ * 豁免都要在文件里留下痕迹，评审时一眼能看见。
+ */
+const SKIP_MARK = "i18n-ignore-file";
+/** 标记只看文件开头这么多个字符，免得正文里偶然提到这个词就整份跳过。 */
+const SKIP_SCAN_CHARS = 800;
+
 const DICT_FILES = [
   "src/lib/i18n/en.ts",
   "src/lib/i18n/en.canvas.ts",
@@ -137,7 +152,9 @@ const files = [];
 const findings = [];
 for (const f of files) {
   if (f.includes(`${path.sep}i18n${path.sep}`)) continue;
-  const src = stripComments(fs.readFileSync(f, "utf8"));
+  const raw = fs.readFileSync(f, "utf8");
+  if (raw.slice(0, SKIP_SCAN_CHARS).includes(SKIP_MARK)) continue;
+  const src = stripComments(raw);
   const callKeys = collectKeyArgs(src);
   const lineOf = (idx) => src.slice(0, idx).split("\n").length;
   const hits = [];

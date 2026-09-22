@@ -231,6 +231,29 @@ function RootShell({ children }: { children: ReactNode }) {
     <html lang="zh-CN">
       <head>
         <HeadContent />
+        {/*
+          在 hydration **之前**把两侧栏的收起偏好写到 <html> 上。
+
+          两个偏好都存在 localStorage 里，服务端读不到，只能按默认的「展开」渲染。
+          不补这一步的话，偏好收起的用户一刷新就会先看到展开、再被 effect 收回去，
+          闪一下（左导航和右参数栏都有这个毛病）。`styles.css` 里那批
+          `html[data-nav-pref="collapsed"]` / `html[data-rail-pref="closed"]` 规则
+          据此立即覆盖成收起态。
+
+          这段必须跑在 <head> 里 —— 早于 body 解析和 React hydration。
+          用 dangerouslySetInnerHTML 而不是 <script>{...}</script>：后者在 SSR 下
+          会被当成 React 子节点转义，脚本根本不会执行。
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var s=localStorage;" +
+              'if(s.getItem("colora.navCollapsed")==="true")' +
+              'document.documentElement.setAttribute("data-nav-pref","collapsed");' +
+              'if(s.getItem("colora.railOpen")==="false")' +
+              'document.documentElement.setAttribute("data-rail-pref","closed")}catch(e){}',
+          }}
+        />
       </head>
       <body>
         {children}

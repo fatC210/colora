@@ -6,22 +6,88 @@ import {
   PALETTE_TAGS,
   paletteKey,
   type CuratedPalette,
-  type PaletteTag,
 } from "@/lib/colora-palettes";
+import { familiesOfColors, matchFamilies, type ColorFamily } from "@/lib/color-families";
 import { useT } from "@/lib/i18n/use-t";
 import { findScroller, useWindowedGrid } from "@/hooks/use-windowed-grid";
-import { cn } from "@/lib/utils";
 import { PaletteCard } from "./PaletteCard";
 
-/** tag id → 词典 key。模块级常量，卡片每次渲染不必重建。 */
-const TAG_LABEL: Record<PaletteTag, (typeof PALETTE_TAGS)[number]["label"]> = Object.fromEntries(
-  PALETTE_TAGS.map((tag) => [tag.id, tag.label]),
-) as Record<PaletteTag, (typeof PALETTE_TAGS)[number]["label"]>;
+/**
+ * 展示顺序：**来源三路交错，每路内部按标签轮询，桶内再洗牌**。
+ *
+ * 数据在源码里是按来源分段的（手工 120 / 参考站精选 63 / 程序生成 260），直接
+ * 按那个顺序渲染的话，首屏就是一整屏「自然」标签的绿色，而生成的方案要滚到
+ * 第 50 行才露头 —— 参考站那种「五颜六色」的观感主要来自混排。
+ *
+ * 三件事都要做，缺一不可：
+ * 1. **组内按标签轮询** —— 否则同一标签的挤在一起（一个桶里全是绿的）；
+ * 2. **三路按比例交错** —— 否则第 1 轮全是手工、第 2 轮全是精选，生成的要到
+ *    第 3 轮才出现，等于按来源排了个序；
+ * 3. **桶内洗牌** —— 每次切回首页看到的排列都不同（`ToolLayout` 的注释里写明
+ *    每个工具各挂一个实例、切换时整个卸载重建，所以挂在挂载 effect 里就够）。
+ *    洗的是**桶内**而不是整个数组 —— 整个数组一洗，前两条就废了，首屏又会是一屏绿。
+ *
+ * ⚠️ 洗牌只能在**客户端 effect** 里做：服务端没有 `Math.random` 的一致结果，
+ * 首帧必须用确定性版本，否则 hydration 不匹配。
+ *
+ * 生成那批用 id 前缀认（`gen-`）而不是再加个字段：`featured` 已经有语义了，
+ * 再拆一个 `source` 要改 300 多处数据，不划算。
+ */
+function buildDisplayOrder(randomize: boolean): readonly CuratedPalette[] {
+  /** 组内按主标签轮询，保证任意连续 10 张覆盖全部 10 个标签。 */
+  const interleaveByTag = (list: readonly CuratedPalette[]) => {
+    const buckets = PALETTE_TAGS.map((tag) => list.filter((p) => p.tags[0] === tag.id));
+    if (randomize) for (const bucket of buckets) shuffleInPlace(bucket);
+    const depth = Math.max(0, ...buckets.map((b) => b.length));
+    const out: CuratedPalette[] = [];
+    for (let i = 0; i < depth; i++) {
+      for (const bucket of buckets) if (bucket[i]) out.push(bucket[i]);
+    }
+    return out;
+  };
 
-const NO_TAGS: ReadonlySet<PaletteTag> = new Set<PaletteTag>();
+  const sources = [
+    interleaveByTag(CURATED_PALETTES.filter((p) => !p.featured)),
+    interleaveByTag(CURATED_PALETTES.filter((p) => p.featured && !p.id.startsWith("gen-"))),
+    interleaveByTag(CURATED_PALETTES.filter((p) => p.id.startsWith("gen-"))),
+  ];
+
+  const taken = sources.map(() => 0);
+  const out: CuratedPalette[] = [];
+  const total = sources.reduce((n, s) => n + s.length, 0);
+  for (let i = 0; i < total; i++) {
+    // 取「已用比例最小」的那一路，三路就均匀铺开了
+    let best = -1;
+    for (let g = 0; g < sources.length; g++) {
+      if (taken[g] >= sources[g].length) continue;
+      if (best < 0 || taken[g] / sources[g].length < taken[best] / sources[best].length) best = g;
+    }
+    out.push(sources[best][taken[best]++]);
+  }
+  return out;
+}
+
+/** 原地 Fisher-Yates。只在客户端调用。 */
+function shuffleInPlace<T>(arr: T[]) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
+/** 确定性版本：SSR 与首次客户端渲染必须一致，否则 hydration 不匹配。 */
+const DISPLAY_PALETTES = buildDisplayOrder(false);
 
 /** 随机跳转会短暂高亮的时长。 */
 const HIGHLIGHT_MS = 1600;
+
+/**
+ * 每组的色系集合。**模块级预计算** —— 180+ 组 × 3–10 色是上千次 Lab 换算，
+ * 放进 filter 里每次按键重算会明显卡手。
+ */
+const FAMILY_INDEX = new Map<string, ReadonlySet<ColorFamily>>(
+  CURATED_PALETTES.map((p) => [p.id, familiesOfColors(p.colors)]),
+);
 
 /**
  * 首页的配色方案墙。
@@ -42,20 +108,32 @@ export function PaletteWall() {
    * 延后一帧让输入框先响应。
    */
   const deferredQuery = useDeferredValue(query);
-  const [activeTags, setActiveTags] = useState<ReadonlySet<PaletteTag>>(NO_TAGS);
   /** 随机跳转后短暂高亮的方案 id。只有被点中的那一张会因此重渲染。 */
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const highlightTimer = useRef<number | undefined>(undefined);
 
+  /**
+   * 展示顺序。首帧用**确定性**版本（SSR 与 hydration 必须一致），挂载后再换成
+   * 打乱过的 —— `ToolLayout` 每个工具各挂一个实例、切工具时整个卸载重建，
+   * 所以这一段每次进首页都会重跑，等于「每次切回来排列都不同」。
+   */
+  const [order, setOrder] = useState<readonly CuratedPalette[]>(DISPLAY_PALETTES);
+  useEffect(() => {
+    setOrder(buildDisplayOrder(true));
+  }, []);
+
   const filtered = useMemo(() => {
     const q = deferredQuery.trim().toLowerCase();
-    return CURATED_PALETTES.filter((p) => {
-      if (activeTags.size > 0 && !p.tags.some((tag) => activeTags.has(tag))) return false;
-      if (!q) return true;
-      // 中英都要能搜到：英文名走词典，中文名是原文，两个都比一遍。
-      return p.name.includes(q) || t(p.name).toLowerCase().includes(q);
+    if (!q) return order;
+    // 名字和颜色**并行**匹配：搜「绿」既该出「绿野渐层」，也该出所有含绿的方案。
+    const families = matchFamilies(q);
+    return order.filter((p) => {
+      if (p.name.includes(q) || t(p.name).toLowerCase().includes(q)) return true;
+      if (families.length === 0) return false;
+      const own = FAMILY_INDEX.get(p.id);
+      return own ? families.some((f) => own.has(f)) : false;
     });
-  }, [deferredQuery, activeTags, t]);
+  }, [order, deferredQuery, t]);
 
   /** 收藏索引：颜色序列 → 已收藏条目的 id。`savePalette` 本身不去重，靠它做 toggle。 */
   const favIndex = useMemo(() => {
@@ -79,35 +157,17 @@ export function PaletteWall() {
     else save(tr(palette.name), [...palette.colors]);
   }, []);
 
-  const toggleTag = useCallback((tag: PaletteTag) => {
-    setActiveTags((prev) => {
-      const next = new Set(prev);
-      if (next.has(tag)) next.delete(tag);
-      else next.add(tag);
-      return next;
-    });
-  }, []);
-
   const rootRef = useRef<HTMLDivElement | null>(null);
   /** 吸顶工具栏。它一旦换行（窄屏上计数与随机按钮被挤到第二行），网格整体下移，几何要重测。 */
   const toolbarRef = useRef<HTMLDivElement | null>(null);
-  const filtering = activeTags.size > 0 || query.trim() !== "";
   // 筛选条件一变就把滚动位置归零：否则滚到第 60 行再筛出 3 组，会停在「底部一大片空白」。
-  const resetKey = useMemo(
-    () => `${deferredQuery.trim().toLowerCase()}|${[...activeTags].sort().join(",")}`,
-    [deferredQuery, activeTags],
-  );
+  const resetKey = useMemo(() => deferredQuery.trim().toLowerCase(), [deferredQuery]);
 
   const { gridRef, start, end, topPad, bottomPad, geom } = useWindowedGrid(
     rootRef,
     filtered.length,
     { resetKey, cardSelector: "[data-palette-card]", watch: [toolbarRef] },
   );
-
-  const clearFilters = useCallback(() => {
-    setQuery("");
-    setActiveTags(NO_TAGS);
-  }, []);
 
   /**
    * 随机跳到一组配色。
@@ -118,9 +178,8 @@ export function PaletteWall() {
    */
   const randomJump = useCallback(() => {
     if (filtered.length === 0) {
-      // 当前筛选下没有可跳的目标：先清掉筛选，下一次点击就能跳了。
+      // 当前筛选下没有可跳的目标：先清掉搜索，下一次点击就能跳了。
       setQuery("");
-      setActiveTags(NO_TAGS);
       return;
     }
     const index = Math.floor(Math.random() * filtered.length);
@@ -192,55 +251,12 @@ export function PaletteWall() {
             type="button"
             onClick={randomJump}
             aria-label={t("随机看一组")}
-            className="shrink-0 cursor-pointer rounded-lg border border-border p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-border px-2.5 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Dices className="size-3.5" />
+            {t("随机")}
           </button>
         </div>
-
-        {/*
-          标签 chips **强制单行**（`flex-nowrap` + 横向滚动）。
-          这不是审美选择：换行会让工具栏高度变化 → 网格整体下移 → 虚拟滚动量到的
-          `geom.top` 失效 → 开窗位置整体偏移。恒定高度是这个布局的硬约束。
-        */}
-        <div
-          role="group"
-          aria-label={t("筛选标签")}
-          className="scrollbar-area-hover mt-2 flex gap-1.5 overflow-x-auto pb-0.5"
-        >
-          {PALETTE_TAGS.map((tag) => {
-            const on = activeTags.has(tag.id);
-            return (
-              <button
-                key={tag.id}
-                type="button"
-                onClick={() => toggleTag(tag.id)}
-                aria-pressed={on}
-                className={cn(
-                  "shrink-0 cursor-pointer rounded-full border px-2.5 py-1 text-xs whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  on
-                    ? "border-foreground bg-foreground text-background"
-                    : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-              >
-                {t(tag.label)}
-              </button>
-            );
-          })}
-
-          {filtering && (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="shrink-0 cursor-pointer rounded-full px-2.5 py-1 text-xs whitespace-nowrap text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {t("清空筛选")}
-            </button>
-          )}
-        </div>
-
-        {/* 「点色块复制色号」是这一页唯一的隐藏交互，给一条常驻的发现路径。 */}
-        <p className="mt-2 text-[11px] text-muted-foreground">{t("点色块即可复制色号")}</p>
       </div>
 
       {filtered.length === 0 ? (
@@ -253,7 +269,7 @@ export function PaletteWall() {
       ) : (
         <div
           ref={gridRef}
-          className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
         >
           {/* 占位条自己也是网格项、各占一整行，高度由 hook 算好（已扣掉一格 gap） */}
           {topPad > 0 && <div aria-hidden className="col-span-full" style={{ height: topPad }} />}
@@ -263,7 +279,6 @@ export function PaletteWall() {
               key={palette.id}
               palette={palette}
               name={t(palette.name)}
-              tagLabels={palette.tags.map((tag) => t(TAG_LABEL[tag])).join(" · ")}
               favorited={favIndex.has(paletteKey(palette.colors))}
               highlighted={highlightId === palette.id}
               cbMode={cbMode}

@@ -419,7 +419,7 @@
       color: var(--color-sidebar-foreground);
     }
 
-    .colora-sidebar[data-collapsed="true"] {
+    :is(.colora-sidebar[data-collapsed="true"], html[data-nav-pref="collapsed"] .colora-sidebar) {
       width: 4.5rem;
     }
 
@@ -451,34 +451,34 @@
     }
 
     /* 收起态：品牌图形顶上来，收起箭头退场 */
-    .colora-sidebar[data-collapsed="true"] .colora-sidebar-toggle-logo {
+    :is(.colora-sidebar[data-collapsed="true"], html[data-nav-pref="collapsed"] .colora-sidebar) .colora-sidebar-toggle-logo {
       opacity: 1;
     }
 
-    .colora-sidebar[data-collapsed="true"] .colora-sidebar-toggle-icon-close {
+    :is(.colora-sidebar[data-collapsed="true"], html[data-nav-pref="collapsed"] .colora-sidebar) .colora-sidebar-toggle-icon-close {
       opacity: 0;
     }
 
     /* 收起态 hover / 键盘聚焦：图形退场，展开箭头浮现 */
-    .colora-sidebar[data-collapsed="true"] .colora-sidebar-toggle:hover .colora-sidebar-toggle-logo,
-    .colora-sidebar[data-collapsed="true"] .colora-sidebar-toggle:focus-visible .colora-sidebar-toggle-logo {
+    :is(.colora-sidebar[data-collapsed="true"], html[data-nav-pref="collapsed"] .colora-sidebar) .colora-sidebar-toggle:hover .colora-sidebar-toggle-logo,
+    :is(.colora-sidebar[data-collapsed="true"], html[data-nav-pref="collapsed"] .colora-sidebar) .colora-sidebar-toggle:focus-visible .colora-sidebar-toggle-logo {
       opacity: 0;
       transform: scale(0.86);
     }
 
-    .colora-sidebar[data-collapsed="true"] .colora-sidebar-toggle:hover .colora-sidebar-toggle-icon-open,
-    .colora-sidebar[data-collapsed="true"] .colora-sidebar-toggle:focus-visible .colora-sidebar-toggle-icon-open {
+    :is(.colora-sidebar[data-collapsed="true"], html[data-nav-pref="collapsed"] .colora-sidebar) .colora-sidebar-toggle:hover .colora-sidebar-toggle-icon-open,
+    :is(.colora-sidebar[data-collapsed="true"], html[data-nav-pref="collapsed"] .colora-sidebar) .colora-sidebar-toggle:focus-visible .colora-sidebar-toggle-icon-open {
       opacity: 1;
     }
 
     /* 收起态：品牌字收没（max-width 归零，见 .colora-sidebar-logo） */
-    .colora-sidebar[data-collapsed="true"] .colora-sidebar-logo {
+    :is(.colora-sidebar[data-collapsed="true"], html[data-nav-pref="collapsed"] .colora-sidebar) .colora-sidebar-logo {
       max-width: 0;
       opacity: 0;
     }
 
     /* 收起态：只剩图标 */
-    .colora-sidebar[data-collapsed="true"] .colora-sidebar-label {
+    :is(.colora-sidebar[data-collapsed="true"], html[data-nav-pref="collapsed"] .colora-sidebar) .colora-sidebar-label {
       max-width: 0;
       opacity: 0;
     }
@@ -488,7 +488,7 @@
      * 这里不切 justify-content —— 那个属性不能过渡，一切就是瞬移；
      * 只动 padding 的话，图标在整段动画里只平移 2px（12px → 10px），几乎看不出位移。
      */
-    .colora-sidebar[data-collapsed="true"] .colora-sidebar-button {
+    :is(.colora-sidebar[data-collapsed="true"], html[data-nav-pref="collapsed"] .colora-sidebar) .colora-sidebar-button {
       gap: 0;
       padding-inline: 0.625rem;
     }
@@ -499,8 +499,8 @@
      * 到收起态就只剩「比顶部按钮宽 20px」这一个副作用 —— 高亮块是 60×40 的长方形，
      * 和正上方的正方形按钮并排看着不齐。72px 的 rail 减掉左右各 16px 正好 40px。
      */
-    .colora-sidebar[data-collapsed="true"] .colora-sidebar-nav,
-    .colora-sidebar[data-collapsed="true"] .colora-sidebar-actions {
+    :is(.colora-sidebar[data-collapsed="true"], html[data-nav-pref="collapsed"] .colora-sidebar) .colora-sidebar-nav,
+    :is(.colora-sidebar[data-collapsed="true"], html[data-nav-pref="collapsed"] .colora-sidebar) .colora-sidebar-actions {
       padding-inline: 1rem;
     }
 
@@ -509,7 +509,7 @@
      * 用 padding-inline 而不是 justify-content: center —— 前者能跟着宽度一起过渡，
      * 后者不能过渡，会在动画第一帧把按钮瞬移到位。
      */
-    .colora-sidebar[data-collapsed="true"] .colora-sidebar-header {
+    :is(.colora-sidebar[data-collapsed="true"], html[data-nav-pref="collapsed"] .colora-sidebar) .colora-sidebar-header {
       padding-inline: 1rem;
     }
   }
@@ -671,8 +671,19 @@
       transition: flex-basis var(--rail-motion);
     }
 
-    /* 收起后不归零，保留一条窄栏 —— 宽度正好是「切换按钮 2.5rem + 右内边距 1.5rem」 */
-    .colora-tool-grid[data-rail="closed"] .colora-tool-rail {
+    /*
+     * 收起态的选择器都用 `:is(自身, <html> 首帧标记分支)` 包着。
+     *
+     * 那第二个分支是给**首帧**用的：偏好存在 localStorage 里，服务端读不到，只能按
+     * 默认的「展开」渲染；`__root.tsx` 里那段内联脚本在 hydration 前把偏好写到
+     * <html> 上，这里立刻覆盖成收起 —— 否则偏好收起的用户一刷新会先看到展开再被
+     * effect 收回去（两侧栏都有这个毛病）。React 接管后移除该属性，就只剩前一个分支。
+     *
+     * 用 `:is()` 而不是在每条规则后面追加一个逗号分支：追加的话 `A B` 会被拆成
+     * `A, C B`，前半段丢了 `B`，语义就错了。`:is()` 的特异性取参数里最高的那个，
+     * 与原规则一致，不会意外压过别的规则。
+     */
+    :is(.colora-tool-grid[data-rail="closed"], html[data-rail-pref="closed"] .colora-tool-grid) .colora-tool-rail {
       flex-basis: var(--rail-closed-w);
     }
 
@@ -727,7 +738,7 @@
         opacity var(--rail-motion);
     }
 
-    .colora-tool-grid[data-rail="closed"] .colora-rail-title {
+    :is(.colora-tool-grid[data-rail="closed"], html[data-rail-pref="closed"] .colora-tool-grid) .colora-rail-title {
       max-width: 0;
       opacity: 0;
     }
@@ -793,7 +804,7 @@
       transition: opacity var(--rail-motion);
     }
 
-    .colora-tool-grid[data-rail="closed"] .colora-rail-body {
+    :is(.colora-tool-grid[data-rail="closed"], html[data-rail-pref="closed"] .colora-tool-grid) .colora-rail-body {
       pointer-events: none;
       opacity: 0;
     }
@@ -824,7 +835,7 @@
         visibility var(--rail-motion);
     }
 
-    .colora-tool-grid[data-rail="closed"] .colora-rail-strip {
+    :is(.colora-tool-grid[data-rail="closed"], html[data-rail-pref="closed"] .colora-tool-grid) .colora-rail-strip {
       visibility: visible;
       pointer-events: auto;
       opacity: 1;

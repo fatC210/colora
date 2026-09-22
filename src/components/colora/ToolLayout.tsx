@@ -78,6 +78,15 @@ export function ToolLayout({
     setRailOpen(loadRailOpen());
   }, []);
 
+  /**
+   * 撤掉 `__root.tsx` 那段内联脚本留下的首帧覆盖。
+   *
+   * **只能在用户手动切换时撤，不能在挂载 effect 里撤** —— 挂载 effect 跑的那一刻
+   * React 的 state 还是首帧的 `true`（展开），覆盖一撤就会跳回展开、接着 effect
+   * 再把它收回去，反而制造出闪烁。左栏踩过同一个坑。
+   */
+  const clearRailPref = () => document.documentElement.removeAttribute("data-rail-pref");
+
   // 持久化。用 ref 跳过挂载后的首跑，否则会用默认的 true 覆盖掉上面刚读出来的偏好。
   const skipPersistRef = useRef(true);
   useEffect(() => {
@@ -129,7 +138,10 @@ export function ToolLayout({
   const label = railOpen ? t("收起参数面板") : t("展开参数面板");
 
   return (
-    <div className="colora-tool-grid" data-rail={hasRail ? (railOpen ? "open" : "closed") : undefined}>
+    <div
+      className="colora-tool-grid"
+      data-rail={hasRail ? (railOpen ? "open" : "closed") : undefined}
+    >
       <div className="colora-tool-main">
         <div className="colora-surface-card">{children}</div>
       </div>
@@ -142,7 +154,11 @@ export function ToolLayout({
               <button
                 ref={toggleRef}
                 type="button"
-                onClick={() => (railOpen ? collapse() : setRailOpen(true))}
+                onClick={() => {
+                  clearRailPref();
+                  if (railOpen) collapse();
+                  else setRailOpen(true);
+                }}
                 aria-expanded={railOpen}
                 aria-controls={bodyId}
                 aria-label={label}

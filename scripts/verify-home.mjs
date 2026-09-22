@@ -158,18 +158,24 @@ try {
   }
 
   // 3) 卡片数量 vs 虚拟滚动
-  const counts = await cdp.eval(`(() => {
-    const cards = document.querySelectorAll('[data-palette-card]');
-    const grid = cards[0]?.parentElement;
-    return {
-      rendered: cards.length,
-      gridChildren: grid ? grid.children.length : 0,
-      gridHeight: grid ? Math.round(grid.getBoundingClientRect().height) : 0,
-      total: document.querySelectorAll('[data-palette-card]').length,
-    };
-  })()`);
+  // 先等几何量测完：首次渲染用的是保守值（cols=1、默认行距），量测后才会切成 4 列。
+  // 443 组的首次渲染比 120 组慢，固定 sleep 会拍到「9 张卡 + 一大片空白」。
+  let counts = { rendered: 0 };
+  for (let i = 0; i < 40; i++) {
+    counts = await cdp.eval(`(() => {
+      const cards = document.querySelectorAll('[data-palette-card]');
+      const grid = cards[0]?.parentElement;
+      return {
+        rendered: cards.length,
+        gridChildren: grid ? grid.children.length : 0,
+        gridHeight: grid ? Math.round(grid.getBoundingClientRect().height) : 0,
+      };
+    })()`);
+    if (counts.rendered > 20) break;
+    await sleep(250);
+  }
   check(
-    "虚拟滚动生效（渲染数远小于 120）",
+    "虚拟滚动生效（只渲染视口附近的几行）",
     counts.rendered > 0 && counts.rendered < 60,
     `已渲染 ${counts.rendered} 张，网格高 ${counts.gridHeight}px`,
   );
@@ -191,18 +197,23 @@ try {
   const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
   fs.writeFileSync(path.join(SHOT_DIR, "home-desktop.png"), Buffer.from(shot.data, "base64"));
 
-  // 6) 融合条：色带下面那条连续渐变
-  const bar = await cdp.eval(`(() => {
+  // 6) 卡片外观：无边框、色带圆角（照 coolors 重做后的契约）
+  const shell = await cdp.eval(`(() => {
     const card = document.querySelector('[data-palette-card]');
-    const el = card.querySelector('[aria-hidden="true"]');
-    if (!el) return null;
-    const cs = getComputedStyle(el);
-    return { h: el.getBoundingClientRect().height, bg: cs.backgroundImage.slice(0, 60) };
+    const cs = getComputedStyle(card);
+    const band = card.firstElementChild;
+    const bs = getComputedStyle(band);
+    return {
+      cardBorder: cs.borderTopWidth,
+      cardBg: cs.backgroundColor,
+      radius: parseFloat(bs.borderTopLeftRadius) || 0,
+      bandH: Math.round(band.getBoundingClientRect().height),
+    };
   })()`);
   check(
-    "色带下方有渐变融合条",
-    !!bar && bar.h >= 3 && bar.bg.includes("linear-gradient"),
-    bar ? `高 ${bar.h}px` : "没找到",
+    "卡片无边框、色带圆角",
+    shell.cardBorder === "0px" && shell.radius >= 8 && shell.bandH >= 80,
+    `边框 ${shell.cardBorder}，色带圆角 ${shell.radius}px、高 ${shell.bandH}px`,
   );
 
   // 7) 搜索过滤
@@ -215,10 +226,15 @@ try {
     return true;
   })()`);
   await sleep(800);
-  const afterSearch = await cdp.eval(`(() => {
-    const el = [...document.querySelectorAll('span')].find(s => /\\d+\\s*(组|palettes)/.test(s.textContent||''));
-    return el ? el.textContent.trim() : null;
-  })()`);
+  // 等计数**真的**变化（最多 4s）。`useDeferredValue` + 180+ 组过滤 + 重开窗要点时间，
+  // 固定 sleep 在慢机器上偶发读到旧值（实测遇到过 183 → 183 的假失败，
+  // 同一次运行的旁证是网格高还停在未量测的 26214px）。
+  const READ_COUNT = `(() => { const el = [...document.querySelectorAll('span')].find(s => /\\d+\\s*(组|palettes)/.test(s.textContent||'')); return el ? el.textContent.trim() : null; })()`;
+  let afterSearch = countText;
+  for (let i = 0; i < 20 && afterSearch === countText; i++) {
+    await sleep(200);
+    afterSearch = await cdp.eval(READ_COUNT);
+  }
   check(
     "搜索「海」后计数变化",
     searched === true && afterSearch !== countText,
@@ -240,25 +256,36 @@ try {
   })()`);
   await sleep(600);
 
-  // 8) 标签筛选
-  const tagClicked = await cdp.eval(`(() => {
-    const chip = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === '霓虹');
-    if (!chip) return false;
-    chip.click();
+  // 8) 按颜色搜索：搜「绿」要出**绿色系的方案**，不只是名字里带「绿」的那几组。
+  //    名字匹配最多命中五六组，颜色匹配会命中几十组 —— 用这个差值当判据。
+  const colorSearched = await cdp.eval(`(() => {
+    const input = document.querySelector('input[aria-label="搜索配色方案"]');
+    if (!input) return false;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(input, '绿');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
     return true;
   })()`);
-  await sleep(700);
-  const afterTag = await cdp.eval(`(() => {
-    const el = [...document.querySelectorAll('span')].find(s => /\\d+\\s*(组|palettes)/.test(s.textContent||''));
-    return el ? el.textContent.trim() : null;
-  })()`);
-  check("标签筛选生效", tagClicked && afterTag !== countText, `→ ${afterTag}`);
-  // 复位
+  await sleep(800);
+  let afterColor = afterSearch;
+  for (let i = 0; i < 20 && afterColor === afterSearch; i++) {
+    await sleep(200);
+    afterColor = await cdp.eval(READ_COUNT);
+  }
+  const colorCount = Number(/(\d+)/.exec(afterColor ?? "")?.[1] ?? 0);
+  check(
+    "按颜色搜索生效（搜「绿」出的远多于名字匹配）",
+    colorSearched && colorCount > 20,
+    `${countText} → ${afterColor}`,
+  );
+  // 清空搜索
   await cdp.eval(`(() => {
-    const chip = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === '霓虹');
-    chip?.click();
+    const input = document.querySelector('input[aria-label="搜索配色方案"]');
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(input, '');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
   })()`);
-  await sleep(700);
+  await sleep(600);
 
   // 9) 点色块复制 → 出现 ✓ 反馈
   const copied = await cdp.eval(`(() => {
@@ -274,26 +301,49 @@ try {
   );
   check("点色块后出现复制反馈", copied && hasCheck);
 
-  // 10) 「查看色号」揭示层，且卡片高度不变
+  // 10) hover 色块 → 该色块放大 + 色号显示在它中间；且卡片高度不变
   const beforeH = await cdp.eval(
     `(() => document.querySelector('[data-palette-card]').getBoundingClientRect().height)()`,
   );
-  const revealed = await cdp.eval(`(() => {
-    const card = document.querySelector('[data-palette-card]');
-    const btn = [...card.querySelectorAll('button')].find(b => (b.getAttribute('aria-label')||'').includes('色号'));
-    if (!btn) return false;
-    btn.click();
-    return true;
+  // hover **第二个**色块，不是第一个 —— 上一步刚点过第一个，它的 ✓ 反馈会压住色号层
+  // （那是卡片刻意的设计：刚复制的那一格让位给 ✓）。1.4s 内 hover 同一格必然读到 opacity 0。
+  const swatchBox = await cdp.eval(`(() => {
+    const sw = document.querySelector('[data-palette-card]').querySelectorAll('button')[1];
+    const r = sw.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), w: r.width };
   })()`);
-  await sleep(250);
-  const hexShown = await cdp.eval(
-    `(() => { const c = document.querySelector('[data-palette-card]'); return /#[0-9A-F]{6}/i.test(c.textContent || ''); })()`,
+  // hover 必须走 CDP 的真实鼠标事件：`el.click()` 只派发 click，`:hover` 样式不会生效。
+  await cdp.send("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x: swatchBox.x,
+    y: swatchBox.y,
+  });
+  await sleep(500);
+  const hoverState = await cdp.eval(`(() => {
+    const sw = document.querySelector('[data-palette-card]').querySelectorAll('button')[1];
+    const span = sw.querySelector('span');
+    const label = span ? span.textContent.trim() : '';
+    const cs = span ? getComputedStyle(span) : null;
+    return {
+      hex: /^#[0-9A-F]{6}$/i.test(label) ? label : null,
+      opacity: cs ? parseFloat(cs.opacity) : 0,
+      w: sw.getBoundingClientRect().width,
+    };
+  })()`);
+  check(
+    "hover 色块显示色号",
+    hoverState.hex !== null && hoverState.opacity > 0.9,
+    hoverState.hex ? `${hoverState.hex}（opacity ${hoverState.opacity}）` : "没读到 hex",
+  );
+  check(
+    "hover 的色块被放大",
+    hoverState.w > swatchBox.w * 1.2,
+    `${Math.round(swatchBox.w)}px → ${Math.round(hoverState.w)}px`,
   );
   const afterH = await cdp.eval(
     `(() => document.querySelector('[data-palette-card]').getBoundingClientRect().height)()`,
   );
-  check("色号揭示层显示 hex", revealed && hexShown);
-  check("揭示色号不改变卡片高度", Math.abs(beforeH - afterH) < 0.5, `${beforeH} → ${afterH}`);
+  check("hover 显示色号不改变卡片高度", Math.abs(beforeH - afterH) < 0.5, `${beforeH} → ${afterH}`);
   const shotHex = await cdp.send("Page.captureScreenshot", { format: "png" });
   fs.writeFileSync(
     path.join(SHOT_DIR, "home-hex-revealed.png"),
@@ -311,14 +361,17 @@ try {
   check("未登录收藏会弹登录提示", toast);
 
   // 12) 滚到底部不露白：网格总高应等于 行数 × 行距 - gap
+  // 总数从工具栏文案里读，**别再硬编码** —— 配色库会长大（120 → 183 → …）。
+  const TOTAL = Number(/(\d+)/.exec(countText ?? "")?.[1] ?? 120);
   const geomCheck = await cdp.eval(`(() => {
+    const total = ${TOTAL};
     const grid = document.querySelector('[data-palette-card]').parentElement;
     const cards = [...grid.querySelectorAll('[data-palette-card]')];
     const styles = getComputedStyle(grid);
     const cols = styles.gridTemplateColumns.split(' ').filter(Boolean).length;
     const gap = parseFloat(styles.rowGap) || 0;
     const stride = cards[0].getBoundingClientRect().height + gap;
-    const rows = Math.ceil(120 / cols);
+    const rows = Math.ceil(total / cols);
     return { expected: Math.round(rows * stride - gap), actual: Math.round(grid.getBoundingClientRect().height), cols, rows };
   })()`);
   check(
@@ -353,7 +406,7 @@ try {
   })()`);
   await sleep(700);
   const highlighted = await cdp.eval(
-    `(() => document.querySelectorAll('[data-palette-card].ring-1').length)()`,
+    `(() => document.querySelectorAll('[data-palette-card] > .ring-2').length)()`,
   );
   check("随机跳转有且只有一张高亮", highlighted === 1, `高亮 ${highlighted} 张`);
 
