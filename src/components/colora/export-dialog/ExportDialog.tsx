@@ -34,6 +34,7 @@ import {
   gradientSvg,
 } from "./exporters";
 import { colorRows, copy, download, markdownTable, toHslString, toRgbString } from "./utils";
+import { formatPalette } from "./palette-formats";
 
 type ExportModule =
   "all" | "color" | "palette" | "gradient" | "image" | "mixer" | "contrast" | "preview" | "saved";
@@ -53,24 +54,7 @@ export function ExportDialog({
   const contentRef = useRef<HTMLDivElement>(null);
 
   const colorInfo = useMemo(() => colorRows(color), [color]);
-  const paletteFormats = useMemo(() => {
-    const hexes = palette;
-    return {
-      hexes,
-      rgbs: hexes.map(toRgbString),
-      hsls: hexes.map(toHslString),
-      css: hexes.map((hex, index) => `--color-${index + 1}: ${hex};`).join(" "),
-      tailwind: `colors: { ${hexes.map((hex, index) => `'color-${index + 1}': '${hex}'`).join(", ")} }`,
-      scss: hexes.map((hex, index) => `$color-${index + 1}: ${hex};`).join(" "),
-      swift: hexes
-        .map((hex) => {
-          const rgb = hexToRgb(hex);
-          return `UIColor(red: ${(rgb.r / 255).toFixed(2)}, green: ${(rgb.g / 255).toFixed(2)}, blue: ${(rgb.b / 255).toFixed(2)}, alpha: 1.0)`;
-        })
-        .join("\n"),
-      kotlin: hexes.map((hex) => `Color(0xFF${hex.slice(1)})`).join("  "),
-    };
-  }, [palette]);
+  const paletteFormats = useMemo(() => formatPalette(palette), [palette]);
 
   const gradientText = useMemo(
     () => gradientCss(gradientConfig, gradientStops),

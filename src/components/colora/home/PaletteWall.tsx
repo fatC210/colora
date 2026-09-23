@@ -8,9 +8,14 @@ import {
   type CuratedPalette,
 } from "@/lib/colora-palettes";
 import { familiesOfColors, matchFamilies, type ColorFamily } from "@/lib/color-families";
+import { createStopId } from "@/components/colora/gradient-tool/utils";
+import type { ToolId } from "@/components/colora/Sidebar";
 import { useT } from "@/lib/i18n/use-t";
 import { findScroller, useWindowedGrid } from "@/hooks/use-windowed-grid";
 import { PaletteCard } from "./PaletteCard";
+import type { PaletteMenuAction } from "./PaletteCardMenu";
+import { PaletteFullscreen } from "./PaletteFullscreen";
+import { PaletteInfoDialog } from "./PaletteInfoDialog";
 
 /**
  * 展示顺序：**来源三路交错，每路内部按标签轮询，桶内再洗牌**。
@@ -78,9 +83,6 @@ function shuffleInPlace<T>(arr: T[]) {
 /** 确定性版本：SSR 与首次客户端渲染必须一致，否则 hydration 不匹配。 */
 const DISPLAY_PALETTES = buildDisplayOrder(false);
 
-/** 随机跳转会短暂高亮的时长。 */
-const HIGHLIGHT_MS = 1600;
-
 /**
  * 每组的色系集合。**模块级预计算** —— 180+ 组 × 3–10 色是上千次 Lab 换算，
  * 放进 filter 里每次按键重算会明显卡手。
@@ -98,8 +100,8 @@ const FAMILY_INDEX = new Map<string, ReadonlySet<ColorFamily>>(
  * - 卡片必须 memo 且不订阅 context，所以 `t` / 收藏态 / 回调都从这一层以 prop 传下去；
  * - 收藏态在这一层压成「每卡一个 boolean」—— 直接把 `saved` 数组传下去会让 120 张卡全废。
  */
-export function PaletteWall() {
-  const { saved, savePalette, removePalette, cbMode } = useColora();
+export function PaletteWall({ onNavigate }: { onNavigate: (tool: ToolId) => void }) {
+  const { saved, savePalette, removePalette, cbMode, setPalette, setGradientStops } = useColora();
   const t = useT();
 
   const [query, setQuery] = useState("");
@@ -108,9 +110,15 @@ export function PaletteWall() {
    * 延后一帧让输入框先响应。
    */
   const deferredQuery = useDeferredValue(query);
-  /** 随机跳转后短暂高亮的方案 id。只有被点中的那一张会因此重渲染。 */
-  const [highlightId, setHighlightId] = useState<string | null>(null);
-  const highlightTimer = useRef<number | undefined>(undefined);
+
+  /** 全屏视图当前展示的那组。`originRect` 是被点卡片的矩形，供 FLIP 动画当起点。 */
+  const [fullscreen, setFullscreen] = useState<{
+    palette: CuratedPalette;
+    name: string;
+    originRect: DOMRect | null;
+  } | null>(null);
+  /** 色值详情弹窗当前展示的那组。 */
+  const [info, setInfo] = useState<{ palette: CuratedPalette; name: string } | null>(null);
 
   /**
    * 展示顺序。首帧用**确定性**版本（SSR 与 hydration 必须一致），挂载后再换成
@@ -147,8 +155,24 @@ export function PaletteWall() {
    * `savePalette` 跟着换新引用；回调若直接依赖它，卡片上的 memo 就全废了。
    * 所以回调本身恒定，实现从 ref 里取最新的（`ContrastTool.tsx` 同款写法）。
    */
-  const latest = useRef({ favIndex, savePalette, removePalette, t });
-  latest.current = { favIndex, savePalette, removePalette, t };
+  const latest = useRef({
+    favIndex,
+    savePalette,
+    removePalette,
+    t,
+    onNavigate,
+    setPalette,
+    setGradientStops,
+  });
+  latest.current = {
+    favIndex,
+    savePalette,
+    removePalette,
+    t,
+    onNavigate,
+    setPalette,
+    setGradientStops,
+  };
 
   const toggleFavorite = useCallback((palette: CuratedPalette) => {
     const { favIndex: index, savePalette: save, removePalette: remove, t: tr } = latest.current;
@@ -163,42 +187,74 @@ export function PaletteWall() {
   // 筛选条件一变就把滚动位置归零：否则滚到第 60 行再筛出 3 组，会停在「底部一大片空白」。
   const resetKey = useMemo(() => deferredQuery.trim().toLowerCase(), [deferredQuery]);
 
-  const { gridRef, start, end, topPad, bottomPad, geom } = useWindowedGrid(
-    rootRef,
-    filtered.length,
-    { resetKey, cardSelector: "[data-palette-card]", watch: [toolbarRef] },
-  );
+  const { gridRef, start, end, topPad, bottomPad } = useWindowedGrid(rootRef, filtered.length, {
+    resetKey,
+    cardSelector: "[data-palette-card]",
+    watch: [toolbarRef],
+  });
 
   /**
-   * 随机跳到一组配色。
+   * 重新打乱排列。
    *
-   * 不能用 `scrollIntoView` —— 目标卡在虚拟滚动下多半根本没渲染出来。
-   * 用几何算：网格在滚动内容里的偏移 + 行号 × 行距。
-   * `Math.random()` 只能在事件处理器里调，绝不能在渲染期（SSR 与客户端会不一致）。
+   * **不是「跳到随机一组」** —— 那样会滚到列表中间，用户刚进来就被甩走。
+   * 改成原地重排 + 滚回开头：和「每次进首页都重排」是同一套语义，每次都是新的一次浏览。
+   *
+   * 重排后原来的滚动位置对应的已经是完全不同的方案了，留在原处只会让人迷失，
+   * 所以显式滚回顶部。`Math.random()` 只能在事件处理器里调，绝不能在渲染期
+   * （SSR 与客户端会不一致）。
    */
-  const randomJump = useCallback(() => {
-    if (filtered.length === 0) {
-      // 当前筛选下没有可跳的目标：先清掉搜索，下一次点击就能跳了。
-      setQuery("");
-      return;
-    }
-    const index = Math.floor(Math.random() * filtered.length);
-    const target = geom.top + Math.floor(index / Math.max(1, geom.cols)) * geom.stride;
+  const shuffleOrder = useCallback(() => {
+    setOrder(buildDisplayOrder(true));
     const scroller = findScroller(rootRef.current);
-    if (scroller) scroller.scrollTop = target;
-    else window.scrollTo(0, target);
+    if (scroller) scroller.scrollTop = 0;
+    else window.scrollTo(0, 0);
+  }, []);
 
-    setHighlightId(filtered[index].id);
-    window.clearTimeout(highlightTimer.current);
-    highlightTimer.current = window.setTimeout(() => setHighlightId(null), HIGHLIGHT_MS);
-  }, [filtered, geom]);
+  /**
+   * 卡片菜单里那些要跨组件的动作。
+   *
+   * 和 `toggleFavorite` 一样走 `latest` ref 保持**恒定引用** —— 回调一变，443 张卡
+   * 的 memo 就全废了。`rootRef` 是 ref 对象本身（引用恒定），可以直接闭包捕获。
+   *
+   * 「复制为 / 导出」不在这里：那两个在卡片内部就能做完（`copy` / `download` 是纯函数）。
+   */
+  const onCardAction = useCallback((palette: CuratedPalette, action: PaletteMenuAction) => {
+    const {
+      t: tr,
+      onNavigate: navigate,
+      setPalette: applyPalette,
+      setGradientStops: applyStops,
+    } = latest.current;
+    const name = tr(palette.name);
 
-  useEffect(
-    () => () => {
-      window.clearTimeout(highlightTimer.current);
-    },
-    [],
-  );
+    switch (action) {
+      case "fullscreen": {
+        // 从 DOM 里找那张卡量矩形 —— 菜单是 Portal，事件目标不在卡片内部
+        const card = rootRef.current?.querySelector(`[data-palette-id="${palette.id}"]`);
+        setFullscreen({ palette, name, originRect: card?.getBoundingClientRect() ?? null });
+        break;
+      }
+      case "info":
+        setInfo({ palette, name });
+        break;
+      case "to-palette":
+        applyPalette([...palette.colors]);
+        navigate("palette");
+        break;
+      case "to-gradient": {
+        const n = Math.max(1, palette.colors.length - 1);
+        applyStops(
+          palette.colors.map((hex, i) => ({
+            id: createStopId(),
+            hex,
+            pos: i / n,
+          })),
+        );
+        navigate("gradient");
+        break;
+      }
+    }
+  }, []);
 
   const visible = filtered.slice(start, end);
 
@@ -249,8 +305,8 @@ export function PaletteWall() {
 
           <button
             type="button"
-            onClick={randomJump}
-            aria-label={t("随机看一组")}
+            onClick={shuffleOrder}
+            aria-label={t("重新排列")}
             className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-border px-2.5 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Dices className="size-3.5" />
@@ -280,10 +336,10 @@ export function PaletteWall() {
               palette={palette}
               name={t(palette.name)}
               favorited={favIndex.has(paletteKey(palette.colors))}
-              highlighted={highlightId === palette.id}
               cbMode={cbMode}
               t={t}
               onToggleFavorite={toggleFavorite}
+              onAction={onCardAction}
             />
           ))}
 
@@ -291,6 +347,29 @@ export function PaletteWall() {
             <div aria-hidden className="col-span-full" style={{ height: bottomPad }} />
           )}
         </div>
+      )}
+
+      {/* 两个覆盖层都渲染在网格之外：Radix 的 Portal 挂在 body 上，不参与卡片布局，
+          虚拟滚动的等高契约不受影响 */}
+      {fullscreen && (
+        <PaletteFullscreen
+          palette={fullscreen.palette}
+          name={fullscreen.name}
+          originRect={fullscreen.originRect}
+          onClose={() => setFullscreen(null)}
+        />
+      )}
+
+      {info && (
+        <PaletteInfoDialog
+          palette={info.palette}
+          name={info.name}
+          cbMode={cbMode}
+          open
+          onOpenChange={(next) => {
+            if (!next) setInfo(null);
+          }}
+        />
       )}
     </div>
   );

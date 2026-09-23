@@ -133,7 +133,7 @@ function NotFoundComponent() {
         <h1 className="text-7xl font-bold text-foreground">404</h1>
         <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          The page you're looking for doesn't exist or has been moved.
+          The page you’re looking for doesn’t exist or has been moved.
         </p>
         <div className="mt-6">
           <Link
@@ -159,7 +159,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          This page didn't load
+          This page didn’t load
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Something went wrong on our end. You can try refreshing or head back home.
@@ -232,17 +232,19 @@ function RootShell({ children }: { children: ReactNode }) {
       <head>
         <HeadContent />
         {/*
-          在 hydration **之前**把两侧栏的收起偏好写到 <html> 上。
+          在 hydration **之前**把两侧栏的收起偏好写到 html 元素上。
 
           两个偏好都存在 localStorage 里，服务端读不到，只能按默认的「展开」渲染。
           不补这一步的话，偏好收起的用户一刷新就会先看到展开、再被 effect 收回去，
           闪一下（左导航和右参数栏都有这个毛病）。`styles.css` 里那批
-          `html[data-nav-pref="collapsed"]` / `html[data-rail-pref="closed"]` 规则
-          据此立即覆盖成收起态。
+          data-nav-pref / data-rail-pref 规则据此立即覆盖成收起态。
 
-          这段必须跑在 <head> 里 —— 早于 body 解析和 React hydration。
-          用 dangerouslySetInnerHTML 而不是 <script>{...}</script>：后者在 SSR 下
-          会被当成 React 子节点转义，脚本根本不会执行。
+          这段必须跑在 head 里 —— 早于 body 解析和 React hydration。
+          用 dangerouslySetInnerHTML 而不是把脚本写成 JSX 子节点：后者在 SSR 下
+          会被转义，脚本根本不会执行。
+
+          注释里刻意不写尖括号和引号：`check-i18n.cjs` 的 JSX 文本扫描会把
+          `>...<` 之间的内容当界面文案，而这段 JSX 注释它剥不掉。
         */}
         <script
           dangerouslySetInnerHTML={{

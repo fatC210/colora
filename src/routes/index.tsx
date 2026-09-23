@@ -6,6 +6,7 @@ import { CB_LABELS, cbMatrixValues } from "@/lib/color";
 import { Sidebar, TOOLS, type ToolId } from "@/components/colora/Sidebar";
 import { HomeTool } from "@/components/colora/HomeTool";
 import { PaletteTool } from "@/components/colora/PaletteTool";
+import { ColorLibraryTool } from "@/components/colora/ColorLibraryTool";
 import { GradientTool } from "@/components/colora/GradientTool";
 import { CanvasTool } from "@/components/colora/CanvasTool";
 import { MixerTool } from "@/components/colora/MixerTool";
@@ -136,8 +137,9 @@ function ColoraApp() {
               <h1 className="colora-page-title mb-4 text-2xl font-bold tracking-tight sm:mb-5 sm:text-3xl">
                 {title}
               </h1>
-              {effectiveTool === "home" && <HomeTool />}
+              {effectiveTool === "home" && <HomeTool onNavigate={setTool} />}
               {effectiveTool === "palette" && <PaletteTool />}
+              {effectiveTool === "colors" && <ColorLibraryTool />}
               {effectiveTool === "gradient" && <GradientTool />}
               {effectiveTool === "mixer" && <MixerTool />}
               {effectiveTool === "image" && <ImageTool />}
@@ -146,8 +148,7 @@ function ColoraApp() {
             </div>
           )}
         </div>
-
-        </main>
+      </main>
     </div>
   );
 }

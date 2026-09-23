@@ -3,6 +3,7 @@ import { Check, Heart } from "lucide-react";
 import { bestTextOn, simulateCB, type CBMode } from "@/lib/color";
 import type { CuratedPalette } from "@/lib/colora-palettes";
 import type { useT } from "@/lib/i18n/use-t";
+import { PaletteCardMenu, type PaletteMenuAction } from "./PaletteCardMenu";
 import { cn } from "@/lib/utils";
 
 type T = ReturnType<typeof useT>;
@@ -33,20 +34,20 @@ export const PaletteCard = memo(function PaletteCard({
   palette,
   name,
   favorited,
-  highlighted,
   cbMode,
   t,
   onToggleFavorite,
+  onAction,
 }: {
   palette: CuratedPalette;
   /** 已翻译的方案名。 */
   name: string;
   favorited: boolean;
-  /** 被工具栏的「随机看一组」跳中时的短暂高亮。 */
-  highlighted?: boolean;
   cbMode: CBMode;
   t: T;
   onToggleFavorite: (palette: CuratedPalette) => void;
+  /** 菜单里那些要跨组件/跨工具的动作。**恒定引用**，见 `PaletteWall` 的 `latest` ref。 */
+  onAction: (palette: CuratedPalette, action: PaletteMenuAction) => void;
 }) {
   /** 刚复制成功的色号；1.4s 后清空（照 `HexCopy` 的写法）。 */
   const [copied, setCopied] = useState<string | null>(null);
@@ -75,13 +76,8 @@ export const PaletteCard = memo(function PaletteCard({
   }, []);
 
   return (
-    <div data-palette-card="" className="flex flex-col">
-      <div
-        className={cn(
-          "relative flex h-24 overflow-hidden rounded-xl sm:h-28",
-          highlighted && "ring-2 ring-foreground",
-        )}
-      >
+    <div data-palette-card="" data-palette-id={palette.id} className="flex flex-col">
+      <div className="relative flex h-24 overflow-hidden rounded-xl sm:h-28">
         {colors.map((hex, i) => (
           <button
             key={hex + i}
@@ -99,12 +95,12 @@ export const PaletteCard = memo(function PaletteCard({
             {/*
               色号层。`absolute inset-0` 覆盖在色块上、**不参与布局** —— 卡片高度恒定，
               虚拟滚动的等高契约不破。`pointer-events-none` 免得挡住色块的点击。
-              宽度够用：hover 的那一格同时 `grow-[2]` 变宽，8 色时也有 ~68px，放得下 7 个字符，
-              所以不需要按色数缩字号。
+              宽度够用：hover 的那一格同时 `grow-[2]` 变宽，最挤的 10 色方案也有 ~55px，
+              而 `#RRGGBB` 在 12px 等宽下约 50px —— 所以不需要按色数缩字号。
             */}
             <span
               className={cn(
-                "pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-[10px] tracking-tight transition-opacity duration-200",
+                "pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-xs tracking-tight transition-opacity duration-200",
                 // 刚复制的那一格让位给 ✓，别两个叠在一起
                 copied === hex ? "opacity-0" : "opacity-0 group-hover/swatch:opacity-100",
               )}
@@ -126,6 +122,8 @@ export const PaletteCard = memo(function PaletteCard({
 
       <div className="mt-2 flex items-center gap-1">
         <span className="min-w-0 flex-1 truncate text-xs font-medium">{name}</span>
+
+        <PaletteCardMenu palette={palette} name={name} t={t} onAction={onAction} />
 
         <button
           type="button"

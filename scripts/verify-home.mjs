@@ -399,19 +399,117 @@ try {
     `底部间距 ${bottomInfo.gapBelow}px，仍渲染 ${bottomInfo.rendered} 张`,
   );
 
-  // 13) 随机跳转
+  // 13) 重新排列：顺序变了，且被拉回顶部（不是滚到列表中间）
+  const orderBefore = await cdp.eval(
+    `(() => [...document.querySelectorAll('[data-palette-card]')].slice(0, 8).map(c => (c.textContent||'').trim().slice(0, 10)))()`,
+  );
+  // 先滚下去一点，才能验证「重排会把人拉回顶部」
   await cdp.eval(`(() => {
-    const btn = [...document.querySelectorAll('button')].find(b => (b.getAttribute('aria-label')||'') === '随机看一组');
+    const s = document.querySelector('.colora-surface-card');
+    if (s) s.scrollTop = 2000; else window.scrollTo(0, 2000);
+  })()`);
+  await sleep(400);
+  await cdp.eval(`(() => {
+    const btn = [...document.querySelectorAll('button')].find(b => (b.getAttribute('aria-label')||'') === '重新排列');
     btn?.click();
   })()`);
-  await sleep(700);
-  const highlighted = await cdp.eval(
-    `(() => document.querySelectorAll('[data-palette-card] > .ring-2').length)()`,
+  await sleep(800);
+  const orderAfter = await cdp.eval(
+    `(() => [...document.querySelectorAll('[data-palette-card]')].slice(0, 8).map(c => (c.textContent||'').trim().slice(0, 10)))()`,
   );
-  check("随机跳转有且只有一张高亮", highlighted === 1, `高亮 ${highlighted} 张`);
+  const scrollAfterShuffle = await cdp.eval(
+    `(() => { const s = document.querySelector('.colora-surface-card'); return s ? Math.round(s.scrollTop) : Math.round(window.scrollY); })()`,
+  );
+  check(
+    "重新排列改变了顺序",
+    JSON.stringify(orderBefore) !== JSON.stringify(orderAfter),
+    `前 8 张：${orderBefore.slice(0, 3).join(" / ")} → ${orderAfter.slice(0, 3).join(" / ")}`,
+  );
+  check("重新排列后回到顶部", scrollAfterShuffle === 0, `scrollTop=${scrollAfterShuffle}`);
 
   const shot4 = await cdp.send("Page.captureScreenshot", { format: "png" });
   fs.writeFileSync(path.join(SHOT_DIR, "home-random-jump.png"), Buffer.from(shot4.data, "base64"));
+
+  // 14) 卡片菜单 + 全屏视图
+  const cardHBefore = await cdp.eval(
+    `(() => document.querySelector('[data-palette-card]').getBoundingClientRect().height)()`,
+  );
+  // Radix 的 DropdownMenuTrigger 监听 pointerdown，`el.click()` 是空操作 ——
+  // 必须走 CDP 的真实鼠标事件（和上面 hover、tab 切换同一个坑）。
+  const menuBtnBox = await cdp.eval(`(() => {
+    const btn = document.querySelector('[data-palette-card] button[aria-label="更多操作"]');
+    if (!btn) return null;
+    const r = btn.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+  })()`);
+  const clickAt = async (box) => {
+    for (const type of ["mousePressed", "mouseReleased"]) {
+      await cdp.send("Input.dispatchMouseEvent", {
+        type,
+        x: box.x,
+        y: box.y,
+        button: "left",
+        clickCount: 1,
+      });
+    }
+  };
+  if (menuBtnBox) await clickAt(menuBtnBox);
+  await sleep(500);
+  const menuVisible = await cdp.eval(`(() => !!document.querySelector('[role="menu"]'))()`);
+  const cardHAfterMenu = await cdp.eval(
+    `(() => document.querySelector('[data-palette-card]').getBoundingClientRect().height)()`,
+  );
+  check("卡片三点菜单能打开", !!menuBtnBox && menuVisible);
+  check(
+    "菜单打开不改变卡片高度",
+    Math.abs(cardHAfterMenu - cardHBefore) < 0.5,
+    `${cardHBefore} → ${cardHAfterMenu}`,
+  );
+  const shotMenu = await cdp.send("Page.captureScreenshot", { format: "png" });
+  fs.writeFileSync(path.join(SHOT_DIR, "home-card-menu.png"), Buffer.from(shotMenu.data, "base64"));
+
+  // 点「查看全屏」（同样要真实鼠标）
+  const fsItemBox = await cdp.eval(`(() => {
+    const item = [...document.querySelectorAll('[role="menuitem"]')]
+      .find(el => (el.textContent || '').includes('查看全屏'));
+    if (!item) return null;
+    const r = item.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+  })()`);
+  if (fsItemBox) await clickAt(fsItemBox);
+  await sleep(800);
+  const fsBox = await cdp.eval(`(() => {
+    const el = document.querySelector('[data-palette-fullscreen]');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return {
+      w: Math.round(r.width), h: Math.round(r.height),
+      vw: window.innerWidth, vh: window.innerHeight,
+      swatches: el.querySelectorAll('button').length,
+    };
+  })()`);
+  check(
+    "全屏覆盖层铺满视口",
+    !!fsBox && Math.abs(fsBox.w - fsBox.vw) < 2 && Math.abs(fsBox.h - fsBox.vh) < 2,
+    fsBox
+      ? `${fsBox.w}×${fsBox.h} / 视口 ${fsBox.vw}×${fsBox.vh}，${fsBox.swatches} 个色块`
+      : "没找到",
+  );
+  const shotFs = await cdp.send("Page.captureScreenshot", { format: "png" });
+  fs.writeFileSync(path.join(SHOT_DIR, "home-fullscreen.png"), Buffer.from(shotFs.data, "base64"));
+
+  // Escape 关闭
+  for (const type of ["keyDown", "keyUp"]) {
+    await cdp.send("Input.dispatchKeyEvent", {
+      type,
+      key: "Escape",
+      code: "Escape",
+      windowsVirtualKeyCode: 27,
+    });
+  }
+  await sleep(800);
+  const fsGone = await cdp.eval(`(() => !document.querySelector('[data-palette-fullscreen]'))()`);
+  check("Escape 关闭全屏", fsGone);
 
   // 14) 移动端断点
   await cdp.send("Emulation.setDeviceMetricsOverride", {

@@ -11,6 +11,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Smartphone,
+  SwatchBook,
   User,
   X,
 } from "lucide-react";
@@ -28,7 +29,15 @@ import { SignInDialog } from "./account/SignInDialog";
 import { getUserInitial } from "./account/utils";
 
 export type ToolId =
-  "home" | "palette" | "gradient" | "canvas" | "mixer" | "image" | "contrast" | "preview";
+  | "home"
+  | "palette"
+  | "colors"
+  | "gradient"
+  | "canvas"
+  | "mixer"
+  | "image"
+  | "contrast"
+  | "preview";
 
 /** 移动端（窄屏 < 768px）暂不支持的工具：画布依赖精细指针与手势，触控体验未完善。 */
 const MOBILE_UNSUPPORTED: ReadonlySet<ToolId> = new Set<ToolId>(["canvas"]);
@@ -59,6 +68,7 @@ function loadNavCollapsed() {
 export const TOOLS: { id: ToolId; label: TKey; icon: typeof Home; badge?: string }[] = [
   { id: "home", label: "首页", icon: Home },
   { id: "palette", label: "配色方案", icon: Palette },
+  { id: "colors", label: "颜色库", icon: SwatchBook },
   { id: "gradient", label: "渐变编辑", icon: Droplets },
   { id: "canvas", label: "画布", icon: Paintbrush },
   { id: "mixer", label: "色彩混合", icon: Blend },
