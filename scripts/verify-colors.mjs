@@ -137,8 +137,39 @@ try {
   );
   check("侧栏有「颜色库」入口", hasEntry);
 
-  // 3) 点进去
-  await clickButtonByText(cdp, "颜色库");
+  // 3) 工具分组**默认是收起的**，先展开它 —— 收起态里工具按钮高度为 0，
+  //    按坐标点会落到空处（这一步之前，脚本点「颜色库」是无效操作）。
+  const groupExpanded = await cdp.eval(
+    `(() => document.querySelector('.colora-sidebar-group-toggle')?.getAttribute('aria-expanded'))()`,
+  );
+  check("侧栏工具分组默认收起", groupExpanded === "false", `aria-expanded=${groupExpanded}`);
+  const groupBox = await cdp.eval(`(() => {
+    const b = document.querySelector('.colora-sidebar-group-toggle');
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+  })()`);
+  if (groupBox) await clickAt(cdp, groupBox);
+  // 等展开动画真的结束、工具按钮有了可点的高度再点 —— 固定 sleep 在慢机器上会
+  // 赶在 grid-template-rows 的过渡中间，那时按钮还是 0 高，按坐标点会落空。
+  for (let i = 0; i < 30; i++) {
+    const ready = await cdp.eval(`(() => {
+      const b = [...document.querySelectorAll('.colora-sidebar-nav button')]
+        .find(x => (x.textContent || '').trim() === '颜色库');
+      return !!b && b.getBoundingClientRect().height > 20;
+    })()`);
+    if (ready) break;
+    await sleep(150);
+  }
+
+  // 4) 点进颜色库。`NavItem` 用的是普通 `onClick`（不是 Radix 那种 pointerdown），
+  //    所以 JS click 就够 —— CDP 的坐标点击在这里反而会落空（原因未明，实测两者
+  //    都试过，JS click 稳定生效）。
+  await cdp.eval(`(() => {
+    const b = [...document.querySelectorAll('.colora-sidebar-nav button')]
+      .find(x => (x.textContent || '').trim() === '颜色库');
+    b?.click();
+  })()`);
   await sleep(1500);
 
   // 等虚拟滚动的几何量测完（首次渲染用的是保守值，会先渲染很少几张）

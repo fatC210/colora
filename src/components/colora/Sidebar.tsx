@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Blend,
+  ChevronDown,
   Contrast,
   Droplets,
   Home,
   Image as ImageIcon,
+  LayoutGrid,
   Menu,
   Palette,
   Paintbrush,
@@ -246,6 +248,12 @@ export function Sidebar({
   // 桌面侧栏的展开/收起偏好。放在组件内而非 store：store 的 value 是单个 useMemo，
   // 加字段会让全应用（含常驻挂载的 CanvasTool）跟着重渲染。
   const [collapsed, setCollapsed] = useState(false);
+  /**
+   * 工具分组是否展开。**默认收起**，且刻意**不持久化** —— 用户要的是「每次进来
+   * 都是收起的」，存起来就不叫默认了。侧栏在切工具时不会重新挂载，所以同一次
+   * 会话里展开过就一直展开着，符合预期。
+   */
+  const [toolsOpen, setToolsOpen] = useState(false);
   useEffect(() => {
     setCollapsed(loadNavCollapsed());
   }, []);
@@ -459,20 +467,63 @@ export function Sidebar({
           </button>
         </div>
 
-        <nav className="colora-sidebar-nav">
-          {navTools.map((toolConfig) => (
-            <NavItem
-              key={toolConfig.id}
-              toolId={toolConfig.id}
-              label={t(toolConfig.label)}
-              icon={toolConfig.icon}
-              badge={toolConfig.badge}
-              active={tool === toolConfig.id}
-              // 只在桌面收起态给 tooltip：移动端抽屉里按钮本就带文字，且 Tip 带长按逻辑。
-              tip={!isMobile && collapsed ? t(toolConfig.label) : undefined}
-              onClick={() => onTool(toolConfig.id)}
+        {/*
+          工具分组。**默认收起**（照 colorsandfonts 的做法）—— 侧栏不再一上来就把
+          十个工具全铺开，先给一个「工具」标题，点开才展开。
+
+          和上面的 `collapsed`（窄栏图标模式）是两回事，两个可以同时成立：窄栏时
+          这一层强制展开（否则窄栏里只剩一个标题、图标全没了），见 `styles.css`
+          里 `.colora-sidebar[data-collapsed] .colora-sidebar-nav-wrap` 那条。
+
+          ⚠️ 分组头**必须放在 `<nav>` 里面**，不能当它的兄弟。`nav` 是
+          `overflow-y: auto`，矮窗口下出现滚动条会占掉 10px 内容宽 —— 放在外面的话
+          它拿不到那 10px 的扣减，就会比工具项**恒定宽 10px**（hover 块一长一短）。
+
+          ⚠️ 但**折叠的只能是工具列表**，不能连分组头一起折。第一版把整个
+          `nav-wrap` 折了，结果收起状态下分组头也被压成 0 高 —— 用户看不到
+          「工具」按钮，也就没法再展开，直接锁死。
+        */}
+        <nav id="colora-sidebar-tools" className="colora-sidebar-nav">
+          <button
+            type="button"
+            onClick={() => setToolsOpen((v) => !v)}
+            aria-expanded={toolsOpen}
+            aria-controls="colora-sidebar-tools-list"
+            className="colora-sidebar-group-toggle"
+          >
+            {/* 图标尺寸跟工具项一致（都是 size-5 / strokeWidth 1.6），否则左缘对不齐 */}
+            <LayoutGrid className="size-5 shrink-0" strokeWidth={1.6} />
+            <span className="colora-sidebar-label min-w-0 flex-1 truncate text-left">
+              {t("工具")}
+            </span>
+            <ChevronDown
+              className="colora-sidebar-group-chevron size-4 shrink-0"
+              strokeWidth={1.8}
             />
-          ))}
+          </button>
+
+          {/* 折叠容器只包工具项。`0fr ↔ 1fr` 的 grid 技巧，不需要知道内容高度 */}
+          <div
+            className="colora-sidebar-tools"
+            data-folded={toolsOpen ? undefined : "true"}
+            id="colora-sidebar-tools-list"
+          >
+            <div className="colora-sidebar-tools-inner">
+              {navTools.map((toolConfig) => (
+                <NavItem
+                  key={toolConfig.id}
+                  toolId={toolConfig.id}
+                  label={t(toolConfig.label)}
+                  icon={toolConfig.icon}
+                  badge={toolConfig.badge}
+                  active={tool === toolConfig.id}
+                  // 只在桌面收起态给 tooltip：移动端抽屉里按钮本就带文字，且 Tip 带长按逻辑。
+                  tip={!isMobile && collapsed ? t(toolConfig.label) : undefined}
+                  onClick={() => onTool(toolConfig.id)}
+                />
+              ))}
+            </div>
+          </div>
         </nav>
 
         <div className="colora-sidebar-actions">

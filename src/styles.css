@@ -307,6 +307,110 @@
     display: none;
   }
 
+  /*
+   * 工具分组（照 colorsandfonts 的做法）。**默认收起** —— 侧栏不再一上来就把
+   * 十个工具全铺开，先给一个「工具」标题，点开才展开。
+   *
+   * ⚠️ 盒模型必须**逐项对齐 `.colora-sidebar-button`**（gap / min-height / padding /
+   * font-size 四项）。少对一项，分组头的宽度和图标左缘就跟下面的工具项错开。
+   *
+   * 它**在 `<nav>` 里面**，所以左右位置靠 nav 的 padding、与第一项的间距靠 nav 的
+   * gap —— 自己不要再写 margin。放外面的话，矮窗口下 nav 出现滚动条会占掉 10px
+   * 内容宽，而分组头拿不到那 10px 的扣减，就会比工具项恒定宽 10px。
+   */
+  .colora-sidebar-group-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 2.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-lg);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-sidebar-foreground);
+    /*
+     * 过渡属性必须和 `.colora-sidebar-button` **逐项对齐**（background-color /
+     * padding / gap，外加分组头自己的 margin）。少一项，侧栏收起/展开的过程中
+     * 两者宽度就会脱节 —— 实测过渡中分组头比工具项窄 10–16px，一帧一帧看就是
+     * 「hover 块先短后长」。只写 background-color 是不够的。
+     */
+    transition:
+      background-color 160ms ease,
+      margin var(--rail-motion),
+      padding var(--rail-motion),
+      gap var(--rail-motion);
+  }
+
+  .colora-sidebar-group-toggle:hover {
+    background-color: var(--color-sidebar-accent);
+  }
+
+  .colora-sidebar-group-chevron {
+    transition: transform var(--rail-motion);
+  }
+
+  .colora-sidebar-group-toggle[aria-expanded="true"] .colora-sidebar-group-chevron {
+    transform: rotate(180deg);
+  }
+
+  /*
+   * 折叠容器用 `grid-template-rows: 0fr ↔ 1fr`，不用 max-height —— 后者要么写死
+   * 一个猜的高度（内容变了就露馅），要么就得在 JS 里量 `scrollHeight`。
+   * `0fr` 这条在现代浏览器里能过渡，且不需要知道内容有多高。
+   * 内层必须 `overflow: hidden`，否则内容会溢出那条被压成 0 的轨道。
+   *
+   * ⚠️ 它**只包工具项**，不包分组头 —— 连分组头一起折的话，收起状态下按钮本身
+   * 也变成 0 高，用户看不到也点不到，直接锁死。
+   */
+  .colora-sidebar-tools {
+    display: grid;
+    min-height: 0;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows var(--rail-motion);
+  }
+
+  .colora-sidebar-tools[data-folded] {
+    grid-template-rows: 0fr;
+  }
+
+  .colora-sidebar-tools-inner {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    gap: 0.25rem;
+    overflow: hidden;
+  }
+
+  /* 窄栏（图标模式）时这一层强制展开：那里本来就只剩图标，再折叠就什么都不剩了 */
+  :is(
+    .colora-sidebar[data-collapsed="true"],
+    html[data-nav-pref="collapsed"] .colora-sidebar
+  ) .colora-sidebar-tools {
+    grid-template-rows: 1fr;
+  }
+
+  /* 窄栏里分组头只留图标，箭头没用 */
+  :is(
+    .colora-sidebar[data-collapsed="true"],
+    html[data-nav-pref="collapsed"] .colora-sidebar
+  ) .colora-sidebar-group-chevron {
+    display: none;
+  }
+
+  /*
+   * 窄栏态的分组头要跟着工具按钮一起收：`nav` 在这个断点把 `padding-inline` 从
+   * 「左 0.5rem / 右 0.25rem」改成 `1rem`，而工具按钮的 padding 也跟着变成
+   * `0.625rem`（40×40 的正方形）。分组头在 nav 里，左右位置自动跟着走，
+   * 只需要把 `gap` 和 `padding-inline` 对齐工具按钮那条。
+   */
+  :is(
+    .colora-sidebar[data-collapsed="true"],
+    html[data-nav-pref="collapsed"] .colora-sidebar
+  ) .colora-sidebar-group-toggle {
+    gap: 0;
+    padding-inline: 0.625rem;
+  }
+
   .colora-sidebar-nav {
     display: flex;
     position: relative;

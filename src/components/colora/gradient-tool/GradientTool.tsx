@@ -193,20 +193,24 @@ export function GradientTool() {
       currentStops.map((stop) => (stop.id === id ? { ...stop, ...patch } : stop)),
     );
 
-  const setMeshPoint = (id: string, index: number, patch: Partial<MeshPoint>) => {
+  /**
+   * 改某个 mesh 团块的位置。
+   *
+   * ⚠️ **按 id 找当前值，不要用 index**。原来的写法是 `meshPointFor(stops[index], index)`
+   * —— 用 index 读、却用 id 写。拖拽开始时记下的 index 只要中途 stops 变了（增删色标、
+   * 切换渐变类型），读到的就是**别的团块**的位置，写回去会让两个节点互相打架。
+   */
+  const setMeshPoint = (id: string, patch: Partial<MeshPoint>) => {
+    const index = stops.findIndex((stop) => stop.id === id);
+    if (index < 0) return;
     const current = meshPointFor(stops[index], index);
     setStop(id, { mesh: { ...current, ...patch } });
   };
 
-  const updateMeshPointFromPointer = (
-    id: string,
-    index: number,
-    pointerX: number,
-    pointerY: number,
-  ) => {
+  const updateMeshPointFromPointer = (id: string, pointerX: number, pointerY: number) => {
     const rect = previewRef.current?.getBoundingClientRect();
     if (!rect) return;
-    setMeshPoint(id, index, {
+    setMeshPoint(id, {
       x: Math.round(clampPercent(((pointerX - rect.left) / rect.width) * 100)),
       y: Math.round(clampPercent(((pointerY - rect.top) / rect.height) * 100)),
     });
@@ -299,7 +303,7 @@ export function GradientTool() {
     dragRafRef.current = 0;
     const info = dragInfoRef.current;
     if (!info) return;
-    if (info.mode === "mesh") updateMeshPointFromPointer(info.id, info.index, info.x, info.y);
+    if (info.mode === "mesh") updateMeshPointFromPointer(info.id, info.x, info.y);
     else if (info.mode === "posAlong") updateStopPosAlongGradient(info.x, info.y, info.id);
     else if (info.mode === "radialPos") updateRadialStopFromPointer(info.x, info.y, info.id);
     else if (info.mode === "conicPos") updateConicStopFromPointer(info.x, info.y, info.id);
@@ -638,7 +642,7 @@ export function GradientTool() {
                   <button
                     key={stop.id}
                     type="button"
-                    className="absolute size-6 -translate-x-1/2 -translate-y-1/2 touch-none rounded-full border-2 border-background shadow-[0_0_0_1px_var(--color-border),0_8px_24px_rgb(0_0_0/0.22)] outline-none transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring"
+                    className="absolute size-6 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none rounded-full border-2 border-background shadow-[0_0_0_1px_var(--color-border),0_8px_24px_rgb(0_0_0/0.22)] outline-none transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
                     style={{
                       left: `${meshPoint.x}%`,
                       top: `${meshPoint.y}%`,
@@ -660,7 +664,12 @@ export function GradientTool() {
                       flushDrag();
                     }}
                     onPointerMove={(event) => {
-                      if (event.buttons !== 1) return;
+                      // 已经 setPointerCapture 了，事件只会发给这个节点，所以用
+                      // dragInfoRef 判活就够。**不要用 `event.buttons !== 1`** ——
+                      // 某些设备/浏览器在拖拽中途会把 buttons 报成 0，那一下之后
+                      // 节点就再也不跟手了，表现正是「拖到一半失效」。
+                      const info = dragInfoRef.current;
+                      if (!info || info.mode !== "mesh" || info.id !== stop.id) return;
                       dragInfoRef.current = {
                         mode: "mesh",
                         id: stop.id,

@@ -61,6 +61,8 @@ const core = {
   收起参数面板: "Collapse panel",
   展开参数面板: "Expand panel",
   操作: "Actions",
+  // 「工具」刻意不在这里定义：`en.canvas.ts` 里已有一条 `工具: "Tools"`，
+  // 跨文件重复 key 不会报错、只会静默覆盖（`check-i18n.cjs` 会查），留空由那条兜底。
   "试试点击！": "Try clicking!",
   点击随机切换品牌渐变: "Click to shuffle the brand gradient",
 
